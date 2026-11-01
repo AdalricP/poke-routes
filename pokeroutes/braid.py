@@ -1055,7 +1055,8 @@ class Planner:
         used = np.array(used)
         bands = sorted(range(vlo + 1, vhi - 1), key=lambda v: int((np.abs(used - v) <= GAP + 2).sum()))[:8]
         for _ in range(200):
-            v0 = int(rng.integers(vlo + 1, vhi - 1))
+            # the least-crowded bands first, then anywhere in the lateral range
+            v0 = int(bands[rng.integers(0, len(bands))]) if (bands and _ < 150) else int(rng.integers(vlo + 1, vhi - 1))
             ln = int(rng.integers(12, max(13, min(22, int(U * 0.4)))))  # an old trail, not a second road
             u1 = int(rng.integers(6, max(7, U - ln - 8)))
             u2 = u1 + ln
