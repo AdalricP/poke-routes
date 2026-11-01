@@ -1,5 +1,5 @@
 /* Route bench inside the editor shell: spec inspector -> /api/generate -> stage canvases
-   drawn from the metatile atlas, plus the hierarchy, timeline, region view,
+   drawn from the metatile atlas, plus the hierarchy, timeline, the geography / region editor,
    file operations and the menu model. Shell services come from shell.js (window.Shell),
    pure helpers from logic.js (window.PR) and shell-logic.js (window.SL). */
 (function () {
@@ -51,7 +51,6 @@
     region: sget(REGION_KEY),      // {name, region, endings} or null
     file: { handle: null, name: "" },
     saved: "", generated: "",
-    regionData: null, regionSeed: 1, regionSel: null,
     expanded: new Set(["route", "g:lanes", "g:special", "g:layers"]),
   };
   const undoStack = new SL.History(150, 800);
@@ -1036,7 +1035,6 @@
     const box = $("selBody");
     box.innerHTML = "";
     const sel = state.sel, r = state.result;
-    if (state.regionSel && Shell.layout.center === "region") { renderRegionSel(box); return; }
     if (!sel || !r) { box.append(el("p", "muted", "Nothing selected. Click something in the Scene or Hierarchy.")); return; }
     const title = (txt, color, cls) => {
       const h = el("div", "sel-title");
@@ -1476,92 +1474,32 @@
     };
   });
 
-  // ------------------------------------------------------------ region view
-  async function loadRegion(seed) {
-    if (seed != null) $("regionSeed").value = seed;
-    const s = Math.max(0, parseInt($("regionSeed").value, 10) || 0);
-    state.regionSeed = s;
-    sset("pokeroutes-shell-region-seed", s);
-    $("regionStatus").textContent = "generating (the first time takes a few seconds)…";
-    try {
-      const data = await fetchJSON(`/api/region?seed=${s}`);
-      state.regionData = data;
-      $("regionImg").src = `/api/region.png?seed=${s}&t=${Date.now()}`;
-      const [W, H] = data.size;
-      const svg = $("regionSvg");
-      svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-      svg.innerHTML = "";
-      data.routes.forEach((rt) => {
-        const [x0, y0, x1, y1] = rt.rect;
-        const r = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-        r.setAttribute("x", x0); r.setAttribute("y", y0);
-        r.setAttribute("width", x1 - x0); r.setAttribute("height", y1 - y0);
-        r.setAttribute("class", "r");
-        const t = document.createElementNS("http://www.w3.org/2000/svg", "title");
-        t.textContent = `${rt.name}: ${String(rt.role || "").replace(/_/g, " ")}`;
-        r.append(t);
-        r.addEventListener("click", () => selectRegionRoute(rt, r));
-        r.addEventListener("dblclick", () => { if (state.regionSel && state.regionSel.spec) openInBench(state.regionSel.spec); });
-        svg.append(r);
-      });
-      $("regionStatus").textContent = `${data.routes.length} routes, ${data.cities.length} towns`;
-      log("info", `Region ${s}: ${data.routes.length} routes, ${data.cities.length} towns`);
-    } catch (e) {
-      $("regionStatus").textContent = e.message;
-      log("error", `Region ${s} failed: ${e.message}`);
-    }
+  // ------------------------------------------------------------ geography / region editor (editor.html)
+  let region_editor_frame = null;
+  function region_editor() {
+    const editor_actions = region_editor_frame && region_editor_frame.contentWindow && region_editor_frame.contentWindow.editor;
+    return editor_actions || null;
   }
-
-  async function selectRegionRoute(rt, node) {
-    document.querySelectorAll("#regionSvg .r.sel").forEach((n) => n.classList.remove("sel"));
-    node.classList.add("sel");
-    state.regionSel = { rt, spec: null };
-    renderSelection();
-    try {
-      const spec = await fetchJSON(`/api/region-spec?seed=${state.regionSeed}&id=${encodeURIComponent(rt.id)}`);
-      if (state.regionSel && state.regionSel.rt === rt) { state.regionSel.spec = spec; renderSelection(); }
-    } catch (e) {
-      log("error", `Route ${rt.name}: ${e.message}`);
-      if (state.regionSel && state.regionSel.rt === rt) { state.regionSel.error = e.message; renderSelection(); }
-    }
+  function show_region_editor_in_mode(mode_name) {
+    if (region_editor()) { region_editor().set_editor_mode(mode_name); return; }
+    if (region_editor_frame) return;
+    const seed_of_last_region = sget("pokeroutes-shell-region-seed") || 1;
+    region_editor_frame = el("iframe");
+    region_editor_frame.title = "Geography and region editor";
+    region_editor_frame.src = `editor.html?mode=${mode_name}&seed=${seed_of_last_region}`;
+    region_editor_frame.addEventListener("load", connect_region_editor_to_scene);
+    $("viewMap").append(region_editor_frame);
   }
-
-  function renderRegionSel(box) {
-    const { rt, spec, error } = state.regionSel;
-    const h = el("div", "sel-title");
-    const ic = el("span", "ic");
-    ic.style.background = "#9cc6f0";
-    h.append(ic, el("span", "", rt.name));
-    box.append(h);
-    if (error) { box.append(el("p", "muted", `couldn't load this route: ${error}`)); return; }
-    if (!spec) { box.append(el("p", "muted", "loading…")); return; }
-    const reg = spec.region || {};
-    const dl = el("dl", "kv");
-    const add = (k, v) => { if (v != null && v !== "") dl.append(el("dt", "", k), el("dd", "", String(v))); };
-    add("role", `${reg.role || ""}${reg.shape ? ` (${reg.shape})` : ""}`);
-    add("tags", (reg.tags || []).join(", "));
-    add("size", `${spec.size[0]} × ${spec.size[1]}, ${spec.biome}`);
-    add("mix", Object.entries((reg.biome || {}).mix || {}).map(([k, v]) => `${k} ${Math.round(v * 100)}%`).join(", "));
-    const grad = (reg.biome || {}).gradient || {};
-    if (grad.from) add("gradient", `${grad.from} → ${grad.to} (${grad.axis})`);
-    add("exits", (spec.exits || []).map((e) => `${e.side} at ${e.at} → ${e.to}`).join("; "));
-    add("rivers", (reg.rivers || []).length);
-    add("waterfalls", (reg.waterfalls || []).length);
-    add("coast", ((reg.coast || {}).sides || []).join(", "));
-    box.append(dl);
-    for (const l of reg.landmarks || []) box.append(el("p", "sel-desc", `${l.name}: ${l.story}`));
-    const tiers = (reg.elevation || {}).tiers || [];
-    if (tiers.length) {
-      box.append(el("div", "muted", "Elevation tiers (0 low .. 4 peaks)"));
-      box.append(el("pre", "tiers", tiers.join("\n")));
-    }
-    const a = el("div", "sel-actions");
-    const b = el("button", "btn primary", "Open in Scene");
-    b.type = "button";
-    b.title = "Load this route's spec into the Inspector and generate it (double-click the box does the same)";
-    b.onclick = () => openInBench(spec);
-    a.append(b);
-    box.append(a);
+  function connect_region_editor_to_scene() {
+    const editor_actions = region_editor();
+    if (!editor_actions) return;
+    editor_actions.set_route_opener(openInBench);
+    if (Shell.layout.center !== "scene") editor_actions.set_editor_mode(Shell.layout.center);
+  }
+  function current_region_seed() {
+    const editor_document = region_editor() && region_editor().getDoc();
+    const region_seed = editor_document ? editor_document.seed : sget("pokeroutes-shell-region-seed") || 1;
+    return region_seed;
   }
 
   function openInBench(spec) {
@@ -1570,9 +1508,9 @@
     state.region = region;
     if (region) sset(REGION_KEY, region); else sdel(REGION_KEY);
     renderRegionLink();
-    state.regionSel = null;
+    sset("pokeroutes-shell-region-seed", current_region_seed());
     Shell.setCenter("scene");
-    log("info", `Opened ${p.name} from region ${state.regionSeed}`);
+    log("info", `Opened ${p.name} from region ${current_region_seed()}`);
     generate();
   }
 
@@ -1598,12 +1536,14 @@
     box.append(b);
   }
 
-  Shell.onCenter((tab) => {
+  function show_center_tab(tab) {
     $("sceneCtrls").hidden = tab !== "scene";
-    $("regionCtrls").hidden = tab !== "region";
     $("viewScene").hidden = tab !== "scene";
-    $("viewRegion").hidden = tab !== "region";
-    if (tab === "region" && !state.regionData) loadRegion();
+    $("viewMap").hidden = tab === "scene";
+    if (tab !== "scene") show_region_editor_in_mode(tab);
+  }
+  Shell.onCenter((tab) => {
+    show_center_tab(tab);
     if (tab === "scene") requestAnimationFrame(resize);
     renderSelection();
   });
@@ -1727,7 +1667,7 @@
     c.toBlob((b) => { download(name, b); log("info", `Exported ${name} (${c.width}×${c.height}, stage ${state.stage + 1}, visible overlays)`); }, "image/png");
   }
   async function exportRegionJSON() {
-    const s = state.regionSeed || sget("pokeroutes-shell-region-seed") || 1;
+    const s = current_region_seed();
     try {
       const res = await fetch(`/api/region?seed=${s}`);
       if (!res.ok) throw new Error(res.statusText);
@@ -1736,7 +1676,8 @@
     } catch (e) { log("error", "Region export failed: " + e.message); }
   }
   async function exportAllSpecs() {
-    const s = state.regionSeed || sget("pokeroutes-shell-region-seed") || 1;
+    if (region_editor()) { region_editor().exportSpecs(); return; }
+    const s = current_region_seed();
     try { log("info", `Exported ${await downloadURL(`/api/region-specs.zip?seed=${s}`, `region-${s}_specs.zip`)}`); }
     catch (e) { log("error", "Spec export failed: " + e.message); }
   }
@@ -1851,7 +1792,7 @@
       { id: "copy-spec", label: "Copy spec", run: copySpec },
       { id: "paste-spec", label: "Paste spec", run: pasteSpec },
       { sep: true },
-      { id: "deselect", label: "Deselect", run: () => { state.regionSel = null; select(null); }, enabled: () => !!state.sel || !!state.regionSel },
+      { id: "deselect", label: "Deselect", run: () => select(null), enabled: () => !!state.sel },
       { sep: true },
       { id: "prefs", label: "Preferences…", run: openPrefs },
     ] },
@@ -1885,7 +1826,7 @@
       { id: "gen", label: "Generate", run: () => { Shell.setCenter("scene"); generate(); } },
       { id: "regen", label: "Regenerate with new seed", run: () => { Shell.setCenter("scene"); regenerate(); } },
       { sep: true },
-      { id: "gen-region", label: "Generate region…", run: () => { Shell.setCenter("region"); $("regionSeed").focus(); $("regionSeed").select(); } },
+      { id: "gen-region", label: "Generate region…", run: () => Shell.setCenter("geography") },
       { sep: true },
       { id: "tiler", label: "Tiler", items: [
         { id: "t-learned", label: "Learned (Emerald General + Fortree)", radio: true, checked: () => prefs.tiler === "learned", run: () => setTiler("learned") },
@@ -1900,7 +1841,8 @@
     ] },
     { label: "Window", items: [
       { id: "w-scene", label: "Route bench (Scene)", radio: true, checked: () => Shell.layout.center === "scene", run: () => Shell.setCenter("scene") },
-      { id: "w-region", label: "Region map", radio: true, checked: () => Shell.layout.center === "region", run: () => Shell.setCenter("region") },
+      { id: "w-geography", label: "Geography editor", radio: true, checked: () => Shell.layout.center === "geography", run: () => Shell.setCenter("geography") },
+      { id: "w-region", label: "Region editor", radio: true, checked: () => Shell.layout.center === "region", run: () => Shell.setCenter("region") },
       { sep: true },
       { id: "w-console", label: "Console", run: () => Shell.setBottom("console") },
       { id: "w-timeline", label: "Timeline", run: () => Shell.setBottom("timeline") },
@@ -1949,9 +1891,7 @@
     $("areaAdd").onclick = addSpecial;
     $("areaInput").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); addSpecial(); } });
     $("exitAdd").onclick = () => { if (state.exits.length < 4) { state.exits.push({ side: "west", at: 0.5, width: 3 }); renderExits(); edited("exits"); } };
-    $("regionLoad").onclick = () => loadRegion();
     $("paintClear").onclick = clearPaint;
-    $("regionSeed").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); loadRegion(); } });
     const pc = $("paintClass");
     for (const k of PAINT_CLASSES) pc.append(Object.assign(el("option", "", PR.CLASS_NAMES[k] || k), { value: k }));
     pc.value = "g";
@@ -1983,17 +1923,10 @@
     updateTitle();
     new ResizeObserver(resize).observe(wrap);
     const q = new URLSearchParams(location.search);
-    state.regionSeed = sget("pokeroutes-shell-region-seed") || 1;
-    $("regionSeed").value = state.regionSeed;
     if (q.get("view") && SL.CENTER_TABS.includes(q.get("view"))) Shell.setCenter(q.get("view"));
     else if (q.has("region")) Shell.setCenter("scene");
     // fire the centre-tab hook once for whatever the layout restored
-    const c = Shell.layout.center;
-    $("sceneCtrls").hidden = c !== "scene";
-    $("regionCtrls").hidden = c !== "region";
-    $("viewScene").hidden = c !== "scene";
-    $("viewRegion").hidden = c !== "region";
-    if (c === "region") loadRegion();
+    show_center_tab(Shell.layout.center);
     if (q.has("view") || q.has("region")) window.history.replaceState(null, "", "/");
     resize();
     loadOptions();

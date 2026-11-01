@@ -96,3 +96,8 @@
   .ed { grid-template-columns: 64px minmax(0, 1fr); grid-template-rows: auto 70vh auto; height: auto; }
   .ed-side { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); }
 }
+
+.ed [hidden] { display: none !important; }
+.ed.embedded .ed-top .links { display: none; }
+.route-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.route-list button.on { border-color: var(--accent); color: var(--ink); }

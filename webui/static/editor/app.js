@@ -4,14 +4,15 @@
 
    Embeddable: PREditor.init(container, opts) builds the editor inside `container`
    and returns its actions (undo, redo, save, load, generate, exportSpecs,
-   recompute, setTool, toggleLayer, fit, openInBench, getDoc, destroy), so a host
-   page or shell can drive it from its own menus. opts: {seed, load, keys: true}. */
+   recompute, setTool, toggleLayer, fit, openInBench, set_editor_mode, set_route_opener,
+   getDoc, destroy), so a host page or shell can drive it from its own menus.
+   opts: {seed, load, keys: true, mode: "geography" | "region" (default: every tool), onOpenRoute}. */
 (function (global) {
   "use strict";
   const ED = global.ED;
   const MARKUP = `<div class="ed">
   <header class="ed-top">
-    <h1>region editor</h1>
+    <h1 data-ed="title">region editor</h1>
     <div class="grp">
       <label class="inl">seed <input data-ed="seed" type="number" min="0" value="1"></label>
       <button type="button" class="small" data-ed="genBtn">Generate</button>
@@ -35,16 +36,16 @@
 
   <nav class="rail" data-ed="rail" aria-label="Tools">
     <button type="button" data-tool="select" class="on"><b>V</b>select</button>
-    <hr>
+    <hr data-modes="geography">
     <button type="button" data-tool="raise"><b>R</b>raise</button>
     <button type="button" data-tool="lower"><b>L</b>lower</button>
     <button type="button" data-tool="flatten"><b>F</b>flatten</button>
     <button type="button" data-tool="smooth"><b>S</b>smooth</button>
-    <hr>
+    <hr data-modes="geography">
     <button type="button" data-tool="biome"><b>B</b>biome</button>
     <button type="button" data-tool="water"><b>W</b>coast</button>
     <button type="button" data-tool="river"><b>I</b>river</button>
-    <hr>
+    <hr data-modes="">
     <button type="button" data-tool="route"><b>A</b>add route</button>
   </nav>
 
@@ -80,6 +81,10 @@
     <section data-ed="toolOpts">
       <h2 data-ed="toolTitle">Select</h2>
       <div data-ed="toolBody"></div>
+    </section>
+    <section data-ed="routeListSection" hidden>
+      <h2>Routes</h2>
+      <div class="route-list" data-ed="routeList"></div>
     </section>
     <section>
       <h2>Selection</h2>
@@ -141,10 +146,22 @@
     whirlpool: "#96c8ff", tower: "#f0be3c", burn: "#c8963c", station: "#ffe68c", summit: "#f0f0f0", lake: "#96d2ff",
     marsh: "#aadcaa", dunes: "#fadc96", deepwood: "#8cdc8c",
   };
+  const tools_shown_in_each_editor_mode = {
+    geography: ["select", "raise", "lower", "flatten", "smooth", "biome", "water", "river"],
+    region: ["select", "route"],
+  };
+  const place_kinds_selectable_in_each_editor_mode = { geography: ["landmark"], region: ["city", "route"] };
+  const editor_title_for_each_mode = { geography: "geography editor", region: "region editor" };
+  const select_tool_hint_for_each_mode = {
+    geography: "Click a landmark (legendary spot) to select it, drag it to move it. Towns and routes live in the region editor.",
+    region: "Click to select. Drag towns. On a selected route, drag an edge or an exit. Pick a route in the Routes list to fly to it. Double-click a route to open it in the bench.",
+  };
+  const margin_around_framed_route_in_cells = 6;
+  let open_route_spec_in_host = opts.onOpenRoute || null;
 
   const st = {
     doc: null, hist: new ED.History(100), view: { z: 6, ox: 0, oy: 0 },
-    tool: "select", brush: 4, strength: 0.03, biome: "f", water: "sea", riverErase: false,
+    mode: null, tool: "select", brush: 4, strength: 0.03, biome: "f", water: "sea", riverErase: false,
     layers: { height: true, biome: true, water: true, routes: true, labels: true },
     sel: null, hover: null, drag: null, space: false, busy: false, unsaved: false, cursor: null,
   };
@@ -625,6 +642,7 @@
     }
     const p = ED.placeAt(d, fx, fy);
     if (p && p.kind === "route" && !st.layers.routes) return null;
+    if (p && !is_place_kind_selectable_in_current_mode(p.kind)) return null;
     return p ? { kind: p.kind, id: p.id, place: p } : null;
   }
 
@@ -771,7 +789,7 @@
     zoomAt(Math.exp(-ev.deltaY * 0.0015), sx, sy);
   }, { passive: false });
   wrap.addEventListener("dblclick", (ev) => {
-    if (!st.doc || st.tool !== "select") return;
+    if (!st.doc || st.tool !== "select" || !is_place_kind_selectable_in_current_mode("route")) return;
     const [sx, sy] = local(ev);
     const { fx, fy } = toCell(sx, sy);
     const p = ED.placeAt(st.doc, fx, fy, { noLandmarks: true });
@@ -816,6 +834,7 @@
   async function openInBench(r) {
     await busy("opening " + r.name, async () => {
       const spec = await api("/api/editor/spec", { doc: ED.encodeDoc(st.doc), id: r.id });
+      if (open_route_spec_in_host) { open_route_spec_in_host(spec); return; }
       try {
         localStorage.setItem(STORE_KEY, JSON.stringify(ED.benchParams(spec)));
         localStorage.setItem(REGION_KEY, JSON.stringify({ name: spec.name, region: spec.region, endings: spec.endings || [] }));
@@ -877,7 +896,7 @@
     box.innerHTML = "";
     const add = (html) => { const d = document.createElement("div"); d.className = "opt"; d.innerHTML = html; box.appendChild(d); return d; };
     if (st.tool === "select") {
-      add('<p class="hint">Click to select. Drag towns and landmarks. On a selected route, drag an edge or an exit. Double-click a route to open it in the bench.</p>');
+      add(`<p class="hint">${select_tool_hint_for_each_mode[st.mode] || "Click to select. Drag towns and landmarks. On a selected route, drag an edge or an exit. Double-click a route to open it in the bench."}</p>`);
       return;
     }
     if (st.tool === "route") {
@@ -955,6 +974,7 @@
   }
 
   function refreshInspector() {
+    refresh_route_list();
     const box = $("insp");
     box.innerHTML = "";
     const o = findSel(st.sel);
@@ -1069,6 +1089,69 @@
     toast(`deleted ${name}; the rest of its link is pinned so the gap stays`);
   }
 
+  function refresh_route_list() {
+    const route_list_box = $("routeList");
+    route_list_box.innerHTML = "";
+    if (st.mode !== "region" || !st.doc) return;
+    for (const route of st.doc.routes) route_list_box.append(make_route_list_button(route));
+  }
+  function make_route_list_button(route) {
+    const is_selected_route = !!st.sel && st.sel.kind === "route" && st.sel.id === route.name;
+    const route_button = el("button", { type: "button", class: "small" + (is_selected_route ? " on" : "") }, route.name);
+    route_button.onclick = () => fly_to_route(route);
+    return route_button;
+  }
+  function fly_to_route(route) {
+    st.sel = { kind: "route", id: route.name };
+    frame_cell_rect_in_view(route.rect);
+    refreshInspector();
+  }
+  function frame_cell_rect_in_view(cell_rect) {
+    const [left_cell, top_cell, right_cell, bottom_cell] = cell_rect;
+    const map_bounds = wrap.getBoundingClientRect();
+    const framed_width_in_cells = right_cell - left_cell + 2 * margin_around_framed_route_in_cells;
+    const framed_height_in_cells = bottom_cell - top_cell + 2 * margin_around_framed_route_in_cells;
+    const zoom_in_pixels_per_cell = Math.max(1, Math.min(48, (map_bounds.width - 40) / framed_width_in_cells, (map_bounds.height - 90) / framed_height_in_cells));
+    st.view = {
+      z: zoom_in_pixels_per_cell,
+      ox: map_bounds.width / 2 - (left_cell + right_cell) / 2 * zoom_in_pixels_per_cell,
+      oy: 22 + map_bounds.height / 2 - (top_cell + bottom_cell) / 2 * zoom_in_pixels_per_cell,
+    };
+    draw();
+  }
+
+  function is_tool_available_in_current_mode(tool_name) {
+    if (!st.mode) return true;
+    const is_tool_available = tools_shown_in_each_editor_mode[st.mode].includes(tool_name);
+    return is_tool_available;
+  }
+  function is_place_kind_selectable_in_current_mode(place_kind) {
+    if (!st.mode) return true;
+    const is_place_kind_selectable = place_kinds_selectable_in_each_editor_mode[st.mode].includes(place_kind);
+    return is_place_kind_selectable;
+  }
+  function is_rail_element_shown_in_current_mode(rail_element) {
+    if (!st.mode) return true;
+    if (rail_element.dataset.tool) return is_tool_available_in_current_mode(rail_element.dataset.tool);
+    const is_rail_element_shown = (rail_element.dataset.modes || "").split(" ").includes(st.mode);
+    return is_rail_element_shown;
+  }
+  function set_editor_mode(mode_name) {
+    st.mode = tools_shown_in_each_editor_mode[mode_name] ? mode_name : null;
+    for (const rail_element of root.querySelectorAll(".rail > *")) rail_element.hidden = !is_rail_element_shown_in_current_mode(rail_element);
+    $("title").textContent = editor_title_for_each_mode[st.mode] || "region editor";
+    $("routeListSection").hidden = st.mode !== "region";
+    root.querySelector('[data-layer="routes"]').hidden = st.mode === "geography";
+    st.layers.routes = st.mode !== "geography";
+    root.querySelectorAll("[data-layer]").forEach((b) => b.classList.toggle("on", st.layers[b.dataset.layer]));
+    if (!is_tool_available_in_current_mode(st.tool)) st.tool = "select";
+    if (st.sel && !is_place_kind_selectable_in_current_mode(st.sel.kind)) st.sel = null;
+    st.hover = null;
+    refreshTool();
+    refreshInspector();
+    draw();
+  }
+
   // ------------------------------------------------------------ toolbar + keys
   function setTool(t) {
     st.tool = t;
@@ -1112,7 +1195,7 @@
     if (ev.key === "Escape") { $("help").hidden = true; st.sel = null; refreshInspector(); draw(); return; }
     if (!st.doc) return;
     const k = ev.key.toLowerCase();
-    if (KEY_TOOLS[k]) { setTool(KEY_TOOLS[k]); return; }
+    if (KEY_TOOLS[k]) { if (is_tool_available_in_current_mode(KEY_TOOLS[k])) setTool(KEY_TOOLS[k]); return; }
     if (ev.key === "[") { st.brush = Math.max(1, st.brush - 1); refreshTool(); draw(); return; }
     if (ev.key === "]") { st.brush = Math.min(16, st.brush + 1); refreshTool(); draw(); return; }
     if ("12345".includes(ev.key)) { toggleLayer(["height", "biome", "water", "routes", "labels"][+ev.key - 1]); return; }
@@ -1126,6 +1209,7 @@
   on(window, "beforeunload", (ev) => { if (st.unsaved) { ev.preventDefault(); ev.returnValue = ""; } });
 
   // ------------------------------------------------------------ boot
+  set_editor_mode(opts.mode);
   const ro = new ResizeObserver(resize);
   ro.observe(wrap);
   resize();
@@ -1138,6 +1222,7 @@
   return {
     undo, redo, save, generate: (seed) => { if (seed != null) $("seed").value = seed; return generate(); },
     load: loadSaved, listSaved, exportSpecs, recompute, setTool, toggleLayer, fit, openInBench,
+    set_editor_mode, set_route_opener: (route_opener) => { open_route_spec_in_host = route_opener; },
     deleteSelected, help: () => { $("help").hidden = !$("help").hidden; },
     tools: Object.keys(TOOLS), layers: () => Object.assign({}, st.layers),
     getDoc: () => st.doc, isUnsaved: () => st.unsaved, select: (sel) => { st.sel = sel; refreshInspector(); draw(); },

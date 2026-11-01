@@ -501,20 +501,6 @@ def add_back_gates(net: Network, limit: int = 2) -> None:
 
 # ------------------------------------------------------------------ names
 
-PREFIX = {
-    "f": ["Kiefern", "Buchen", "Tannen", "Fichten", "Birken"], "F": ["Eichen", "Dunkel", "Urwald", "Moos"],
-    "m": ["Roggen", "Flachs", "Heide", "Wiesen", "Lerchen"], "w": ["Erlen", "Weiden", "Schilf", "Moor", "Bruch"],
-    "b": ["Bernstein", "Dünen", "Möwen", "Sand"], "d": ["Dürr", "Staub", "Sand"], "M": ["Fels", "Grat", "Geier", "Stein"],
-    "S": ["Schnee", "Firn"], "v": ["Glut", "Schlacken", "Rauch"], "a": ["Aschen", "Brache"], "g": ["Drachen", "Grün"],
-    "B": ["Brand", "Kohl"], "~": ["See", "Wellen", "Gischt"], "=": ["Tief", "Gischt"], "o": ["Teich"],
-}
-SUFFIX = {
-    "straight": ["weg", "straße", "bahn"], "turn": ["kehre", "knick", "bogen"], "crossroads": ["kreuz", "stern"],
-    "dead_end": ["winkel", "grund", "ende"], "coastal": ["ufer", "küste", "haken"], "mountain_pass": ["pass", "steig", "joch"],
-    "river_crossing": ["furt", "brück"], "loop": ["schleife", "pfad"], "sea": ["sund", "fahrt", "wasser"],
-}
-
-
 def ascii_id(s: str) -> str:
     for a, b in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ß", "ss"), ("Ä", "Ae"), ("Ö", "Oe"), ("Ü", "Ue")):
         s = s.replace(a, b)
@@ -522,38 +508,32 @@ def ascii_id(s: str) -> str:
 
 
 def name_routes(w: World, net: Network) -> None:
-    rng = np.random.default_rng(w.seed * 31 + 7)
     used = {n["name"] for n in net.nodes if n["kind"] == "route" and n.get("pinned")}
+    route_number = 1
     for n in net.nodes:
         if n["kind"] != "route":
             continue
         if n.get("pinned"):
             continue
-        x0, y0, x1, y1 = n["rect"]
-        sub = w.biome[y0:y1, x0:x1]
-        if n.get("mode") != "sea":
-            land = sub[np.isin(sub, list("~=o"), invert=True)]
-            sub = land if land.size else sub
-        vals, cnt = np.unique(sub, return_counts=True)
-        dom = str(vals[int(np.argmax(cnt))])
-        n["biome_code"] = dom
-        for _ in range(40):
-            p = str(rng.choice(PREFIX.get(dom, ["Land"])))
-            s = str(rng.choice(SUFFIX[n["role"]]))
-            if p.lower().endswith(s[:3]) or (p == "Sand" and s == "strand"):
-                continue
-            nm = p + s
-            if nm not in used:
-                break
-        k = 2
-        base = nm
-        while nm in used:  # names are how routes point at each other: never repeat one
-            nm = f"{base} {k}"
-            k += 1
+        n["biome_code"] = dominant_biome_code_under_route(w, n)
+        while f"Route {route_number}" in used:
+            route_number += 1
+        nm = f"Route {route_number}"
         used.add(nm)
         n["name"] = nm
         n["id"] = ascii_id(nm)
         n["map"] = "MAP_" + ascii_id(nm).upper()
+
+
+def dominant_biome_code_under_route(w: World, route_node: dict) -> str:
+    x0, y0, x1, y1 = route_node["rect"]
+    biome_codes_under_route = w.biome[y0:y1, x0:x1]
+    if route_node.get("mode") != "sea":
+        land_biome_codes = biome_codes_under_route[np.isin(biome_codes_under_route, list("~=o"), invert=True)]
+        biome_codes_under_route = land_biome_codes if land_biome_codes.size else biome_codes_under_route
+    biome_codes, cell_counts = np.unique(biome_codes_under_route, return_counts=True)
+    dominant_biome_code = str(biome_codes[int(np.argmax(cell_counts))])
+    return dominant_biome_code
 
 
 # ------------------------------------------------------------------ build

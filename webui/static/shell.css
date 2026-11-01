@@ -231,13 +231,8 @@ body.resizing.h * { cursor: row-resize !important; }
 .tip .sp { color: var(--text-2); font-size: 11px; }
 .tip p { margin: 4px 0 0; color: var(--text-2); font-size: 11px; }
 
-.region { overflow: auto; background: var(--scene); padding: 12px; }
-.regionbox { position: relative; margin: 0 auto; max-width: 100%; }
-.regionbox img { display: block; width: 100%; image-rendering: pixelated; }
-.regionbox svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-.regionbox .r { fill: rgba(255,255,255,.04); stroke: rgba(255,255,255,.6); stroke-width: .3; cursor: pointer; }
-.regionbox .r:hover { fill: rgba(77,144,214,.22); stroke: #9cc6f0; }
-.regionbox .r.sel { fill: rgba(77,144,214,.32); stroke: #cfe4fa; stroke-width: .55; }
+.map-editor { background: var(--panel); }
+.map-editor iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--panel); }
 .slot { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-3); text-align: center; padding: 20px; }
 
 /* ------------------------------------------------------------ inspector */

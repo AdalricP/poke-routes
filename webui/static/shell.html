@@ -102,12 +102,13 @@
     </div>
   </section>
 
-  <!-- centre: scene / region -->
+  <!-- centre: scene / geography / region -->
   <section class="dock center" id="dockCenter" aria-label="Views">
     <header class="dock-head">
       <div class="tabs" role="tablist">
         <button type="button" class="dock-tab" data-center="scene" role="tab">Scene</button>
-        <button type="button" class="dock-tab" data-center="region" role="tab">Region</button>
+        <button type="button" class="dock-tab" data-center="geography" role="tab" title="Heights, coast, rivers, biomes, legendary spots">Geography</button>
+        <button type="button" class="dock-tab" data-center="region" role="tab" title="Towns, routes; double-click a route to open it in Scene">Region</button>
       </div>
       <div class="view-ctrls" id="sceneCtrls" aria-label="Scene display">
         <div class="seg" role="group" aria-label="Layer">
@@ -121,11 +122,6 @@
           <button type="button" class="seg-btn" data-ov="grid">Grid</button>
         </div>
       </div>
-      <div class="view-ctrls" id="regionCtrls" hidden>
-        <label class="tb-label">Seed <input id="regionSeed" type="number" min="0" value="1" class="num"></label>
-        <button type="button" class="btn" id="regionLoad">Load</button>
-        <span class="muted" id="regionStatus"></span>
-      </div>
     </header>
     <div class="dock-body views">
       <div class="view scene" id="viewScene">
@@ -134,9 +130,7 @@
         <div class="busy" id="busy" hidden><span class="spin"></span><span id="busyText">generating</span></div>
         <div class="tip" id="tip" hidden></div>
       </div>
-      <div class="view region" id="viewRegion" hidden>
-        <div class="regionbox" id="regionBox"><img id="regionImg" alt="Region map"><svg id="regionSvg" preserveAspectRatio="none"></svg></div>
-      </div>
+      <div class="view map-editor" id="viewMap" hidden></div>
     </div>
   </section>
 

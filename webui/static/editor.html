@@ -16,12 +16,14 @@
 <script src="editor/logic.js"></script>
 <script src="editor/app.js"></script>
 <script>
-  // ?seed=N or ?load=NAME; the editor itself lives in editor/app.js (PREditor.init)
+  // ?seed=N or ?load=NAME, ?mode=geography|region; the editor itself lives in editor/app.js (PREditor.init)
   (function () {
     const q = new URLSearchParams(location.search);
     window.editor = PREditor.init(document.getElementById("root"), {
       seed: q.get("seed") != null ? +q.get("seed") : undefined, load: q.get("load") || undefined,
+      mode: q.get("mode") || undefined,
     });
+    if (window.parent !== window) document.querySelector(".ed").classList.add("embedded");
   })();
 </script>
 </body>
