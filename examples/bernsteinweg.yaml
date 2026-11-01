@@ -5,8 +5,8 @@ biome: forest
 # Littleroot Town's north opening and Route 101's south opening are 2 wide, so those
 # exits are too; the ROM installer lines them up (computes the connection offsets).
 exits:
-  - {side: south, at: 0.45, width: 2, to: MAP_LITTLEROOT_TOWN}
-  - {side: north, at: 0.6, width: 2, to: MAP_ROUTE101}
+  - {side: south, at: 0.45, width: 2, to: ''}  # gated: fade warp to the start village (scripts in rom data/scripts/ark_start.inc)
+  - {side: north, at: 0.6, width: 2, to: ''}  # gated: fade warp, no seamless connection (tileset mismatch)
   - {side: east, at: 0.35, to: MAP_ERLENBRUCH}
 meander: 0.7
 branches: 4
