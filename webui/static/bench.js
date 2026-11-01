@@ -1522,16 +1522,20 @@
     try {
       const spec = await fetchJSON(`/api/region-spec?seed=${state.regionSeed}&id=${encodeURIComponent(rt.id)}`);
       if (state.regionSel && state.regionSel.rt === rt) { state.regionSel.spec = spec; renderSelection(); }
-    } catch (e) { log("error", `Route ${rt.name}: ${e.message}`); }
+    } catch (e) {
+      log("error", `Route ${rt.name}: ${e.message}`);
+      if (state.regionSel && state.regionSel.rt === rt) { state.regionSel.error = e.message; renderSelection(); }
+    }
   }
 
   function renderRegionSel(box) {
-    const { rt, spec } = state.regionSel;
+    const { rt, spec, error } = state.regionSel;
     const h = el("div", "sel-title");
     const ic = el("span", "ic");
     ic.style.background = "#9cc6f0";
     h.append(ic, el("span", "", rt.name));
     box.append(h);
+    if (error) { box.append(el("p", "muted", `couldn't load this route: ${error}`)); return; }
     if (!spec) { box.append(el("p", "muted", "loading…")); return; }
     const reg = spec.region || {};
     const dl = el("dl", "kv");
