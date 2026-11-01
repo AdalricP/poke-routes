@@ -212,9 +212,9 @@
   const CHROME = { menu: 26, toolbar: 34, status: 22, collapsed: 24, head: 26, splitter: 4 };
   const DEFAULT_LAYOUT = {
     v: 1,
-    left: { size: 240, open: true },
-    right: { size: 320, open: true },
-    bottom: { size: 180, open: true, tab: "console" },
+    left: { size: 240, open: true, float: null },
+    right: { size: 320, open: true, float: null },
+    bottom: { size: 180, open: true, tab: "console", float: null },   // float: {x, y, w, h} when torn off
     center: "scene",
     inspector: {},   // section id -> collapsed (true)
   };
@@ -234,6 +234,7 @@
       if (!s || typeof s !== "object") continue;
       if (Number.isFinite(s.size)) d[k].size = clamp(Math.round(s.size), 120, 2000);
       if (typeof s.open === "boolean") d[k].open = s.open;
+      d[k].float = sanitizeFloat(s.float);
     }
     if (x.bottom && BOTTOM_TABS.includes(x.bottom.tab)) d.bottom.tab = x.bottom.tab;
     if (CENTER_TABS.includes(x.center)) d.center = x.center;
@@ -241,6 +242,12 @@
       for (const [k, v] of Object.entries(x.inspector)) if (typeof v === "boolean" && /^[\w-]{1,40}$/.test(k)) d.inspector[k] = v;
     }
     return d;
+  }
+
+  function sanitizeFloat(f) {
+    if (!f || typeof f !== "object") return null;
+    if (![f.x, f.y, f.w, f.h].every(Number.isFinite)) return null;
+    return { x: Math.round(f.x), y: Math.round(f.y), w: clamp(Math.round(f.w), 120, 4000), h: clamp(Math.round(f.h), 60, 4000) };
   }
 
   function loadLayout(storage) {
@@ -264,45 +271,61 @@
   // Pixel rects of every region for a viewport. Inspector runs the full body height on
   // the right (Unity's default layout); the bottom dock spans hierarchy + scene.
   // Sizes are clamped so the scene view keeps at least MIN_CENTER x MIN_CENTER_H.
+  // A floating (torn-off) dock gives its space back to the scene and is kept on screen.
   const MIN_CENTER = 320, MIN_CENTER_H = 160, MIN_SIDE = 160, MIN_BOTTOM = 90;
   function computeRects(layout, vw, vh, chrome) {
     const c = Object.assign({}, CHROME, chrome || {});
     const L = sanitizeLayout(layout);
     const top = c.menu + c.toolbar;
     const bodyH = Math.max(0, vh - top - c.status);
-    const sp = c.splitter;
+    const fl = { left: !!L.left.float, right: !!L.right.float, bottom: !!L.bottom.float };
+    const spL = fl.left ? 0 : c.splitter, spR = fl.right ? 0 : c.splitter, spB = fl.bottom ? 0 : c.splitter;
 
-    let rw = L.right.open ? clamp(L.right.size, MIN_SIDE, Math.max(MIN_SIDE, vw * 0.5)) : c.collapsed;
-    let lw = L.left.open ? clamp(L.left.size, MIN_SIDE, Math.max(MIN_SIDE, vw * 0.4)) : c.collapsed;
+    let rw = fl.right ? 0 : L.right.open ? clamp(L.right.size, MIN_SIDE, Math.max(MIN_SIDE, vw * 0.5)) : c.collapsed;
+    let lw = fl.left ? 0 : L.left.open ? clamp(L.left.size, MIN_SIDE, Math.max(MIN_SIDE, vw * 0.4)) : c.collapsed;
     // keep the centre usable: shrink the side docks (right first) if needed
-    const spare = vw - lw - rw - 2 * sp - MIN_CENTER;
+    const spare = vw - lw - rw - spL - spR - MIN_CENTER;
     if (spare < 0) {
-      if (L.right.open) { const cut = Math.min(-spare, rw - MIN_SIDE); rw -= cut; }
-      const spare2 = vw - lw - rw - 2 * sp - MIN_CENTER;
-      if (spare2 < 0 && L.left.open) lw -= Math.min(-spare2, lw - MIN_SIDE);
+      if (L.right.open && !fl.right) { const cut = Math.min(-spare, rw - MIN_SIDE); rw -= cut; }
+      const spare2 = vw - lw - rw - spL - spR - MIN_CENTER;
+      if (spare2 < 0 && L.left.open && !fl.left) lw -= Math.min(-spare2, lw - MIN_SIDE);
     }
-    const midX = lw + sp, midW = Math.max(0, vw - lw - rw - 2 * sp);
+    const midX = lw + spL, midW = Math.max(0, vw - lw - rw - spL - spR);
     const rightX = vw - rw;
 
-    let bh = L.bottom.open ? clamp(L.bottom.size, MIN_BOTTOM, Math.max(MIN_BOTTOM, bodyH - MIN_CENTER_H - sp)) : c.head;
+    let bh = fl.bottom ? 0 : L.bottom.open ? clamp(L.bottom.size, MIN_BOTTOM, Math.max(MIN_BOTTOM, bodyH - MIN_CENTER_H - spB)) : c.head;
     bh = Math.min(bh, bodyH);
-    const upperH = Math.max(0, bodyH - bh - sp);
-    const bottomY = top + upperH + sp;
+    const upperH = Math.max(0, bodyH - bh - spB);
+    const bottomY = top + upperH + spB;
 
     const r = (x, y, w, h) => ({ x: Math.round(x), y: Math.round(y), w: Math.max(0, Math.round(w)), h: Math.max(0, Math.round(h)) });
+    const floatRect = (f) => {
+      const w = Math.min(f.w, vw), h = Math.min(f.h, bodyH);
+      return r(clamp(f.x, 0, vw - w), clamp(f.y, top, top + bodyH - h), w, h);
+    };
     return {
       menu: r(0, 0, vw, c.menu),
       toolbar: r(0, c.menu, vw, c.toolbar),
-      left: r(0, top, lw, upperH),
+      left: fl.left ? floatRect(L.left.float) : r(0, top, lw, upperH),
       center: r(midX, top, midW, upperH),
-      right: r(rightX, top, rw, bodyH),
-      bottom: r(0, bottomY, rightX - sp, bh),
+      right: fl.right ? floatRect(L.right.float) : r(rightX, top, rw, bodyH),
+      bottom: fl.bottom ? floatRect(L.bottom.float) : r(0, bottomY, rightX - spR, bh),
       status: r(0, vh - c.status, vw, c.status),
-      splitLeft: r(lw, top, sp, upperH),
-      splitRight: r(rightX - sp, top, sp, bodyH),
-      splitBottom: r(0, top + upperH, rightX - sp, sp),
-      collapsed: { left: !L.left.open, right: !L.right.open, bottom: !L.bottom.open },
+      splitLeft: r(lw, top, spL, upperH),
+      splitRight: r(rightX - spR, top, spR, bodyH),
+      splitBottom: r(0, top + upperH, rightX - spR, spB),
+      collapsed: { left: !L.left.open && !fl.left, right: !L.right.open && !fl.right, bottom: !L.bottom.open && !fl.bottom },
+      floating: fl,
     };
+  }
+
+  // Dropping a floating dock within DOCK_SNAP px of its home edge docks it again.
+  const DOCK_SNAP = 48;
+  function nearHomeEdge(which, px, py, vw, vh, chrome) {
+    const c = Object.assign({}, CHROME, chrome || {});
+    if (which === "left") return px < DOCK_SNAP;
+    if (which === "right") return px > vw - DOCK_SNAP;
+    return py > vh - c.status - DOCK_SNAP; // bottom
   }
 
   // New size of a dock after dragging its splitter by (dx, dy) from `start`.
@@ -473,7 +496,7 @@
     isMacPlatform, parseShortcut, formatShortcut, eventKey, matchShortcut, focusKind, allowedIn,
     flattenMenus, findShortcut, shortcutClashes, SHORTCUTS, ALT_SHORTCUTS, NOT_IN_FIELDS, attachShortcuts,
     LAYOUT_KEY, CHROME, BOTTOM_TABS, CENTER_TABS, defaultLayout, sanitizeLayout, loadLayout, saveLayout,
-    computeRects, dragSize, MIN_CENTER, MIN_SIDE,
+    computeRects, dragSize, nearHomeEdge, MIN_CENTER, MIN_SIDE,
     History, RECENT_KEY, pushRecent, recentLabel, specToParams, paramsToSpecFile, safeFileName,
     STAMPS, brushCells, stampCells, lineCells, PAINT_KEY, paintKey, mergePaint, paintList,
   };

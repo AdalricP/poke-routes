@@ -247,6 +247,25 @@ test("collapsed docks shrink to strips; the scene keeps its minimum size", () =>
   assert.ok(s.center.h >= 160, "centre height " + s.center.h);
 });
 
+test("floating docks give their space to the scene and stay on screen", () => {
+  const L = SL.defaultLayout();
+  L.left.float = { x: -500, y: 0, w: 300, h: 250 };
+  L.bottom.float = { x: 400, y: 300, w: 500, h: 200 };
+  const r = SL.computeRects(L, 1200, 800);
+  const top = SL.CHROME.menu + SL.CHROME.toolbar;
+  assert.deepStrictEqual(r.left, { x: 0, y: top, w: 300, h: 250 });
+  assert.deepStrictEqual(r.bottom, { x: 400, y: 300, w: 500, h: 200 });
+  assert.strictEqual(r.center.x, 0);
+  assert.strictEqual(r.center.h, 800 - top - SL.CHROME.status);
+  assert.deepStrictEqual(r.floating, { left: true, right: false, bottom: true });
+  assert.strictEqual(r.collapsed.left, false);
+  assert.strictEqual(SL.sanitizeLayout({ v: 1, left: { float: { x: 1, y: "a", w: 2, h: 3 } } }).left.float, null);
+  assert.ok(SL.nearHomeEdge("left", 10, 400, 1200, 800));
+  assert.ok(SL.nearHomeEdge("right", 1190, 400, 1200, 800));
+  assert.ok(SL.nearHomeEdge("bottom", 500, 770, 1200, 800));
+  assert.ok(!SL.nearHomeEdge("bottom", 500, 400, 1200, 800));
+});
+
 test("splitter drag directions", () => {
   assert.strictEqual(SL.dragSize("left", 240, 30, 0), 270);
   assert.strictEqual(SL.dragSize("right", 320, 30, 0), 290);

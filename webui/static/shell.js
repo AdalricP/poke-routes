@@ -42,10 +42,13 @@
     place(parts.splitLeft, rects.splitLeft);
     place(parts.splitRight, rects.splitRight);
     place(parts.splitBottom, rects.splitBottom);
-    for (const k of ["left", "right", "bottom"]) docks[k].classList.toggle("collapsed", rects.collapsed[k]);
-    parts.splitLeft.classList.toggle("off", rects.collapsed.left);
-    parts.splitRight.classList.toggle("off", rects.collapsed.right);
-    parts.splitBottom.classList.toggle("off", rects.collapsed.bottom);
+    for (const k of ["left", "right", "bottom"]) {
+      docks[k].classList.toggle("collapsed", rects.collapsed[k]);
+      docks[k].classList.toggle("floating", rects.floating[k]);
+    }
+    parts.splitLeft.classList.toggle("off", rects.collapsed.left || rects.floating.left);
+    parts.splitRight.classList.toggle("off", rects.collapsed.right || rects.floating.right);
+    parts.splitBottom.classList.toggle("off", rects.collapsed.bottom || rects.floating.bottom);
     // tabs
     document.querySelectorAll("[data-center]").forEach((b) => {
       const on = b.dataset.center === layout.center;
@@ -86,6 +89,7 @@
   function toggleDock(which, open) {
     const d = layout[which];
     d.open = open == null ? !d.open : !!open;
+    if (!d.open) d.float = null; // a closed window goes back to its strip in the dock
     applyLayout();
     saveLayout();
   }
@@ -144,7 +148,83 @@
     });
     sp.addEventListener("dblclick", () => toggleDock(which, false));
   }
-  document.querySelectorAll("[data-collapse]").forEach((b) => { b.onclick = () => toggleDock(b.dataset.collapse); });
+  // floating windows: drag a dock's tab strip to tear it off and move it (Unity-style);
+  // drop it on its home edge, double-click the strip or press its arrow to dock it again
+  function redock(which) {
+    layout[which].float = null;
+    layout[which].open = true;
+    applyLayout();
+    saveLayout();
+  }
+  let floatZ = 20;
+  const dropHint = el("div", "dock-drop");
+  dropHint.hidden = true;
+  $("shell").append(dropHint);
+  function homeRect(which) {
+    const docked = Object.assign({}, layout, { [which]: Object.assign({}, layout[which], { float: null, open: true }) });
+    return SL.computeRects(docked, window.innerWidth, window.innerHeight)[which];
+  }
+  for (const which of ["left", "right", "bottom"]) {
+    const dock = docks[which];
+    const head = dock.querySelector(".dock-head");
+    head.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0 || ev.target.closest(".dock-collapse, input, select")) return;
+      const x0 = ev.clientX, y0 = ev.clientY;
+      let grab = null;
+      dock.style.zIndex = ++floatZ; // the window you grab comes to the front
+      const move = (e) => {
+        if (!grab) {
+          if (Math.hypot(e.clientX - x0, e.clientY - y0) < 6) return;
+          const r = lastRects[which];
+          const size = layout[which].float ? r : homeRect(which);
+          const w = layout[which].float ? r.w : Math.min(size.w, 560), h = layout[which].float ? r.h : Math.min(size.h, 420);
+          grab = { dx: Math.min(x0 - r.x, w - 40), dy: y0 - r.y, w, h };
+          document.body.classList.add("moving");
+        }
+        layout[which].open = true;
+        layout[which].float = { x: e.clientX - grab.dx, y: e.clientY - grab.dy, w: grab.w, h: grab.h };
+        const snap = SL.nearHomeEdge(which, e.clientX, e.clientY, window.innerWidth, window.innerHeight);
+        dropHint.hidden = !snap;
+        if (snap) place(dropHint, homeRect(which));
+        applyLayout();
+      };
+      const up = (e) => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
+        if (!grab) return;
+        document.body.classList.remove("moving");
+        dropHint.hidden = true;
+        // the release would otherwise click the tab under the pointer
+        const swallow = (c) => { c.stopPropagation(); c.preventDefault(); };
+        window.addEventListener("click", swallow, true);
+        setTimeout(() => window.removeEventListener("click", swallow, true), 0);
+        if (SL.nearHomeEdge(which, e.clientX, e.clientY, window.innerWidth, window.innerHeight)) { redock(which); return; }
+        const rr = lastRects[which];
+        layout[which].float = { x: rr.x, y: rr.y, w: rr.w, h: rr.h };
+        saveLayout();
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", up);
+    });
+    head.addEventListener("dblclick", (ev) => {
+      if (layout[which].float && !ev.target.closest(".dock-collapse")) redock(which);
+    });
+    // floating windows resize from their corner grip (CSS resize); keep the new size
+    new ResizeObserver(() => {
+      const f = layout[which].float;
+      if (!f || (dock.offsetWidth === f.w && dock.offsetHeight === f.h)) return;
+      f.w = dock.offsetWidth;
+      f.h = dock.offsetHeight;
+      applyLayout();
+      saveLayout();
+    }).observe(dock);
+  }
+
+  document.querySelectorAll("[data-collapse]").forEach((b) => {
+    b.onclick = () => (layout[b.dataset.collapse].float ? redock(b.dataset.collapse) : toggleDock(b.dataset.collapse));
+  });
   document.querySelectorAll("[data-expand]").forEach((b) => { b.onclick = () => toggleDock(b.dataset.expand, true); });
   document.querySelectorAll("[data-center]").forEach((b) => { b.onclick = () => setCenter(b.dataset.center); });
   document.querySelectorAll("[data-bottom]").forEach((b) => { b.onclick = () => setBottom(b.dataset.bottom); });

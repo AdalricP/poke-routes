@@ -387,3 +387,10 @@ table.enc .pct { display: inline-block; height: 6px; margin-right: 6px; backgrou
 .keys h4 { margin: 8px 0 2px; font-size: 11px; color: var(--text-3); font-weight: 600; grid-column: 1 / -1; }
 .keys div { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; border-bottom: 1px solid #333; }
 .keys kbd { color: var(--text-2); }
+
+/* ------------------------------------------------------------ floating windows */
+.dock.floating { z-index: 20; border: 1px solid #111; box-shadow: 0 8px 28px rgba(0,0,0,.55); resize: both; min-width: 160px; min-height: 90px; }
+.dock.floating > .dock-head { cursor: move; }
+.dock.floating .dock-collapse::before { transform: translate(-50%, -50%) rotate(0deg); width: 7px; height: 7px; border-width: 1.5px; }
+.dock-drop { position: absolute; z-index: 19; background: rgba(77,144,214,.18); border: 1px solid var(--focus); pointer-events: none; }
+body.moving, body.moving * { user-select: none !important; cursor: move !important; }
