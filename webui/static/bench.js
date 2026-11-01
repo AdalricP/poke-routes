@@ -24,7 +24,7 @@
   const sdel = (k) => { try { store.removeItem(k); } catch (e) { /* blocked storage */ } };
 
   // ------------------------------------------------------------ preferences
-  const PREF_DEFAULTS = { autogen: true, autoplay: true, stageMs: 900, fade: true, ui: "12", fit: "resize", loop: false, tiler: "learned" };
+  const PREF_DEFAULTS = { autogen: true, playOnGenerate: false, stageMs: 900, fade: true, ui: "12", fit: "resize", loop: false, tiler: "learned" };
   const prefs = Object.assign({}, PREF_DEFAULTS, sget(PREFS_KEY) || {});
   function savePrefs() { sset(PREFS_KEY, prefs); }
   function applyPrefs() {
@@ -394,7 +394,7 @@
       reportToConsole(res, (performance.now() - t0) / 1000);
       updatePaintCount();
       await reapplyPaint();
-      if (prefs.autoplay && !(opts && opts.auto) && res.stages.length > 1) { setStage(0, false); startPlay(); }
+      if (prefs.playOnGenerate && !(opts && opts.auto) && res.stages.length > 1) { setStage(0, false); startPlay(); }
       else setStage(res.stages.length - 1, false);
       updateTitle();
     } catch (e) {
@@ -1864,7 +1864,7 @@
       return s;
     };
     row("Generate on edit", chk("autogen", "pAutogen"));
-    row("Play stages after Generate", chk("autoplay", "pAuto"));
+    row("Play stages after Generate", chk("playOnGenerate", "pAuto"));
     row("Stage duration", sel("stageMs", "pMs", [[1600, "1.6 s (0.5x)"], [900, "0.9 s (1x)"], [450, "0.45 s (2x)"], [220, "0.22 s (4x)"]]));
     row("Crossfade between stages", chk("fade", "pFade"));
     row("Loop playback", chk("loop", "pLoop"));
@@ -1949,7 +1949,7 @@
       { id: "ov-grid", label: "Grid", checked: () => state.ov.grid, run: () => toggleOv("grid") },
       { sep: true },
       { id: "v-autogen", label: "Generate on edit", checked: () => prefs.autogen, run: () => { prefs.autogen = !prefs.autogen; savePrefs(); } },
-      { id: "v-autoplay", label: "Play stages after Generate", checked: () => prefs.autoplay, run: () => { prefs.autoplay = !prefs.autoplay; savePrefs(); } },
+      { id: "v-autoplay", label: "Play stages after Generate", checked: () => prefs.playOnGenerate, run: () => { prefs.playOnGenerate = !prefs.playOnGenerate; savePrefs(); } },
       { id: "v-stages", label: "Show stage", items: () => {
         const r = state.result;
         if (!r) return [{ label: "No route yet", enabled: false }];
