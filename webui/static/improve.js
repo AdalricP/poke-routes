@@ -43,7 +43,7 @@
             </select>
             <button type="button" class="btn primary" id="impSubmit">Submit</button>
           </div>
-          <p class="imp-note">Queued and run unattended by Claude Code in that repo; each job ends in one commit you can undo. Cmd/Ctrl + Enter submits.</p>
+          <p class="imp-note">Queued and run unattended by Claude Code in that repo; each job ends in one commit you can undo. Enter submits, Shift + Enter for a new line.</p>
           <p class="imp-err" id="impErr"></p>
         </div>
       </section>
@@ -67,7 +67,7 @@
           </select>
           <button type="button" class="primary" id="impSubmit">Submit</button>
         </div>
-        <p class="imp-note">Runs Claude Code unattended in that repo and ends in one commit you can undo. Cmd/Ctrl + Enter submits.</p>
+        <p class="imp-note">Runs Claude Code unattended in that repo and ends in one commit you can undo. Enter submits, Shift + Enter for a new line.</p>
         <p class="imp-err" id="impErr"></p>
       </section>
       <section>
@@ -251,7 +251,7 @@
   $("impSubmit").onclick = submit;
   $("impText").addEventListener("keydown", (e) => {
     e.stopPropagation(); // keep page shortcuts (Ctrl+Enter = Generate) out of the textarea
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); }
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
   });
   refresh();
 })();
