@@ -44,7 +44,7 @@ TREE_BIOMES = ("forest", "meadow", "riverland")
 # per-biome palette: (wall between lanes, ground, lane surface, road, encounter grass)
 BIOME_CODES = {
     "forest": ("f", "g", "g", "p", "t"),
-    "meadow": ("f", "g", "p", "p", "t"),
+    "meadow": ("f", "g", "g", "p", "t"),  # dirt only on the main road; side lanes stay grass
     "riverland": ("f", "g", "g", "p", "t"),
     "beach": ("f", ("SAND", "p"), ("SAND", "p"), ("SAND", "p"), "t"),
     "desert": (("CLIFF", "r"), ("SAND", "p"), ("SAND", "p"), ("SAND", "p"), ("SAND", "p")),
@@ -627,8 +627,8 @@ def _sea(route: Route) -> None:
 # ------------------------------------------------------------------ surfaces
 
 def stage_road(route: Route) -> None:
-    """Lanes get a readable surface: a dirt road on the critical path (3 wide), side
-    lanes stay a grass track in the forest and a worn path in open country."""
+    """Lanes get a readable surface: one dirt road on the critical path (3 wide);
+    side lanes stay grass, so the road is the only dirt and reads at a glance."""
     p = plan_of(route)
     special = set(route.zone_cells("special"))
     pc = path_class(route)
@@ -665,8 +665,8 @@ def stage_tall_grass(route: Route) -> None:
 
 
 def _lane_patches(route: Route) -> None:
-    """Rectangular tall grass across side lanes (you have to wade through it), a
-    strip across the road now and then, and patches in pockets and clearings."""
+    """Rectangular tall grass across side lanes (you have to wade through it) and
+    patches in pockets and clearings. The main road stays one unbroken dirt strip."""
     p, rng, spec = plan_of(route), route.rng, route.spec
     tg = float(spec.tall_grass)
     tall = grass_class(route)
@@ -683,12 +683,15 @@ def _lane_patches(route: Route) -> None:
             p_patch = 1.0 if pk == "grass_track" else tg * (0.8 if l.kind != "main" else 0.6)
             if rng.random() > p_patch:
                 continue
+            on_road = l.kind == "main" and route.spec.road
             ln = int(rng.integers(3, 5)) if l.kind == "main" else int(rng.integers(4, min(9, n)))
             st = int(rng.integers(min(a[0], b2[0]) + 1, max(min(a[0], b2[0]) + 2, max(a[0], b2[0]) - ln)))
             lo, hi = -((l.width - 1) // 2), l.width // 2
             for u in range(st, st + ln):
                 for v in range(a[1] + lo, a[1] + hi + 1):
                     y, x = f.yx(u, v)
+                    if on_road and route.cls[y, x] == path_class(route):
+                        continue
                     if route.cls[y, x] in (ground_class(route), path_class(route), side_surface(route)):
                         route.cls[y, x] = tall
     for z in route.zones:
