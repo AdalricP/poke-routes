@@ -66,13 +66,14 @@ def scene_dict(route: Route) -> dict:
         "grid": ["".join(row) for row in route.cls],
         "zones": [
             {"kind": z.kind, "name": z.name, "cells": [[int(y), int(x)] for (y, x) in z.cells],
-             "meta": {k: v for k, v in z.meta.items() if k in ("center", "end", "ledge")} |
+             "meta": {k: v for k, v in z.meta.items() if k in ("center", "end", "ledge", "purpose", "where")} |
                      ({"area": {k: z.meta["area"].get(k) for k in ("id", "name", "description", "species", "terrain_marks", "shiny_boost")}}
                       if "area" in z.meta else {})}
             for z in route.zones
         ],
         "events": [{"kind": e.kind, "y": e.y, "x": e.x, **e.data} for e in route.events],
         "props": route.props,
+        "purposes": route.__dict__.get("purposes", []),
         "encounters": encounters(route),
         "exits": [{"side": e.side, "to": e.to, "cells": [[int(y), int(x)] for (y, x) in cells]} for e, cells in route.exits],
     }

@@ -64,11 +64,16 @@ def cmd_region(a) -> None:
     from .generate import generate
     from .spec import RouteSpec
 
+    import math
+
     used: list = []
     specs, routes = [], []
+    # owner: a special area roughly every 2-3 routes, never one per route
+    budget = max(1, math.ceil(len(a.specs) / 2.5)) if a.special_budget is None else a.special_budget
     for path in a.specs:
         spec = RouteSpec.load(path)
         spec.exclude_areas = list(used)
+        spec.special_budget = max(0, budget - len(used)) if spec.special_budget < 0 else spec.special_budget
         route = generate(spec)
         seal_edges(route)
         used += [z.meta["area"]["id"] for z in route.zones if z.kind == "special" and "area" in z.meta]
@@ -128,6 +133,8 @@ def main() -> None:
     r.add_argument("--stages", action="store_true")
     r.add_argument("--viewer", action="store_true", help="copy scenes into viewer/scenes")
     r.add_argument("--tileset", choices=["learned", "ark"], default="learned")
+    r.add_argument("--special-budget", type=int, default=None,
+                   help="special areas allowed across the region (default: one per ~2.5 routes)")
     r.set_defaults(fn=cmd_region)
     t = sub.add_parser("atlas", help="dump labelled metatile sheets")
     t.add_argument("primary")

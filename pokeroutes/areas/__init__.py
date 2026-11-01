@@ -389,6 +389,16 @@ def _make_door(p: stamps.Painter, side: str) -> Tuple[Cell, Cell]:
     edge = {"s": (p.y0 + p.h - 1, p.cx), "n": (p.y0, p.cx), "e": (p.cy, p.x0 + p.w - 1), "w": (p.cy, p.x0)}[side]
     step = {"s": (1, 0), "n": (-1, 0), "e": (0, 1), "w": (0, -1)}[side]
     opens = [c for c in p.open if p.cls[c] in WALK] or [(p.cy, p.cx)]
+
+    def clear(c) -> bool:  # the straight cut to the edge must not run into a pinned piece
+        y, x = c
+        while p.in_box(y + step[0], x + step[1]):
+            y, x = y + step[0], x + step[1]
+            if (y, x) in p.fixed:
+                return False
+        return True
+
+    opens = [c for c in opens if clear(c)] or opens
     start = min(opens, key=lambda c: abs(c[0] - edge[0]) * 1.0 + abs(c[1] - edge[1]) * 1.5)
     y, x = start
     while p.in_box(y + step[0], x + step[1]):

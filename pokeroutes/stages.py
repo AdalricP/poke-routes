@@ -205,34 +205,22 @@ def stage_clearings(route: Route) -> None:
         cells = n.cells()
         carve(route, cells)
         route.zones.append(Zone("clearing", cells, f"{n.kind} {n.id}", {"center": (n.y, n.x), "node": n.kind}))
-    k_item = 0
-    for l in p.lanes:
-        if l.fate != "dead":
-            continue
-        tip = l.center()[-1]
-        if l.area:
-            style = "pocket"
-        elif not l.pocket_cells:
-            style = rng.choice(["item", "lore"], p=[0.65, 0.35])
-        else:
-            style = rng.choice(["pocket", "item", "lore"], p=[0.4, 0.4, 0.2])
-        l.meta["end_style"] = style
-        if style == "pocket":
-            carve(route, l.pocket_cells)
-            ys, xs = zip(*l.pocket_cells)
-            c = (int(round(np.mean(ys))), int(round(np.mean(xs))))
-            route.zones.append(Zone("clearing", sorted(l.pocket_cells), f"pocket {l.id}",
-                                    {"center": c, "pocket": True, "lane": l.id}))
-            if not l.area:
-                route.events.append(Event("item_ball", c[0], c[1], {"item": _item(rng), "why": "dead-end reward"}))
-                k_item += 1
-        elif style == "item":
-            route.events.append(Event("item_ball", tip[0], tip[1], {"item": _item(rng), "why": "dead-end reward"}))
-            k_item += 1
-        else:
-            route.events.append(Event("sign", tip[0], tip[1], {"lore": _lore_id(route), "type": "view",
-                                                                "text": "", "why": "lane end lookout"}))
-    _bulges(route, p)
+    from .purpose import lane_purposes, record
+
+    for n in p.nodes:
+        if n.hy or n.hx:
+            kind = {"corner": "bend"}.get(n.kind, "rest_stop")
+            rec = record(route, kind, (n.y, n.x), node=n.id)
+            for z in route.zones:
+                if z.kind == "clearing" and z.meta.get("center") == (n.y, n.x):
+                    z.meta["purpose"] = rec
+            if kind == "rest_stop":
+                route.props.append({"kind": "bench", "y": n.y + n.hy - 1, "x": n.x + n.hx - 2, "why": kind})
+    lane_purposes(route, p, carve, ground_class(route), grass_class(route), _item)
+    for k, end in enumerate(p.endings):
+        kind = "secret_exit" if end["kind"] == "secret" else "road"
+        record(route, kind, end["path"][0], to=end["exit"].to or end["exit"].side)
+    # (no random bulges: grass bits with no reason read as weird shapes)
     _signposts(route, p)
     _beacons(route, p)
     route.snap("clearings")
@@ -311,11 +299,12 @@ def _signposts(route: Route, p) -> None:
             continue
         side_dir = _dir_word((f.l[0] * l.side, f.l[1] * l.side))
         main_dir = _dir_word(f.d)
+        what = (l.meta.get("purpose") or {}).get("label", "side path")
         route.events.append(Event("sign", int(y), int(x), {
-            "type": "signpost", "text": f"{main_dir.upper()}: {dest}  /  {side_dir.upper()}: side path",
+            "type": "signpost", "text": f"{main_dir.upper()}: {dest}  /  {side_dir.upper()}: {what}",
             "why": "split"}))
     for n in p.nodes:
-        if n.kind in ("spectacle", "clearing", "corner") and (n.hy or n.hx):
+        if n.kind in ("spectacle", "clearing") and (n.hy or n.hx):
             # just inside the clearing, next to where the main lane comes in
             route.events.append(Event("sign", n.y - n.hy + 1, n.x - n.hx + 1, {
                 "type": "landmark", "text": (n.area or {}).get("name", ""), "lore": _lore_id(route),
@@ -343,12 +332,61 @@ def _beacons(route: Route, p) -> None:
 
 def stage_lakes(route: Route) -> None:
     b = route.spec.biome
+    if b in TREE_BIOMES:
+        _bend_obstacles(route)
     if b == "riverland":
         _rivers(route)
     if b == "beach":
         _sea(route)
     _ponds(route, route.spec.lakes if b != "riverland" else max(1, route.spec.lakes // 2))
     route.snap("water")
+
+
+def _bend_obstacles(route: Route) -> None:
+    """A real road bends because something is in the way. Where the main road jogs
+    sideways, put a pond right where it would have run straight on, so the bend reads
+    as going round the water rather than a random kink."""
+    from .purpose import record
+
+    p = plan_of(route)
+    walk = np.isin(route.cls, list(WALKABLE) + ["w"])
+    for s in p.sections:
+        m = p.lane(s.lanes[0])
+        f = m.frame
+        pts = m.pts
+        for i in range(1, len(pts) - 1):
+            (u0, v0), (u1, v1), (u2, v2) = pts[i - 1], pts[i], pts[i + 1]
+            if not (v0 == v1 and u1 == u2 and abs(v2 - v1) >= 4):
+                continue  # want: a run along u, then a sideways jog
+            du = 1 if u1 > u0 else -1
+            cells = [f.yx(u1 + du * k, v1 + dv) for k in range(3, 7) for dv in range(-2, 3)
+                     if not (k == 6 and abs(dv) == 2)]
+            own = set(m.cells) | set(cells)
+            ok = True
+            for (y, x) in cells:
+                if not route.inside(y, x, 3) or route.cls[y, x] != "f" or route.protect[y, x]:
+                    ok = False
+                    break
+                box = walk[y - 2:y + 3, x - 2:x + 3]
+                ys, xs = np.nonzero(box)
+                if any((y - 2 + a, x - 2 + b) not in own for a, b in zip(ys, xs)):
+                    ok = False
+                    break
+            if not ok:
+                continue
+            # the shore between the road and the pond is a strip of grass you can walk
+            shore = [f.yx(u1 + du * 2, v1 + dv) for dv in range(-2, 3)]
+            if not all(route.inside(*c, 3) and route.cls[c] == "f" for c in shore):
+                continue
+            for c in cells:
+                route.cls[c] = "w"
+            for c in shore:
+                route.cls[c] = ground_class(route)
+                route.protect[c] = True
+            rec = record(route, "bend", f.yx(u1, v1), why="pond")
+            rec["reason"] = "The road bends round a pond instead of running straight on."
+            route.zones.append(Zone("lake", cells, "pond at the bend", {"purpose": rec}))
+            walk = np.isin(route.cls, list(WALKABLE) + ["w"])
 
 
 def _ponds(route: Route, count: int) -> None:
@@ -368,7 +406,8 @@ def _ponds(route: Route, count: int) -> None:
             if len(cells) >= 4:
                 for (y, x) in cells:
                     route.cls[y, x] = "w"
-                route.zones.append(Zone("lake", cells, f"pond {made + 1}"))
+                route.zones.append(Zone("lake", cells, f"pond {made + 1}", {"purpose": {
+                    "kind": "pond", "reason": "The rest stop is by a pond.", "cell": list(cells[0])}}))
                 made += 1
     tries = 0
     walk = _walk_mask(route)
@@ -407,7 +446,12 @@ def _ponds(route: Route, count: int) -> None:
             continue
         for (cy, cx) in cells:
             route.cls[cy, cx] = "w"
-        route.zones.append(Zone("lake", cells, f"pond {made + 1}"))
+        from .purpose import record
+
+        fy, fx = f.yx(u, v + (hi if side > 0 else lo))
+        rec = record(route, "fishing_spot", (fy, fx))
+        route.events.append(Event("npc", int(fy), int(fx), {"role": "fisherman", "text": "", "why": "fishing_spot"}))
+        route.zones.append(Zone("lake", cells, f"pond {made + 1}", {"purpose": rec}))
         made += 1
 
 
@@ -607,7 +651,8 @@ def _lane_patches(route: Route) -> None:
             n = abs(b2[0] - a[0])
             if n < 6:
                 continue
-            p_patch = tg * (1.8 if l.kind != "main" else 0.6)
+            pk = (l.meta.get("purpose") or {}).get("kind")
+            p_patch = 1.0 if pk == "grass_track" else tg * (0.8 if l.kind != "main" else 0.6)
             if rng.random() > p_patch:
                 continue
             ln = int(rng.integers(3, 5)) if l.kind == "main" else int(rng.integers(4, min(9, n)))
@@ -681,7 +726,11 @@ def _fields(route: Route) -> None:
             ty, tx = int(rng.integers(y0 + 2, y1 - 2)), int(rng.integers(x0 + 2, x1 - 2))
             route.cls[ty:ty + 2, tx:tx + 2] = "f"
         cells = [(y, x) for y in range(y0, y1 + 1) for x in range(x0, x1 + 1)]
-        route.zones.append(Zone("clearing", cells, f"field {n_fields + 1}", {"center": ((y0 + y1) // 2, (x0 + x1) // 2), "field": True}))
+        from .purpose import record
+
+        rec = record(route, "field", ((y0 + y1) // 2, (x0 + x1) // 2))
+        route.zones.append(Zone("clearing", cells, f"field {n_fields + 1}", {"center": ((y0 + y1) // 2, (x0 + x1) // 2),
+                                                                            "field": True, "purpose": rec}))
         _gate(route, rect)
         n_fields += 1
 

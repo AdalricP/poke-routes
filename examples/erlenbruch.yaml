@@ -14,7 +14,7 @@ lakes: 4
 tall_grass: 0.4
 hidden_paths: 3
 hidden_items: 5
-special_areas: [auto, auto, pond]
+special_areas: []  # none here: special areas are rare (about one per 2-3 routes)
 species_file: ../../arklarna/design/pokedex.json
 music: MUS_ARK_ERLENBRUCH
 weather: WEATHER_RAIN

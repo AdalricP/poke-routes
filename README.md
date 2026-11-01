@@ -14,7 +14,8 @@ It started as the route generator for Arklarna, a ROM hack, and most of the exam
 
 A route is built in stages, and each stage edits the same grid of terrain classes (tree, grass, road, tall grass, water, rock, ledge, and a few more). The GIF above is those stages played back.
 
-1. The skeleton is planned first (`braid.py`). The main lane runs from the entry exit to the far exit, with nodes along it. Between two nodes, up to two side lanes split off and run alongside. Each one rejoins at the next node, merges early, or stops short in a pocket with an item or a lookout. Everything else is forest by default, with a fixed gap of trees between unrelated lanes.
+1. The skeleton is planned first (`braid.py`). The main lane runs from the entry exit to the far exit, with nodes along it. Between two nodes, up to two side lanes split off and run alongside. Each one rejoins at the next node, merges early, or stops short. The road only bends where it has to, and a bend gets a pond where the road would have run straight on. Everything else is forest by default, with a fixed gap of trees between unrelated lanes.
+   Every side lane gets a purpose (`purpose.py`): a woodcutters' camp, berry bushes, a shrine, a pond with a fisherman, a ruin, a hunter's blind, a lookout at the wood's edge, a tall-grass track, a shortcut. The purpose is written to the zone meta and `purposes` in scene.json, shows up as an NPC, sign or props, and is what the signpost at the split says.
 2. Stages carve that plan into the grid (`stages.py`, `generate.py`): branches, clearings, special areas, water, the road on the critical path, tall grass, ledges, hidden trails, then dressing. Dressing places signposts, HM obstacles on optional lanes (cut trees, smashable rocks, Strength boulders), lore spots, NPCs and items. Sections of the route can sit on different elevation tiers.
 3. A cleanup pass removes leftovers, and a last pass carves a way to any walkable pocket that can't be reached from the entrance.
 
@@ -22,7 +23,7 @@ Forest, meadow and riverland are the tested biomes. Beach, desert, mountain and 
 
 ### Special areas
 
-Special areas (`pokeroutes/areas/`) are small composed places dropped into a route, each tied to a Pokémon and to a habitat that makes sense for it. Most are hidden, so you find them through a cut tree, a hidden gap, a ledge, or past an NPC. The Pokémon stand in the overworld (pokeemerald-expansion's species object events), and you can talk to them and battle them.
+Special areas (`pokeroutes/areas/`) are small composed places dropped into a route, each tied to a Pokémon and to a habitat that makes sense for it. They are rare: an `auto` entry only becomes an area with `special_area_chance` (default 0.35), and `region` allows about one per 2.5 routes (`--special-budget`). The planner puts each one at least 20 tiles from every exit, outside the GBA camera window (15x10) from every point of the main road, and away from other lanes, so the only way in is a hidden trail behind a cut tree, a Strength boulder or an NPC you have to go round. If there is no such site the route has none. The Pokémon stand in the overworld (pokeemerald-expansion's species object events), and you can talk to them and battle them.
 
 <p align="center">
   <img src="docs/img/thunderstruck-oak.png" width="560" alt="The Thunderstruck Oak: a lightning-split oak with Pichu, Pikachu and a Raichu">
@@ -117,7 +118,8 @@ lakes: 1
 tall_grass: 0.3
 hidden_paths: 2
 hidden_items: 4
-special_areas: [auto, auto, pond, hollow]
+special_areas: [thunderstruck_oak]  # most routes: []
+special_area_chance: 0.35            # for "auto" entries
 ```
 
 The three specs in `examples/` give these routes:

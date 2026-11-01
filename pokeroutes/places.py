@@ -211,11 +211,27 @@ def _areas_api():
 
 
 def choose_areas(route: Route) -> List[dict]:
+    """Special areas are rare (owner: "not every route"). Explicitly named areas are
+    kept; each "auto" entry only turns into an area with ``special_area_chance``; and a
+    region budget (``special_budget``, set by ``pokeroutes region``) caps the total."""
+    spec, rng = route.spec, route.rng
+    chance = float(getattr(spec, "special_area_chance", 0.35))
+    wanted = [w for w in spec.special_areas if w != "auto" or rng.random() < chance]
+    orig = spec.special_areas
+    spec.special_areas = wanted
+    try:
+        raw = _choose_areas_raw(route)
+    finally:
+        spec.special_areas = orig
     seen, out = set(), []
-    for a in _choose_areas_raw(route):
+    for a in raw:
         if a.get("id") not in seen:
             seen.add(a.get("id"))
             out.append(a)
+    budget = int(getattr(spec, "special_budget", -1))
+    if budget >= 0 and len(out) > budget:
+        route.log.append(f"special budget: keeping {budget} of {len(out)} areas")
+        out = out[:budget]
     return out
 
 
@@ -291,7 +307,109 @@ def _gate(route: Route, res) -> bool:
         return False
 
 
+REAL_GATES = ("cut_tree", "strength_boulder", "npc_block")
+
+
+def _hidden_area(area: dict) -> dict:
+    """Every special area sits behind a real secret: a hidden trail plus a Cut tree, a
+    Strength boulder or an NPC you have to go round. Visible / territorial / gap-only
+    recipes are upgraded to that."""
+    rec = dict(area.get("recipe") or {})
+    vis = rec.get("visibility", "hidden")
+    if vis not in ("hidden", "secret"):
+        rec["visibility"] = "hidden"
+    if rec.get("access") not in REAL_GATES:
+        rec["access"] = "cut_tree"
+    return dict(area, recipe=rec)
+
+
 def place_specials(route: Route) -> None:
+    """Build each special area at the hidden site the planner reserved for it (deep in
+    the route, far from every exit, out of sight of the road) and gate its trail."""
+    p = route.__dict__.get("_plan")
+    if p is None or not hasattr(p, "sites"):
+        return _place_specials_legacy(route)
+    api = _areas_api()
+    for st in p.sites:
+        area = st["area"]
+        y0, x0, h, w = st["box"]
+        cy, cx = y0 + h // 2, x0 + w // 2
+        if api is not None and "archetype" not in area:
+            area = _hidden_area(area)
+            res = _build_reachable(route, api, area, (y0, x0))
+            if res is None:
+                continue
+            area = res.area
+            route.props.extend(getattr(res, "props", []) or [])
+            route.__dict__.setdefault("_area_results", []).append(res)
+            cells = list(res.cells)
+            gated = _gate(route, res) and bool(getattr(res, "gate", None))
+            _record_area_events(route, res)
+            gate = getattr(res, "gate", None) or {}
+            trail = gate.get("trail") or []
+            if trail:
+                route.zones.append(Zone("trail", list(trail), f"hidden trail to {area['name']}",
+                                        {"secret": True, "access": gate.get("access")}))
+            if not gated:
+                route.log.append(f"special: {area.get('id')} has no gated trail")
+        else:
+            cells = ARCHETYPES[area.get("archetype", "grove")](route, cy, cx, w, h, area)
+            src = _nearest(route.zone_cells("main", "loop", "dead_end"), (cy, cx))
+            trail = _straight_trail(route, src, _nearest(cells, src), "trail")
+            mid = trail[len(trail) // 3]
+            route.events.append(Event("cut_tree", mid[0], mid[1], {"why": f"hides the way to {area['name']}"}))
+        purpose = {"kind": "special_area", "reason": f"{area['name']}: hidden deep in the route, "
+                   f"behind a gated trail, out of sight of the road", "area": area.get("id")}
+        route.zones.append(Zone("special", cells, area["name"], {"area": area, "center": (cy, cx),
+                                                                 "where": "hidden", "purpose": purpose}))
+        for c in cells:
+            route.protect[c] = True
+
+
+def _inside_reach(route: Route, res) -> float:
+    """Share of the area's open ground you can walk to from its door."""
+    from collections import deque
+
+    y0, x0, h, w = res.box
+    opens = {(y, x) for y in range(y0, y0 + h) for x in range(x0, x0 + w) if route.cls[y, x] in "gt"}
+    if not opens:
+        return 0.0
+    start = res.door_out
+    seen, q = {start}, deque([start])
+    while q:
+        y, x = q.popleft()
+        for dy, dx in DIRS4:
+            c = (y + dy, x + dx)
+            if c not in seen and y0 <= c[0] < y0 + h and x0 <= c[1] < x0 + w and route.cls[c] in "gtp":
+                seen.add(c)
+                q.append(c)
+    return len(opens & seen) / len(opens)
+
+
+def _build_reachable(route: Route, api, area: dict, origin):
+    """Build the area, trying door sides until its inside is reachable from the door
+    (some compositions wall themselves off from one side with their big pieces)."""
+    cls0, prot0 = route.cls.copy(), route.protect.copy()
+    best = None
+    for door in ("auto", "s", "e", "w", "n"):
+        a = dict(area, recipe=dict(area.get("recipe") or {}, door=door))
+        try:
+            res = api.build(route, a, origin)
+        except Exception as e:
+            route.log.append(f"areas.build failed for {area.get('id')} ({type(e).__name__}: {e})")
+            return None
+        share = _inside_reach(route, res)
+        if best is None or share > best[0]:
+            best = (share, door)
+        if share >= 0.9:
+            return res
+        route.cls[:], route.protect[:] = cls0, prot0
+    door = best[1]
+    route.log.append(f"special: {area.get('id')} inside only {best[0]:.0%} reachable (door {door})")
+    return api.build(route, dict(area, recipe=dict(area.get("recipe") or {}, door=door)), origin)
+
+
+def _place_specials_legacy(route: Route) -> None:
     """Spectacle areas go in the convergence clearings the skeleton reserved for them,
     hidden ones in dead-end pockets. Anything without a slot falls back to a spot off
     the lanes, reached by a short straight trail."""
@@ -402,6 +520,16 @@ def place_hidden(route: Route) -> None:
     owner = _lane_cells_owner(route)
     walk = np.isin(route.cls, list(WALKABLE))
     n_links = (spec.hidden_paths + 1) // 2
+    # a special area has exactly one way in (its gated trail): nothing else may open
+    # onto it, so keep links and lore nooks well away
+    from scipy.ndimage import binary_dilation
+
+    sp = np.zeros(route.cls.shape, dtype=bool)
+    for z in route.zones:
+        if z.kind in ("special", "trail"):
+            for c in z.cells:
+                sp[c] = True
+    near_sp = binary_dilation(sp, iterations=8) if sp.any() else sp
     cands = []
     for y in range(3, route.h - 3):
         for x in range(3, route.w - 3):
@@ -415,6 +543,8 @@ def place_hidden(route: Route) -> None:
                     continue
                 ey, ex = y + dy * k, x + dx * k
                 if not route.inside(ey, ex, 3) or not walk[ey, ex]:
+                    continue
+                if near_sp[y, x] or near_sp[ey, ex]:
                     continue
                 if owner is not None and (owner[y, x] < 0 or owner[ey, ex] < 0 or owner[y, x] == owner[ey, ex]):
                     continue
@@ -436,19 +566,24 @@ def place_hidden(route: Route) -> None:
         for c in cells:
             route.cls[c] = _ground(route)
             route.protect[c] = True
-        route.zones.append(Zone("hidden", [(y, x)] + cells + [(y + dy * k, x + dx * k)], f"hidden link {made + 1}"))
+        from .purpose import record
+
+        rec = record(route, "shortcut", cells[len(cells) // 2])
+        route.zones.append(Zone("hidden", [(y, x)] + cells + [(y + dy * k, x + dx * k)], f"hidden link {made + 1}",
+                                {"purpose": rec}))
         if rng.random() < 0.5:
             route.events.append(Event("cut_tree", cells[len(cells) // 2][0], cells[len(cells) // 2][1], {"why": "hidden link"}))
         used.append((y, x))
         made += 1
     # lore spots in the biggest tree masses
-    n_lore = int(getattr(spec, "lore_spots", 2)) + max(0, spec.hidden_paths - n_links)
+    n_lore = min(1, int(getattr(spec, "lore_spots", 2)))  # one lore nook at most: fewer, meaningful
     kinds = ["grave", "ruin", "shrine", "old_sign", "hut_plot", "berry_patch"]
     for i in range(n_lore):
         walk = np.isin(route.cls, list(WALKABLE) + ["w", "s"])
         d = distance_transform_cdt(~walk, metric="chessboard").astype(float)
         d[:5, :] = d[-5:, :] = 0
         d[:, :5] = d[:, -5:] = 0
+        d[near_sp] = 0
         d += rng.random(d.shape) * 0.5
         y, x = np.unravel_index(int(np.argmax(d)), d.shape)
         if d[y, x] < 5:
@@ -465,6 +600,8 @@ def place_hidden(route: Route) -> None:
             while route.inside(sy + dy * k, sx + dx * k, 2) and not walk[sy + dy * k, sx + dx * k] and k < 12:
                 k += 1
             ty, tx = sy + dy * k, sx + dx * k
+            if sp[min(ty, route.h - 1), min(tx, route.w - 1)]:
+                continue
             if route.inside(ty, tx, 2) and route.cls[ty, tx] in WALKABLE and (best is None or k < best[0]):
                 best = (k, [(sy + dy * j, sx + dx * j) for j in range(0, k)])
         if best is None:
@@ -477,7 +614,16 @@ def place_hidden(route: Route) -> None:
             route.protect[c] = True
         lore = f"{spec.id}_lore_{100 + i:03d}"
         route.zones.append(Zone("hidden", best[1][::-1], f"gap to {kind.replace('_', ' ')}", {"lore": lore}))
-        route.zones.append(Zone("clearing", spot, kind.replace("_", " "), {"center": (y, x), "lore": lore, "secret": True}))
+        reason = {"grave": "A lone grave in the deep wood, tended by someone.",
+                  "ruin": "A tumbled wall, all that is left of a forester's hut.",
+                  "shrine": "A tiny shrine hidden in the trees.",
+                  "old_sign": "An old boundary sign, from when the wood belonged to someone.",
+                  "hut_plot": "The plot of a hermit's hut, long gone.",
+                  "berry_patch": "A secret berry patch somebody planted."}[kind]
+        prec = {"kind": "lore_" + kind, "label": kind.replace("_", " "), "reason": reason, "cell": [y, x], "lore": lore}
+        route.__dict__.setdefault("purposes", []).append(prec)
+        route.zones.append(Zone("clearing", spot, kind.replace("_", " "), {"center": (y, x), "lore": lore, "secret": True,
+                                                                           "purpose": prec}))
         if kind == "berry_patch":
             for (yy, xx) in [(y, x - 1), (y, x + 1)]:
                 route.events.append(Event("berry_tree", yy, xx, {"lore": lore}))

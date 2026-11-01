@@ -14,7 +14,7 @@ lakes: 1
 tall_grass: 0.35
 hidden_paths: 2
 hidden_items: 5
-special_areas: [auto, auto, stones]
+special_areas: []  # none here: special areas are rare (about one per 2-3 routes)
 species_file: ../../arklarna/design/pokedex.json
 music: MUS_ARK_KIEFERNHEIDE
 # braided skeleton along the L (west -> corner clearing -> north): hedged fields

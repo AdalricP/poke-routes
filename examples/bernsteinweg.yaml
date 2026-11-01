@@ -17,6 +17,9 @@ lakes: 1
 tall_grass: 0.3
 hidden_paths: 2
 hidden_items: 4
-special_areas: [auto, auto, pond, hollow]
+special_areas: [thunderstruck_oak]  # the region's one special area: hidden deep, behind a Cut tree
+special_area_chance: 0.35
 species_file: ../../arklarna/design/pokedex.json
 music: MUS_ARK_BERNSTEINWEG
+# three braided sections: the long route needs room for lanes beside the road
+sections: 3

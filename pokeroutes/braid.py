@@ -33,6 +33,9 @@ SIDE_IN = {"north": (1, 0), "south": (-1, 0), "west": (0, 1), "east": (0, -1)}
 GAP = 3  # tiles of forest kept between unrelated structures
 MARGIN = 3  # lanes stay this far from the map edge (the outer 2 rows are sealed)
 JUNCTION_R = 5  # radius around a junction point where touching is allowed
+EXIT_DIST = 20  # a special area is never closer than this to an exit / town gate
+CAM_X, CAM_Y = 8, 6  # GBA camera: 15x10 tiles around the player, so a site this far off is unseen
+KEEP = 5  # no planned lane comes nearer a hidden site than this (only its own trail)
 MAIN_W = 3
 SIDE_W = 2
 
@@ -226,13 +229,18 @@ class Planner:
         self.lanes: List[Lane] = []
         self.sections: List[Section] = []
         self.legs: List[Tuple[Frame, int]] = []
-        self.areas = list(areas)
+        # special areas never take a road clearing or a spur: reserve_specials() hides them
+        self.special_queue = list(areas)
+        self.areas: List[dict] = []
         self.exits = exits  # (Exit, centre cell, cells)
         self.endings: List[dict] = []
         self.next_id = 0
         self.min_run = max(4, int(getattr(self.spec, "min_run", 5)))
         from collections import Counter
         self.why = Counter()
+        self.keep_main = np.zeros((self.h, self.w), dtype=bool)  # main road may not enter
+        self.keep_any = np.zeros((self.h, self.w), dtype=bool)  # nothing planned may enter
+        self.sites: List[dict] = []  # reserved hidden special-area sites
 
     # ------------------------------------------------------------ owner grid
 
@@ -268,6 +276,8 @@ class Planner:
         if not own:
             return True
         m = self._mask(own)
+        if (m & self.keep_any).any():
+            return False  # stays well clear of a reserved hidden special site
         dil = binary_dilation(m, structure=np.ones((2 * GAP + 1, 2 * GAP + 1), dtype=bool))
         bad = dil & (self.owner >= 0)
         for (jy, jx) in junctions:
@@ -347,8 +357,10 @@ class Planner:
         # what each internal node is: spectacle (special area), plain clearing, junction
         # special areas are mostly hidden (spur pockets, the back road); now and then
         # one sits right by the road at a convergence clearing
-        n_spect = min(len(self.areas), sum(1 for _ in range(n_int) if rng.random() < 0.3))
-        n_plain = min(n_int - n_spect, max(0, int(spec.clearings) - n_spect) // 2)
+        # owner rule: special areas are never on the road (no spectacle clearings for
+        # them); a plain clearing on the spine is a rest stop, at most one per route
+        n_spect = 0
+        n_plain = min(n_int, 1 if int(spec.clearings) > 0 else 0)
         kinds = ["spectacle"] * n_spect + ["clearing"] * n_plain
         kinds += ["junction"] * (n_int - len(kinds))
         # spectacle in the middle of the route, junctions near the ends
@@ -466,8 +478,10 @@ class Planner:
         u_lo = ua + hua + lead
         u_hi = ub - hub - lead
         room = u_hi - u_lo
-        k = int(round(jog_scale * spec.meander * max(0, room) / 15 + rng.uniform(-0.4, 0.4)))
-        k = max(0, min(k, 3))
+        # a road runs as straight as it can: at most one bend of its own per section
+        # (bends get a pond / obstacle later so they have a reason)
+        k = int(round(jog_scale * spec.meander * max(0, room) / 30 + rng.uniform(-0.4, 0.4)))
+        k = max(0, min(k, 1))
         amp_hi = 4 + int(8 * spec.meander)
         levels = [va]
         for _ in range(k):
@@ -608,7 +622,8 @@ class Planner:
                 cells = raster(f, pts, MAIN_W)
                 ja = self.junction_out(f, pts, A, False)
                 jb = self.junction_out(f, pts, B, True)
-                if self.runs_ok(f, pts, [A, B]) and self.fits(cells, [ja, jb], [A.id, B.id]):
+                if self.runs_ok(f, pts, [A, B]) and self.fits(cells, [ja, jb], [A.id, B.id]) \
+                        and not (self._mask(cells) & self.keep_main).any():
                     ok = True
                     break
             if not ok:
@@ -657,7 +672,7 @@ class Planner:
             fate = fate0 if attempt < 25 else ("full" if attempt < 45 else "dead")
             prof = shifted(mprof, o)
             # an outward dogleg of its own now and then, so lanes aren't all parallel
-            if outermost and rng.random() < 0.5 * self.spec.meander and len(prof) >= 1:
+            if False and outermost:  # no outward doglegs for their own sake (owner: lanes that wander)
                 prof = self._bump(prof, side, ua + hua, ub - hub)
             if level == 2:
                 p_lo, p_hi = parent.meta["u_s"] + 6, parent.meta["u_e"] - 6
@@ -750,6 +765,143 @@ class Planner:
         out.sort(key=lambda p: p[0])
         return out
 
+    # ------------------------------------------------------------ hidden special sites
+
+    def reserve_specials(self) -> None:
+        """Owner rule: special areas are rare and HIDDEN. Each one gets a site that is
+        - at least EXIT_DIST tiles from every exit / town gate,
+        - outside the GBA camera window (CAM_X x CAM_Y around the player) from every
+          point of the main road, and
+        - well clear of every other planned lane (only its gated hidden trail reaches it).
+        Junction / rest-stop nodes may be nudged sideways so the road passes far enough
+        away. An area with no such site is dropped (the route simply has none)."""
+        from .generate import exit_cells
+
+        if not self.special_queue:
+            return
+        H, W = self.h, self.w
+        exit_pts = []
+        for e in self.spec.exits:
+            _, cells = exit_cells(self.r, e)
+            exit_pts.extend(cells)
+        for area in self.special_queue:
+            w, h = _real_size(area)
+            best = None
+            for y0 in range(MARGIN, H - h - MARGIN + 1):
+                for x0 in range(MARGIN, W - w - MARGIN + 1):
+                    y1, x1 = y0 + h - 1, x0 + w - 1
+                    dmin = min((max(0, y0 - ey, ey - y1) + max(0, x0 - ex, ex - x1) for ey, ex in exit_pts),
+                               default=99)
+                    if dmin < EXIT_DIST:
+                        continue
+                    if (self.owner[max(0, y0 - GAP):y1 + GAP + 1, max(0, x0 - GAP):x1 + GAP + 1] >= 0).any():
+                        # only movable nodes may be in the way; checked in _site_moves
+                        pass
+                    moves = self._site_moves(y0, x0, h, w)
+                    if moves is None:
+                        continue
+                    # deep: far from the exits, and towards the middle of the route
+                    cy, cx = y0 + h / 2, x0 + w / 2
+                    mid = abs(cy - H / 2) / H + abs(cx - W / 2) / W
+                    score = dmin - 3 * len(moves) - 6 * mid + float(self.rng.random()) * 2
+                    if best is None or score > best[0]:
+                        best = (score, y0, x0, moves)
+            if best is None:
+                self.r.log.append(f"special: no hidden site for {area.get('id')} (>= {EXIT_DIST} from exits, "
+                                  f"out of sight of the road); left out")
+                continue
+            _, y0, x0, moves = best
+            for nid, (ny, nx) in moves.items():
+                n = self.node(nid)
+                self.owner[self.owner == n.id] = -1
+                n.y, n.x = ny, nx
+                self.claim(n.cells(), n.id)
+            box = (y0, x0, h, w)
+            oid = self._oid("special_site")
+            self.claim([(y, x) for y in range(y0, y0 + h) for x in range(x0, x0 + w)], oid)
+            self.keep_main[max(0, y0 - CAM_Y):y0 + h + CAM_Y, max(0, x0 - CAM_X):x0 + w + CAM_X] = True
+            self.keep_any[max(0, y0 - KEEP):y0 + h + KEEP, max(0, x0 - KEEP):x0 + w + KEEP] = True
+            self.sites.append({"area": area, "box": box, "oid": oid})
+            self.r.log.append(f"special: {area.get('id')} hidden at {box}, {int(best[0])} score")
+
+    def align_nodes(self) -> None:
+        """No tiny offsets between consecutive spine nodes (they turn into pointless
+        wiggles or detours in the road): snap a movable node onto its neighbour's line
+        when they are less than 4 apart, if the road may go there."""
+        for i in range(1, len(self.nodes) - 1):
+            n = self.nodes[i]
+            if n.kind in ("exit", "corner"):
+                continue
+            f = self.legs[self._leg_of_node(n)][0]
+            u, v = f.uv(n.y, n.x)
+            for m in (self.nodes[i - 1], self.nodes[i + 1]):
+                mu, mv = f.uv(m.y, m.x)
+                if 0 < abs(mv - v) < 4:
+                    ny, nx = f.yx(u, mv)
+                    hy, hx = n.hy, n.hx
+                    box = self.keep_main[max(0, ny - hy - 2):ny + hy + 3, max(0, nx - hx - 2):nx + hx + 3]
+                    if not box.any():
+                        self.owner[self.owner == n.id] = -1
+                        n.y, n.x = ny, nx
+                        self.claim(n.cells(), n.id)
+                        v = mv
+                    break
+
+    def _site_moves(self, y0: int, x0: int, h: int, w: int) -> Optional[Dict[int, Cell]]:
+        """Node moves that keep the road out of this site's camera window, or None if
+        the site can't work (an exit / corner in the way, or no room for the road)."""
+        ky0, ky1, kx0, kx1 = y0 - CAM_Y, y0 + h - 1 + CAM_Y, x0 - CAM_X, x0 + w - 1 + CAM_X
+        moves: Dict[int, Cell] = {}
+        for n in self.nodes:
+            ny0, ny1, nx0, nx1 = n.rect() if (n.hy or n.hx) else (n.y, n.y, n.x, n.x)
+            pad = 2  # the road is 3 wide
+            if ny1 + pad < ky0 or ny0 - pad > ky1 or nx1 + pad < kx0 or nx0 - pad > kx1:
+                continue
+            if n.kind in ("exit", "corner"):
+                return None
+            # nudge across the leg (v) to whichever side of the window has room
+            f = self.legs[self._leg_of_node(n)][0]
+            vlo, vhi = self.vrange(f)
+            _, hv = n.half_uv(f)
+            u, v = f.uv(n.y, n.x)
+            corners = [f.uv(yy, xx)[1] for yy in (ky0, ky1) for xx in (kx0, kx1)]
+            kv0, kv1 = min(corners), max(corners)
+            opts = [kv0 - hv - pad - 1, kv1 + hv + pad + 1]
+            opts = [o for o in opts if vlo + hv + 1 <= o <= vhi - hv - 1]
+            if not opts:
+                return None
+            nv = min(opts, key=lambda o: abs(o - v))
+            if abs(nv - v) > 12:
+                return None
+            moves[n.id] = f.yx(u, nv)
+        # nothing else may sit in the site itself
+        own = self.owner[max(0, y0 - GAP):y0 + h + GAP, max(0, x0 - GAP):x0 + w + GAP]
+        if (own >= 0).any() and not set(np.unique(own[own >= 0])) <= set(moves):
+            return None
+        return moves
+
+    def _leg_of_node(self, n: Node) -> int:
+        for li, (f, U) in enumerate(self.legs):
+            u, _ = f.uv(n.y, n.x)
+            if 0 <= u <= U:
+                return li
+        return 0
+
+    def check_sites(self) -> None:
+        """If a main lane had to be forced through a site's window, the site is dropped."""
+        main = np.zeros((self.h, self.w), dtype=bool)
+        for l in self.lanes:
+            if l.kind == "main":
+                main |= self._mask(l.cells)
+        for st in list(self.sites):
+            y0, x0, h, w = st["box"]
+            win = np.zeros_like(main)
+            win[max(0, y0 - CAM_Y):y0 + h + CAM_Y, max(0, x0 - CAM_X):x0 + w + CAM_X] = True
+            if (win & main).any():
+                self.r.log.append(f"special: road runs within sight of {st['area'].get('id')}; dropped")
+                self.sites.remove(st)
+                self.owner[self.owner == st["oid"]] = -1
+
     def lane(self, lid: int) -> Lane:
         return next(l for l in self.lanes if l.id == lid)
 
@@ -763,7 +915,7 @@ class Planner:
         for area in list(self.areas):
             if self.spur(area=area):
                 self.areas.remove(area)
-        want = max(int(spec.dead_ends), 0) + max(int(spec.branches) // 2, 0)
+        want = max(int(spec.dead_ends), 0)  # fewer, meaningful spurs (each gets a purpose)
         have = sum(1 for l in self.lanes if l.fate == "dead")
         tries = 0
         while have < want and tries < want * 3:
@@ -839,12 +991,17 @@ class Planner:
             return True
         return False
 
-    def _path_to_lanes(self, start: Cell, max_len: int = 30) -> Optional[Tuple[List[Cell], int]]:
+    def _path_to_lanes(self, start: Cell, max_len: int = 30, hosts_only: bool = False) -> Optional[Tuple[List[Cell], int]]:
         """Orthogonal path (few, long straight runs) from ``start`` to the nearest lane,
-        keeping GAP tiles of forest from everything else on the way."""
+        keeping GAP tiles of forest from everything else on the way. ``hosts_only``: only
+        the road and its braids, never another spur (no spur-off-a-spur strings)."""
         import heapq
 
-        goal = np.isin(self.owner, [i for i, k in self.kind_of.items() if k in ("main", "loop", "dead_end")])
+        ok = [i for i, k in self.kind_of.items() if k in ("main", "loop", "dead_end")]
+        if hosts_only:
+            ok = [i for i in ok if self.kind_of[i] in ("main", "loop")
+                  or any(l.id == i and l.fate == "dead" and not l.meta.get("spur") for l in self.lanes)]
+        goal = np.isin(self.owner, ok)
         near = binary_dilation(self.owner >= 0, structure=np.ones((2 * GAP + 1, 2 * GAP + 1), dtype=bool))
         h, w = self.h, self.w
         TURN = 10
@@ -898,7 +1055,7 @@ class Planner:
         bands = sorted(range(vlo + 1, vhi - 1), key=lambda v: int((np.abs(used - v) <= GAP + 2).sum()))[:8]
         for _ in range(200):
             v0 = int(rng.integers(vlo + 1, vhi - 1))
-            ln = int(rng.integers(12, max(13, int(U * 0.6))))
+            ln = int(rng.integers(12, max(13, min(22, int(U * 0.4)))))  # an old trail, not a second road
             u1 = int(rng.integers(6, max(7, U - ln - 8)))
             u2 = u1 + ln
             v1 = int(np.clip(v0 + rng.integers(-3, 4), vlo + 1, vhi - 1))
@@ -969,13 +1126,13 @@ class Planner:
                     for x in range(self.w):
                         if f0.uv(y, x)[1] > vhi - 4:
                             d[y, x] = 0
-            if d.max() < 6:
+            if d.max() < 9:  # only really big blank masses get a lane (with a purpose)
                 break
             d += self.rng.random(d.shape) * 0.9
             ty, tx = np.unravel_index(int(np.argmax(d)), d.shape)
             ty, tx = int(ty), int(tx)
             tried[max(0, ty - 3): ty + 4, max(0, tx - 3): tx + 4] = True
-            res = self._path_to_lanes((ty, tx))
+            res = self._path_to_lanes((ty, tx), hosts_only=True)
             if res is None:
                 continue
             path, hit = res
@@ -1123,7 +1280,7 @@ class Planner:
                 if nd == (-d[0], -d[1]):
                     continue
                 ny, nx = y + nd[0], x + nd[1]
-                if not (0 <= ny < h and 0 <= nx < w):
+                if not (0 <= ny < h and 0 <= nx < w) or self.keep_any[ny, nx]:
                     continue
                 depth = abs(ny - c[0]) + abs(nx - c[1])
                 if depth < 4 and nd != d0:
@@ -1161,6 +1318,19 @@ def _visibility(area: dict) -> str:
     except Exception:
         pass
     return ""
+
+
+def _real_size(area: dict) -> Tuple[int, int]:
+    """(w, h) the areas package will actually paint (no clipping)."""
+    w, h = area.get("size") or area.get("footprint") or [9, 8]
+    try:
+        from . import areas as api  # type: ignore
+
+        if hasattr(api, "requirements") and "archetype" not in area:
+            w, h = api.requirements(area).get("footprint", (w, h))
+    except Exception:
+        pass
+    return int(w), int(h)
 
 
 def _area_size(area: dict) -> Tuple[int, int]:
@@ -1235,10 +1405,23 @@ def plan(route, areas: List[dict]) -> Planner:
     if len(exits) < 2:
         # dead end (region role): one real exit; the main lane runs to the goal instead
         exits.append(_virtual_goal(route, exits[0][0]))
-    p = Planner(route, areas, exits[:2])
-    p.build_spine()
-    p.place_nodes()
-    p.plan_sections()
+    # a hidden site only counts if the road can keep out of sight of it; re-plan a few
+    # times (same seed stream, so still deterministic) before giving the area up
+    p = None
+    for attempt in range(12):
+        q = Planner(route, areas, exits[:2])
+        q.build_spine()
+        q.place_nodes()
+        q.reserve_specials()
+        q.align_nodes()
+        q.plan_sections()
+        q.check_sites()
+        if p is None or len(q.sites) > len(p.sites):
+            p = q
+        if len(p.sites) >= len(areas):
+            break
+    if attempt:
+        route.log.append(f"plan: {attempt + 1} tries to hide {len(p.sites)}/{len(areas)} special areas")
     p.back_road()
     p.enforce_quotas()
     p.coverage()

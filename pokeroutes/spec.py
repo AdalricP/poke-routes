@@ -48,6 +48,10 @@ class RouteSpec:
     hidden_paths: int = 2
     hidden_items: int = 4
     special_areas: List[str] = field(default_factory=list)  # species names, archetypes, or "auto"
+    # special areas are rare: each "auto" entry becomes an area only this often (named
+    # entries always count); `pokeroutes region` also caps the total across the region
+    special_area_chance: float = 0.35
+    special_budget: int = -1  # areas this route may still have (-1 = no cap; set by the region)
     species_file: str = ""
     music: str = "MUS_ROUTE104"
     weather: str = "WEATHER_SUNNY"
