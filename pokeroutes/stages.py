@@ -345,48 +345,76 @@ def stage_lakes(route: Route) -> None:
 def _bend_obstacles(route: Route) -> None:
     """A real road bends because something is in the way. Where the main road jogs
     sideways, put a pond right where it would have run straight on, so the bend reads
-    as going round the water rather than a random kink."""
+    as going round the water rather than a random kink. Either end of the jog will do,
+    and a small pond when a big one would crowd a side lane."""
     from .purpose import record
 
     p = plan_of(route)
-    walk = np.isin(route.cls, list(WALKABLE) + ["w"])
     for s in p.sections:
         m = p.lane(s.lanes[0])
-        f = m.frame
-        pts = m.pts
-        for i in range(1, len(pts) - 1):
-            (u0, v0), (u1, v1), (u2, v2) = pts[i - 1], pts[i], pts[i + 1]
-            if not (v0 == v1 and u1 == u2 and abs(v2 - v1) >= 4):
-                continue  # want: a run along u, then a sideways jog
-            du = 1 if u1 > u0 else -1
-            cells = [f.yx(u1 + du * k, v1 + dv) for k in range(3, 7) for dv in range(-2, 3)
-                     if not (k == 6 and abs(dv) == 2)]
-            own = set(m.cells) | set(cells)
-            ok = True
-            for (y, x) in cells:
-                if not route.inside(y, x, 3) or route.cls[y, x] != "f" or route.protect[y, x]:
-                    ok = False
-                    break
-                box = walk[y - 2:y + 3, x - 2:x + 3]
-                ys, xs = np.nonzero(box)
-                if any((y - 2 + a, x - 2 + b) not in own for a, b in zip(ys, xs)):
-                    ok = False
-                    break
-            if not ok:
-                continue
-            # the shore between the road and the pond is a strip of grass you can walk
-            shore = [f.yx(u1 + du * 2, v1 + dv) for dv in range(-2, 3)]
-            if not all(route.inside(*c, 3) and route.cls[c] == "f" for c in shore):
-                continue
-            for c in cells:
-                route.cls[c] = "w"
-            for c in shore:
-                route.cls[c] = ground_class(route)
-                route.protect[c] = True
-            rec = record(route, "bend", f.yx(u1, v1), why="pond")
-            rec["reason"] = "The road bends round a pond instead of running straight on."
-            route.zones.append(Zone("lake", cells, "pond at the bend", {"purpose": rec}))
-            walk = np.isin(route.cls, list(WALKABLE) + ["w"])
+        for pts in (m.pts, m.pts[::-1]):
+            for i in range(1, len(pts) - 1):
+                (u0, v0), (u1, v1), (u2, v2) = pts[i - 1], pts[i], pts[i + 1]
+                if not (v0 == v1 and u1 == u2 and abs(v2 - v1) >= 4):
+                    continue  # want: a run along u, then a sideways jog
+                if _jog_has_pond(route, m.frame, (u1, v1), (u2, v2)):
+                    continue
+                du = 1 if u1 > u0 else -1
+                cells = _bend_pond_cells(route, m, u1, v1, du)
+                if cells is None:
+                    continue
+                _dig_bend_pond(route, m.frame, cells, u1, v1, du)
+                rec = record(route, "bend", m.frame.yx(u1, v1), why="pond")
+                rec["reason"] = "The road bends round a pond instead of running straight on."
+                route.zones.append(Zone("lake", cells, "pond at the bend", {"purpose": rec}))
+
+
+BEND_POND_SHAPES = (  # (rows along the road beyond the corner, half-width across it)
+    (range(3, 7), 2),
+    (range(3, 6), 1),
+)
+
+
+def _jog_has_pond(route: Route, f, corner_a, corner_b) -> bool:
+    ends = {f.yx(*corner_a), f.yx(*corner_b)}
+    return any(tuple(x["cell"]) in ends for x in route.__dict__.get("purposes", [])
+               if x["kind"] == "bend" and x.get("why") == "pond")
+
+
+def _bend_pond_cells(route: Route, m, u1: int, v1: int, du: int) -> Optional[List[Cell]]:
+    f = m.frame
+    walk = np.isin(route.cls, list(WALKABLE) + ["w"])
+    for ks, half in BEND_POND_SHAPES:
+        last = ks[-1]
+        cells = [f.yx(u1 + du * k, v1 + dv) for k in ks for dv in range(-half, half + 1)
+                 if not (half >= 2 and k == last and abs(dv) == half)]
+        own = set(m.cells) | set(cells)
+        shore = [f.yx(u1 + du * 2, v1 + dv) for dv in range(-half, half + 1)]
+        if _pond_fits(route, walk, cells, own) and all(route.inside(*c, 3) and route.cls[c] == "f" for c in shore):
+            return cells
+    return None
+
+
+def _pond_fits(route: Route, walk: np.ndarray, cells: List[Cell], own: set) -> bool:
+    for (y, x) in cells:
+        if not route.inside(y, x, 3) or route.cls[y, x] != "f" or route.protect[y, x]:
+            return False
+        box = walk[y - 2:y + 3, x - 2:x + 3]
+        ys, xs = np.nonzero(box)
+        if any((y - 2 + a, x - 2 + b) not in own for a, b in zip(ys, xs)):
+            return False
+    return True
+
+
+def _dig_bend_pond(route: Route, f, cells: List[Cell], u1: int, v1: int, du: int) -> None:
+    """The shore between the road and the pond is a strip of grass you can walk."""
+    half = max(abs(f.uv(*c)[1] - v1) for c in cells)
+    for c in cells:
+        route.cls[c] = "w"
+    for dv in range(-half, half + 1):
+        c = f.yx(u1 + du * 2, v1 + dv)
+        route.cls[c] = ground_class(route)
+        route.protect[c] = True
 
 
 def _ponds(route: Route, count: int) -> None:
