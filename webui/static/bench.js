@@ -10,6 +10,7 @@
   const log = Shell.log;
   const CELL = 16;
   const FADE_MS = 220;
+  const FLASH_MS = 1100; // changed cells glow yellow after stepping to a stage, then fade
   const LAND_RATES = [20, 20, 10, 10, 10, 10, 5, 5, 4, 4, 1, 1];
   const WATER_RATES = [60, 30, 5, 4, 1];
   const STORE_KEY = "pokeroutes-webui-v1";       // last params (also written by the region / world editors)
@@ -41,7 +42,7 @@
   const state = {
     atlases: {}, result: null,
     stage: 0, prevStage: null, fadeStart: 0,
-    tileCanvases: [], classCanvases: [], stageInfo: [],
+    tileCanvases: [], classCanvases: [], changedMasks: [], stageInfo: [], flashStart: 0,
     view: { zoom: 1, ox: 0, oy: 0 },
     layer: viewSaved.layer === "classes" ? "classes" : "tiles",
     ov: Object.assign({ paths: true, areas: true, events: true, grid: false }, viewSaved.ov || {}),
@@ -443,10 +444,16 @@
     const g = c.getContext("2d");
     if (prev) g.drawImage(prev, 0, 0); // start from the previous stage; only redraw what changed
     let changed = 0;
+    const mask = document.createElement("canvas");
+    mask.width = W;
+    mask.height = H;
+    const mg = mask.getContext("2d");
+    mg.fillStyle = "#ffde59";
     for (let k = 0; k < st.tiles.length; k++) {
       const m = st.tiles[k];
       if (prevTiles && prevTiles[k] === m) continue;
       changed++;
+      if (prevTiles) mg.fillRect(k % W, Math.floor(k / W), 1, 1);
       const x = (k % W) * CELL, y = Math.floor(k / W) * CELL;
       const a = idx[m];
       if (a == null) { g.fillStyle = "#ff00ff"; g.fillRect(x, y, CELL, CELL); }
@@ -469,19 +476,21 @@
       }
     }
     cg.putImageData(data, 0, 0);
-    return { tiles: c, classes: cc, changed: prevTiles ? changed : st.tiles.length };
+    return { tiles: c, classes: cc, mask: prevTiles ? mask : null, changed: prevTiles ? changed : st.tiles.length };
   }
 
   function buildCanvases() {
     const r = state.result;
     state.tileCanvases = [];
     state.classCanvases = [];
+    state.changedMasks = [];
     state.stageInfo = [];
     let prev = null, prevTiles = null;
     r.stages.forEach((st, i) => {
       const d = drawStage(i, prev, prevTiles);
       state.tileCanvases.push(d.tiles);
       state.classCanvases.push(d.classes);
+      state.changedMasks.push(d.mask);
       const pz = i ? r.stages[i - 1].zones : 0, pe = i ? r.stages[i - 1].events : 0;
       state.stageInfo.push({ changed: d.changed, zones: st.zones - pz, events: st.events - pe });
       prev = d.tiles;
@@ -712,7 +721,7 @@
       if (t >= 1) state.prevStage = null;
     } else state.prevStage = null;
     paintScene(ctx, state.view, { fade: t, prev: state.prevStage, interactive: true });
-    if (t < 1) draw();
+    if (t < 1 || flashLeft() > 0) draw();
   }
 
   // Draws the map + overlays into any 2D context (the scene view, and File > Export PNG).
@@ -727,6 +736,8 @@
     g.globalAlpha = opt.fade == null ? 1 : opt.fade;
     g.drawImage(layer[state.stage], ox, oy, W, H);
     g.globalAlpha = 1;
+    const mask = state.changedMasks[state.stage], fl = flashLeft();
+    if (opt.interactive && mask && fl > 0) { g.globalAlpha = 0.65 * fl; g.drawImage(mask, ox, oy, W, H); g.globalAlpha = 1; }
     const s = CELL * zoom;
     if (state.ov.grid && s >= 8) drawGrid(g, r, ox, oy, s);
     const zones = PR.zonesAt(r, state.stage);
@@ -1253,89 +1264,75 @@
   }
 
   // ------------------------------------------------------------ timeline
+  // One block per generator stage: what it added (cells / zones / items), a yellow bar
+  // scaled to the cells it changed, and a fill that runs across the block while playing.
   const tracks = $("tlTracks");
-  function tlX(i) {
-    const n = state.result ? state.result.stages.length : 1;
-    const w = tracks.clientWidth;
-    const pad = 14;
-    return n <= 1 ? pad : pad + (i * (w - 2 * pad)) / (n - 1);
-  }
+  const isEmpty = (i) => { const f = state.stageInfo[i] || {}; return i > 0 && !f.changed && !(f.zones > 0) && !(f.events > 0); };
+  const flashLeft = () => Math.max(0, 1 - (performance.now() - state.flashStart) / Math.min(FLASH_MS, prefs.stageMs * 1.2));
   function buildTimeline() {
     const r = state.result;
-    const ruler = $("tlRuler"), rm = $("tlMap"), rz = $("tlZones"), re = $("tlEvents");
-    ruler.innerHTML = rm.innerHTML = rz.innerHTML = re.innerHTML = "";
+    tracks.innerHTML = "";
     if (!r) return;
-    const n = r.stages.length;
-    const maxZ = Math.max(1, ...state.stageInfo.map((s) => s.zones));
-    const maxE = Math.max(1, ...state.stageInfo.map((s) => s.events));
-    const spacing = n > 1 ? (tracks.clientWidth - 28) / (n - 1) : 200;
+    const maxC = Math.max(1, ...state.stageInfo.slice(1).map((s) => s.changed));
     r.stages.forEach((st, i) => {
-      const x = tlX(i);
       const info = state.stageInfo[i] || {};
-      const tick = el("div", "tl-tick");
-      tick.style.left = x + "px";
-      tick.append(document.createTextNode(String(i + 1)));
-      if (spacing >= 58) {
-        const nm = el("span", "nm", st.name);
-        nm.style.maxWidth = Math.max(20, spacing - 8) + "px";
-        tick.append(nm);
+      const bits = [];
+      if (i === 0) bits.push("start");
+      else if (info.changed) bits.push(`${info.changed} cells`);
+      if (info.zones > 0) bits.push(`+${info.zones} zone${info.zones > 1 ? "s" : ""}`);
+      if (info.events > 0) bits.push(`+${info.events} item${info.events > 1 ? "s" : ""}`);
+      const dt = bits.join(" · ") || "no change";
+      const seg = el("div", "tl-seg" + (isEmpty(i) ? " empty" : ""));
+      seg.append(el("span", "fill"));
+      const nm = el("span", "nm");
+      nm.append(el("b", "", String(i + 1)), document.createTextNode(st.name));
+      seg.append(nm, el("span", "dt", dt));
+      if (i > 0 && info.changed) {
+        const amt = el("span", "amt");
+        amt.style.width = Math.max(4, Math.round((info.changed / maxC) * 100)) + "%";
+        seg.append(amt);
       }
-      tick.title = `${i + 1}. ${st.name}`;
-      ruler.append(tick);
-      const key = el("div", "tl-key" + (info.changed ? "" : " same"));
-      key.style.left = x + "px";
-      key.title = `${st.name}: ${info.changed} cells changed`;
-      rm.append(key);
-      if (info.zones > 0) {
-        const b = el("div", "tl-bar");
-        b.style.left = x + "px";
-        b.style.height = Math.max(2, Math.round((info.zones / maxZ) * 16)) + "px";
-        b.title = `${st.name}: +${info.zones} zones`;
-        rz.append(b);
-      }
-      if (info.events > 0) {
-        const b = el("div", "tl-bar ev");
-        b.style.left = x + "px";
-        b.style.height = Math.max(2, Math.round((info.events / maxE) * 16)) + "px";
-        b.title = `${st.name}: +${info.events} items/events`;
-        re.append(b);
-      }
+      seg.title = `${i + 1}. ${st.name}: ${dt}`;
+      tracks.append(seg);
     });
     syncTimeline();
   }
   function syncTimeline() {
-    const r = state.result;
-    $("tlHead").style.left = (r ? tlX(state.stage) : -10) + "px";
-    $("tlRuler").querySelectorAll(".tl-tick").forEach((t, k) => t.classList.toggle("on", k === state.stage));
-    $("tlMap").querySelectorAll(".tl-key").forEach((t, k) => t.classList.toggle("on", k === state.stage));
+    tracks.querySelectorAll(".tl-seg").forEach((t, k) => {
+      t.classList.toggle("on", k === state.stage);
+      t.classList.toggle("past", k < state.stage);
+      t.classList.remove("run");
+    });
+    const cur = tracks.children[state.stage];
+    if (cur && state.playing) {
+      void cur.offsetWidth; // restart the fill animation
+      cur.style.setProperty("--dur", prefs.stageMs + "ms");
+      cur.classList.add("run");
+    }
   }
   function stageFromX(clientX) {
-    const r = state.result;
-    if (!r) return 0;
-    const b = tracks.getBoundingClientRect();
-    const x = clientX - b.left;
-    let best = 0, bd = Infinity;
-    for (let i = 0; i < r.stages.length; i++) { const d = Math.abs(tlX(i) - x); if (d < bd) { bd = d; best = i; } }
-    return best;
+    const segs = [...tracks.children];
+    if (!segs.length) return 0;
+    const k = segs.findIndex((t) => clientX < t.getBoundingClientRect().right);
+    return k < 0 ? segs.length - 1 : k;
   }
   tracks.addEventListener("pointerdown", (ev) => {
     if (!state.result || ev.button !== 0) return;
     stopPlay();
     tracks.setPointerCapture(ev.pointerId);
-    setStage(stageFromX(ev.clientX), false);
-    const move = (e) => { const i = stageFromX(e.clientX); if (i !== state.stage) setStage(i, false); };
+    setStage(stageFromX(ev.clientX), true);
+    const move = (e) => { const i = stageFromX(e.clientX); if (i !== state.stage) setStage(i, true); };
     const up = () => { tracks.removeEventListener("pointermove", move); tracks.removeEventListener("pointerup", up); };
     tracks.addEventListener("pointermove", move);
     tracks.addEventListener("pointerup", up);
   });
-  new ResizeObserver(() => { if (state.result) buildTimeline(); }).observe(tracks);
 
   function setStage(i, fade) {
     const r = state.result;
     if (!r) return;
     i = Math.max(0, Math.min(r.stages.length - 1, i));
-    if (fade && i !== state.stage) { state.prevStage = state.stage; state.fadeStart = performance.now(); }
-    else state.prevStage = null;
+    if (fade && i !== state.stage) { state.prevStage = state.stage; state.fadeStart = state.flashStart = performance.now(); }
+    else { state.prevStage = null; state.flashStart = 0; }
     state.stage = i;
     const label = `${i + 1} / ${r.stages.length} · ${r.stages[i].name}`;
     $("tbStage").textContent = label;
@@ -1352,19 +1349,24 @@
     if (state.stage >= r.stages.length - 1) setStage(0, false);
     state.playing = true;
     syncPlay();
+    syncTimeline();
     clearInterval(state.timer);
     state.timer = setInterval(() => {
-      if (state.stage >= state.result.stages.length - 1) {
+      const last = state.result.stages.length - 1;
+      if (state.stage >= last) {
         if (prefs.loop) return setStage(0, false);
         return stopPlay();
       }
-      setStage(state.stage + 1, true);
+      let i = state.stage + 1;
+      while (i < last && isEmpty(i)) i++; // don't sit on stages that changed nothing
+      setStage(i, true);
     }, prefs.stageMs);
   }
   function stopPlay() {
     state.playing = false;
     clearInterval(state.timer);
     syncPlay();
+    syncTimeline();
   }
   function togglePlay() { state.playing ? stopPlay() : startPlay(); }
   function syncPlay() {
