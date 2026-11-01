@@ -280,6 +280,7 @@ def _fmt_event(ev):
 def _run_agent(job):
     jid, target = job["id"], job["target"]
     prompt = build_prompt(job)
+    LOGDIR.mkdir(exist_ok=True)
     (LOGDIR / f"{jid}.prompt.txt").write_text(prompt)
     cmd = claude_cmd(prompt, target)
     _log(jid, f"[run] {Path(cmd[0]).name} -p <prompt> " + " ".join(a for a in cmd[3:] if "\n" not in a))
