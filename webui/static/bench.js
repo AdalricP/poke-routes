@@ -383,6 +383,8 @@
       state.sel = null;
       undoStack.filter((e) => e.kind !== "paint");
       buildCanvases();
+      state.stage = res.stages.length - 1;
+      state.prevStage = null;
       buildTimeline();
       renderInfo();
       renderTree();
