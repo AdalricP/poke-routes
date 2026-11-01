@@ -32,6 +32,7 @@ UV = Tuple[int, int]
 SIDE_IN = {"north": (1, 0), "south": (-1, 0), "west": (0, 1), "east": (0, -1)}
 GAP = 3  # tiles of forest kept between unrelated structures
 MARGIN = 3  # lanes stay this far from the map edge (the outer 2 rows are sealed)
+COVER_BLANK = 8  # a forest mass this many tiles (chessboard) from any lane gets a side path
 JUNCTION_R = 5  # radius around a junction point where touching is allowed
 EXIT_DIST = 20  # a special area is never closer than this to an exit / town gate
 CAM_X, CAM_Y = 8, 6  # GBA camera: 15x10 tiles around the player, so a site this far off is unseen
@@ -1118,7 +1119,6 @@ class Planner:
             d = distance_transform_cdt(self.owner < 0, metric="chessboard").astype(float)
             d[:MARGIN + 3, :] = d[-MARGIN - 3:, :] = 0
             d[:, :MARGIN + 3] = d[:, -MARGIN - 3:] = 0
-            d[tried] = 0
             if self.spec.biome == "beach":  # no lanes out into the sea third
                 f0 = self.legs[0][0]
                 vhi = self.vrange(f0)[1]
@@ -1126,7 +1126,11 @@ class Planner:
                     for x in range(self.w):
                         if f0.uv(y, x)[1] > vhi - 4:
                             d[y, x] = 0
-            if d.max() < 9:  # only really big blank masses get a lane (with a purpose)
+            if d.max() < COVER_BLANK:  # only really big blank masses get a lane (with a purpose)
+                break
+            # a failed try only rules out its own spot, not the whole mass around it
+            d[tried] = 0
+            if d.max() < COVER_BLANK - 3:
                 break
             d += self.rng.random(d.shape) * 0.9
             ty, tx = np.unravel_index(int(np.argmax(d)), d.shape)
