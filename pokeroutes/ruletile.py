@@ -155,12 +155,17 @@ class ArkTiler:
                 cells = [grid[y][x] if (y < H and x < W) else None
                          for y in (2 * by, 2 * by + 1) for x in (2 * bx, 2 * bx + 1)]
                 if cells[0] in letters and all(c == cells[0] for c in cells):
-                    blk[by][bx] = cells[0]
+                    # the crown overhangs the row above; water, rock, ledges... have no
+                    # crown art, so a tree under them would look chopped -> bushes instead
+                    above = {grid[2 * by - 1][x] for x in (2 * bx, 2 * bx + 1) if by > 0 and x < W}
+                    if above <= set(C[cells[0]]["overlays"]) | {cells[0], "f"}:
+                        blk[by][bx] = cells[0]
 
         def pres(bx, by, letter):
             bx, by = min(max(bx, 0), BW - 1), min(max(by, 0), BH - 1)
             return blk[by][bx] == letter
 
+        orth = sum(1 << i for i, d in enumerate(self.bits) if d in ("N", "E", "S", "W"))
         for letter in letters:
             k = C[letter]
             ctx, ov, nph = k["by_context"], k["overlays"], k.get("phases", 1)
@@ -184,7 +189,9 @@ class ArkTiler:
                         ids[y, x] = ov["g"].get(key, ids[y, x])
                     elif c == "p" or c in tall:
                         m = self._mask(grid, x, y, set(C[c].get("joins", c)))
-                        tab = ov[c].get(str(m))
+                        # crown-over-path art only exists for some masks (no road bottom
+                        # edge, 199); fall back to the same mask without the diagonals
+                        tab = ov[c].get(str(m)) or ov[c].get(str(m & orth))
                         if tab and key in tab:
                             ids[y, x] = tab[key]
 
