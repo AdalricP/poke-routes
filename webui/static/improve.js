@@ -14,6 +14,10 @@
     css.href = "improve.css";
     document.head.append(css);
   }
+  const draw_css = document.createElement("link");
+  draw_css.rel = "stylesheet";
+  draw_css.href = "improve-draw.css";
+  document.head.append(draw_css);
 
   const el = (tag, cls, text) => {
     const e = document.createElement(tag);
@@ -41,8 +45,10 @@
               <option value="poke-routes">Generator &amp; web UI</option>
               <option value="rom">ROM (Arklarna)</option>
             </select>
+            <button type="button" class="btn" id="impShotBtn" title="Screenshot this tab and mark it up with a red pen">Screenshot</button>
             <button type="button" class="btn primary" id="impSubmit">Submit</button>
           </div>
+          <div class="imp-shot" id="impShot" hidden><img id="impShotImg" alt="attached screenshot"><button type="button" class="btn" id="impShotDrop">Remove</button></div>
           <p class="imp-note">One commit per job, undoable. Shift+Enter for a new line.</p>
           <p class="imp-err" id="impErr"></p>
         </div>
@@ -69,8 +75,10 @@
             <option value="poke-routes">Generator &amp; web UI</option>
             <option value="rom">ROM (Arklarna)</option>
           </select>
+          <button type="button" id="impShotBtn" title="Screenshot this tab and mark it up with a red pen">Screenshot</button>
           <button type="button" class="primary" id="impSubmit">Submit</button>
         </div>
+        <div class="imp-shot" id="impShot" hidden><img id="impShotImg" alt="attached screenshot"><button type="button" id="impShotDrop">Remove</button></div>
         <p class="imp-note">One commit per job, undoable. Shift+Enter for a new line.</p>
         <p class="imp-err" id="impErr"></p>
       </section>
@@ -94,7 +102,10 @@
   const isOpen = () => (dock ? !!dock.offsetParent : !panel.hidden);
   const $ = (id) => panel.querySelector("#" + id);
 
-  const state = { jobs: [], running: null, shown: null, logNext: 0, logFor: null, timer: null, prev: {} };
+  const state = { jobs: [], running: null, shown: null, logNext: 0, logFor: null, timer: null, prev: {}, screenshot: "" };
+  const maximum_screenshot_width_in_pixels = 1920;
+  const red_pen_colour = "#e3201b";
+  const red_pen_width_as_fraction_of_image_width = 1 / 320;
 
   async function api(path, body) {
     const opts = body === undefined ? {} : {
@@ -256,8 +267,9 @@
     const b = $("impSubmit");
     b.disabled = true;
     try {
-      const j = await api("/api/improve", { request: text, target: $("impTarget").value });
+      const j = await api("/api/improve", { request: text, target: $("impTarget").value, screenshot: state.screenshot });
       $("impText").value = "";
+      set_attached_screenshot("");
       state.shown = j.id;
       state.logFor = null;
       await refresh();
@@ -279,6 +291,99 @@
     panel.querySelector(".imp-close").onclick = () => { panel.hidden = true; };
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !panel.hidden) panel.hidden = true; });
   }
+  async function capture_current_tab_as_canvas() {
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: "browser" }, audio: false, preferCurrentTab: true });
+    const video = Object.assign(document.createElement("video"), { srcObject: stream, muted: true });
+    await video.play();
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const canvas = scale_video_frame_into_canvas(video);
+    stream.getTracks().forEach((track) => track.stop());
+    return canvas;
+  }
+
+  function scale_video_frame_into_canvas(video) {
+    const scale_factor = Math.min(1, maximum_screenshot_width_in_pixels / video.videoWidth);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(video.videoWidth * scale_factor);
+    canvas.height = Math.round(video.videoHeight * scale_factor);
+    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  }
+
+  function open_red_pen_editor(captured_canvas) {
+    return new Promise((resolve) => {
+      const overlay = el("div", "imp-draw");
+      const toolbar = el("div", "imp-draw-bar");
+      const hint = el("span", "imp-draw-hint", "Draw with the red pen to point at the issue.");
+      const clear_button = el("button", "", "Clear");
+      const cancel_button = el("button", "", "Cancel");
+      const attach_button = el("button", "attach", "Attach");
+      const drawing_canvas = document.createElement("canvas");
+      drawing_canvas.width = captured_canvas.width;
+      drawing_canvas.height = captured_canvas.height;
+      const drawing_context = drawing_canvas.getContext("2d");
+      const redraw_captured_image = () => drawing_context.drawImage(captured_canvas, 0, 0);
+      const close_editor_with = (screenshot_data_url) => { overlay.remove(); resolve(screenshot_data_url); };
+
+      [clear_button, cancel_button, attach_button].forEach((button) => { button.type = "button"; });
+      clear_button.onclick = redraw_captured_image;
+      cancel_button.onclick = () => close_editor_with("");
+      attach_button.onclick = () => close_editor_with(drawing_canvas.toDataURL("image/png"));
+      overlay.addEventListener("keydown", (event) => { event.stopPropagation(); if (event.key === "Escape") close_editor_with(""); });
+
+      redraw_captured_image();
+      enable_red_pen_strokes_on_canvas(drawing_canvas, drawing_context);
+      toolbar.append(hint, clear_button, cancel_button, attach_button);
+      overlay.append(toolbar, drawing_canvas);
+      overlay.tabIndex = -1;
+      document.body.append(overlay);
+      overlay.focus();
+    });
+  }
+
+  function enable_red_pen_strokes_on_canvas(drawing_canvas, drawing_context) {
+    drawing_context.strokeStyle = red_pen_colour;
+    drawing_context.lineWidth = Math.max(3, drawing_canvas.width * red_pen_width_as_fraction_of_image_width);
+    drawing_context.lineCap = "round";
+    drawing_context.lineJoin = "round";
+    const pointer_position_in_canvas_pixels = (event) => {
+      const canvas_rectangle = drawing_canvas.getBoundingClientRect();
+      const canvas_pixels_per_css_pixel = drawing_canvas.width / canvas_rectangle.width;
+      return [(event.clientX - canvas_rectangle.left) * canvas_pixels_per_css_pixel, (event.clientY - canvas_rectangle.top) * canvas_pixels_per_css_pixel];
+    };
+    drawing_canvas.onpointerdown = (event) => {
+      drawing_canvas.setPointerCapture(event.pointerId);
+      drawing_context.beginPath();
+      drawing_context.moveTo(...pointer_position_in_canvas_pixels(event));
+      drawing_context.lineTo(...pointer_position_in_canvas_pixels(event));
+      drawing_context.stroke();
+    };
+    drawing_canvas.onpointermove = (event) => {
+      if (!drawing_canvas.hasPointerCapture(event.pointerId)) return;
+      drawing_context.lineTo(...pointer_position_in_canvas_pixels(event));
+      drawing_context.stroke();
+    };
+  }
+
+  function set_attached_screenshot(screenshot_data_url) {
+    state.screenshot = screenshot_data_url;
+    $("impShot").hidden = !screenshot_data_url;
+    $("impShotImg").src = screenshot_data_url;
+  }
+
+  async function take_and_mark_up_screenshot() {
+    $("impErr").textContent = "";
+    let captured_canvas;
+    try { captured_canvas = await capture_current_tab_as_canvas(); } catch (capture_error) {
+      $("impErr").textContent = `Screenshot failed: ${capture_error.message}`;
+      return;
+    }
+    const marked_up_screenshot = await open_red_pen_editor(captured_canvas);
+    if (marked_up_screenshot) set_attached_screenshot(marked_up_screenshot);
+  }
+
+  $("impShotBtn").onclick = take_and_mark_up_screenshot;
+  $("impShotDrop").onclick = () => set_attached_screenshot("");
   $("impSubmit").onclick = submit;
   $("impText").addEventListener("keydown", (e) => {
     e.stopPropagation(); // keep page shortcuts (Ctrl+Enter = Generate) out of the textarea

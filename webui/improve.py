@@ -1,7 +1,8 @@
 """Improvements box ("liquid software"): type how the software should be different,
 and a headless Claude Code run implements it as exactly one git commit.
 
-    POST /api/improve              {"request": "...", "target": "poke-routes" | "rom"}
+    POST /api/improve              {"request": "...", "target": "poke-routes" | "rom",
+                                    "screenshot": optional "data:image/png;base64,..."}
     GET  /api/improve              history (newest first) + targets + last seen 5-hour usage
     GET  /api/improve/<id>?since=N status and log lines from N on
     POST /api/improve/<id>/undo    queue a git revert of that job's commit
@@ -14,6 +15,7 @@ these endpoints run an unattended agent.
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import queue
@@ -38,6 +40,9 @@ HISTORY = HERE / "improvements.json"
 LOGDIR = HERE / "improve-logs"
 USAGE = LOGDIR / "usage.json"
 TIMEOUT = 20 * 60
+maximum_screenshot_size_in_bytes = 8 * 1024 * 1024
+png_data_url_prefix = "data:image/png;base64,"
+png_file_signature = b"\x89PNG\r\n\x1a\n"
 AUTHOR = ("AdalricP", "78260488+AdalricP@users.noreply.github.com")
 
 TARGETS = {
@@ -153,8 +158,18 @@ Hard limits for this unattended run:
 """
 
 
+def describe_attached_screenshot_for_prompt(job) -> str:
+    if not job.get("screenshot"):
+        return ""
+
+    screenshot_note = (f"\nThe owner attached a screenshot with the issues marked in red pen: {job['screenshot']}\n"
+                       "Read it (it is a PNG) before starting; the red marks show what the request is about.\n")
+    return screenshot_note
+
+
 def build_prompt(job) -> str:
-    jid, req, target = job["id"], job["request"].strip(), job["target"]
+    jid, target = job["id"], job["target"]
+    req = job["request"].strip() + describe_attached_screenshot_for_prompt(job)
     if target == "poke-routes":
         return f"""You are implementing an improvement the owner typed into the "Improve" box of the poke-routes web UI.
 
@@ -225,7 +240,7 @@ def _claude():
 
 
 def claude_cmd(prompt, cwd_target):
-    add = [str(ARK / "rom-wt"), str(DOCS), str(RELEASE_ROM.parent), str(ARK / "tools")] if cwd_target == "rom" else []
+    add = [str(ARK / "rom-wt"), str(DOCS), str(RELEASE_ROM.parent), str(ARK / "tools"), str(LOGDIR)] if cwd_target == "rom" else []
     cmd = [_claude(), "-p", prompt, "--output-format", "stream-json", "--verbose",
            "--permission-mode", "bypassPermissions", "--strict-mcp-config", "--no-chrome",
            "--disallowedTools", *DENY]
@@ -481,7 +496,30 @@ def _ensure_worker():
 
 # ------------------------------------------------------------------ api
 
-def submit(request: str, target: str) -> dict:
+def decode_png_screenshot_data_url(screenshot_data_url: str) -> bytes:
+    if not screenshot_data_url.startswith(png_data_url_prefix):
+        raise ValueError("screenshot must be a data:image/png;base64 URL")
+
+    encoded_png = screenshot_data_url[len(png_data_url_prefix):]
+    if len(encoded_png) * 3 // 4 > maximum_screenshot_size_in_bytes:
+        raise ValueError("screenshot is larger than 8 MB")
+    try:
+        png_bytes = base64.b64decode(encoded_png, validate=True)
+    except ValueError as decode_error:
+        raise ValueError(f"screenshot is not valid base64 ({decode_error})") from decode_error
+    if not png_bytes.startswith(png_file_signature):
+        raise ValueError("screenshot is not a PNG")
+    return png_bytes
+
+
+def save_screenshot_for_job(jid: str, png_bytes: bytes) -> str:
+    LOGDIR.mkdir(exist_ok=True)
+    screenshot_path = LOGDIR / f"{jid}.png"
+    screenshot_path.write_bytes(png_bytes)
+    return str(screenshot_path)
+
+
+def submit(request: str, target: str, screenshot_data_url: str = "") -> dict:
     _ensure_worker()
     request = (request or "").strip()
     if not request:
@@ -490,9 +528,12 @@ def submit(request: str, target: str) -> dict:
         raise ValueError("request is longer than 4000 characters")
     if target not in TARGETS:
         raise ValueError(f"target must be one of {', '.join(TARGETS)}")
+    screenshot_png_bytes = decode_png_screenshot_data_url(screenshot_data_url) if screenshot_data_url else b""
     jid = time.strftime("%m%d%H%M") + "-" + uuid.uuid4().hex[:4]
     job = {"id": jid, "kind": "improve", "request": request, "target": target, "status": "queued",
            "created": time.time()}
+    if screenshot_png_bytes:
+        job["screenshot"] = save_screenshot_for_job(jid, screenshot_png_bytes)
     with _lock:
         _jobs[jid] = job
     _save()
@@ -592,7 +633,8 @@ def handle(h, method: str, u) -> None:
         n = int(h.headers.get("Content-Length") or 0)
         body = json.loads(h.rfile.read(n) or b"{}") if n else {}
         if not parts:
-            return h._json(submit(str(body.get("request", "")), str(body.get("target", "poke-routes"))), 202)
+            return h._json(submit(str(body.get("request", "")), str(body.get("target", "poke-routes")),
+                                  str(body.get("screenshot") or "")), 202)
         if len(parts) == 2 and parts[1] == "undo":
             return h._json(undo(parts[0]), 202)
         if len(parts) == 2 and parts[1] == "cancel":

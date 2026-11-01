@@ -1,0 +1,15 @@
+/* Red-pen screenshot editor of the Improve box; loaded by improve.js on every page. */
+.imp-draw { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column; align-items: center;
+  gap: 8px; padding: 10px; background: rgba(10, 10, 10, 0.86); outline: none; }
+.imp-draw-bar { display: flex; gap: 6px; align-items: center; font: 13px/1 system-ui, sans-serif; color: #ddd; }
+.imp-draw-hint { margin-right: 8px; }
+.imp-draw-bar button { height: 26px; padding: 0 12px; border-radius: 3px; border: 1px solid #222;
+  background: #474747; color: #eee; font: inherit; cursor: pointer; }
+.imp-draw-bar button:hover { background: #525252; }
+.imp-draw-bar button.attach { background: #3b78c4; border-color: #2c5d87; color: #fff; }
+.imp-draw canvas { max-width: 100%; max-height: calc(100vh - 56px); cursor: crosshair; touch-action: none; }
+.imp-shot { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+.imp-shot[hidden] { display: none; }
+.imp-shot img { max-width: 120px; max-height: 68px; border: 1px solid #e3201b; }
+.imp-docked .imp-shot { margin-top: 4px; }
+.imp-docked .imp-shot img { max-height: 26px; }
