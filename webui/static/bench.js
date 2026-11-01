@@ -1847,6 +1847,7 @@
       { id: "w-console", label: "Console", run: () => Shell.setBottom("console") },
       { id: "w-timeline", label: "Timeline", run: () => Shell.setBottom("timeline") },
       { id: "w-improve", label: "Improve queue", run: () => { Shell.setBottom("improve"); const t = document.getElementById("impText"); if (t) t.focus(); } },
+      { id: "w-agent", label: "Agent (tilesets etc.)", run: () => { Shell.setBottom("agent"); const t = document.getElementById("agText"); if (t) t.focus(); } },
       { sep: true },
       { id: "w-reset", label: "Reset layout", run: () => Shell.resetLayout() },
     ] },

@@ -140,7 +140,7 @@
       req.title = "Show this run's log";
       req.onclick = () => showLog(j.id);
       const meta = el("div", "meta");
-      meta.append(el("span", "st " + j.status, j.status), el("span", "", j.kind === "undo" ? "undo" : j.target_label));
+      meta.append(el("span", "st " + j.status, j.status), el("span", "", j.kind === "undo" ? "undo" : (j.mode === "agent" ? "agent, " : "") + j.target_label));
       if (j.commit) meta.append(el("code", "", j.commit.slice(0, 8)));
       meta.append(el("span", "", ago(j.finished || j.started || j.created)));
       if (j.kind === "improve" && j.status === "done" && j.commit) {

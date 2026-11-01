@@ -329,7 +329,8 @@ table.enc .pct { display: inline-block; height: 6px; margin-right: 6px; backgrou
 .tl-head::before { content: ""; position: absolute; top: 0; left: -5px; border: 5px solid transparent; border-top: 7px solid var(--focus); }
 
 /* Improve, docked (improve.js mounts into #improveDock) */
-#improveDock { position: absolute; inset: 0; }
+#improveDock, #agentDock { position: absolute; inset: 0; }
+.imp-docked.agent { grid-template-columns: minmax(240px, 32%) minmax(220px, 30%) 1fr; }
 .imp-docked { position: absolute; inset: 0; display: grid; grid-template-columns: minmax(220px, 30%) minmax(220px, 30%) 1fr minmax(160px, 14%); }
 .imp-docked > section { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
 .imp-docked > section:last-child { border-right: 0; }

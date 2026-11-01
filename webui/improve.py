@@ -2,10 +2,15 @@
 and a headless Claude Code run implements it as exactly one git commit.
 
     POST /api/improve              {"request": "...", "target": "poke-routes" | "rom",
-                                    "screenshot": optional "data:image/png;base64,..."}
+                                    "screenshot": optional "data:image/png;base64,...",
+                                    "mode": "improve" (default) | "agent"}
     GET  /api/improve              history (newest first) + targets + last seen 5-hour usage
     GET  /api/improve/<id>?since=N status and log lines from N on
     POST /api/improve/<id>/undo    queue a git revert of that job's commit
+
+"agent" jobs come from the shell's Agent tab: a task done *for* the owner in the tool
+("get this tileset", "apply that tileset") instead of a change to the software.
+Same queue, same one-commit-and-Undo rule, only the prompt's opening differs.
 
 One job at a time, FIFO (undo jobs share the queue). History lives in
 webui/improvements.json, full logs in webui/improve-logs/ (both gitignored).
@@ -167,9 +172,23 @@ def describe_attached_screenshot_for_prompt(job) -> str:
     return screenshot_note
 
 
+AGENT_TASK = f"""This came from the Agent tab, not the Improve box: the owner wants a task done for them in
+the tool so they don't have to learn it (typically finding a tileset, or applying / switching one). Do the
+task itself; don't build a UI feature for it unless they asked for one.
+Tilesets: routes are tiled either with the learned Emerald General + secondary models (pokeroutes/models/,
+pokeroutes/learn.py, `python3 -m pokeroutes learn`) or with the Ark rule tiler (pokeroutes/ruletile.py: ArkOutdoor +
+ArkWoodland from {ROM}, built by tools/arklarna_tiles/build.py there; the web UI picks it via Generate > Tiler).
+Getting a new tileset: only art its authors released for hacks (see AGENT_BRIEF.md), downloaded from them with
+their stated terms (fetching that file is fine; adding network calls to the code is not). Keep it next to where
+it is used with a CREDITS.md (author, URL, terms). Unclear terms, a login, or a terms page to accept: stop and
+say exactly what the owner has to do. Stock Emerald art doesn't count as a new tileset.
+"""
+
+
 def build_prompt(job) -> str:
     jid, target = job["id"], job["target"]
     req = job["request"].strip() + describe_attached_screenshot_for_prompt(job)
+    agent = AGENT_TASK if job.get("mode") == "agent" else ""
     if target == "poke-routes":
         return f"""You are implementing an improvement the owner typed into the "Improve" box of the poke-routes web UI.
 
@@ -177,7 +196,7 @@ Owner's request:
 <<<
 {req}
 >>>
-
+{agent}
 Context: {POKE} is poke-routes, a rough procedural Pokemon Emerald route generator (Python, package pokeroutes/)
 with a stdlib web UI in webui/ (server.py; an editor shell: static/shell.html, shell.js, bench.js, shell-logic.js, shell.css; served at http://127.0.0.1:8790).
 It is an experiment log, not a product: keep the lab-notebook tone in any docs you touch (see ../AGENTS.md).
@@ -208,7 +227,7 @@ Owner's request:
 <<<
 {req}
 >>>
-
+{agent}
 Context: {ROM} is Arklarna, a Pokemon ROM hack on pokeemerald-expansion (decomp), branch `{ROM_BRANCH}`.
 Current phase is ASSETS ONLY: maps, NPCs, tilesets, sprites, text. No engine/C logic changes. If the request
 needs engine logic, make no commit and say so.
@@ -519,7 +538,7 @@ def save_screenshot_for_job(jid: str, png_bytes: bytes) -> str:
     return str(screenshot_path)
 
 
-def submit(request: str, target: str, screenshot_data_url: str = "") -> dict:
+def submit(request: str, target: str, screenshot_data_url: str = "", mode: str = "improve") -> dict:
     _ensure_worker()
     request = (request or "").strip()
     if not request:
@@ -528,10 +547,14 @@ def submit(request: str, target: str, screenshot_data_url: str = "") -> dict:
         raise ValueError("request is longer than 4000 characters")
     if target not in TARGETS:
         raise ValueError(f"target must be one of {', '.join(TARGETS)}")
+    if mode not in ("improve", "agent"):
+        raise ValueError("mode must be improve or agent")
     screenshot_png_bytes = decode_png_screenshot_data_url(screenshot_data_url) if screenshot_data_url else b""
     jid = time.strftime("%m%d%H%M") + "-" + uuid.uuid4().hex[:4]
     job = {"id": jid, "kind": "improve", "request": request, "target": target, "status": "queued",
            "created": time.time()}
+    if mode == "agent":
+        job["mode"] = "agent"
     if screenshot_png_bytes:
         job["screenshot"] = save_screenshot_for_job(jid, screenshot_png_bytes)
     with _lock:
@@ -634,7 +657,7 @@ def handle(h, method: str, u) -> None:
         body = json.loads(h.rfile.read(n) or b"{}") if n else {}
         if not parts:
             return h._json(submit(str(body.get("request", "")), str(body.get("target", "poke-routes")),
-                                  str(body.get("screenshot") or "")), 202)
+                                  str(body.get("screenshot") or ""), str(body.get("mode") or "improve")), 202)
         if len(parts) == 2 and parts[1] == "undo":
             return h._json(undo(parts[0]), 202)
         if len(parts) == 2 and parts[1] == "cancel":
