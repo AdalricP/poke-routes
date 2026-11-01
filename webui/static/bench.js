@@ -24,7 +24,7 @@
   const sdel = (k) => { try { store.removeItem(k); } catch (e) { /* blocked storage */ } };
 
   // ------------------------------------------------------------ preferences
-  const PREF_DEFAULTS = { autoplay: true, stageMs: 900, fade: true, ui: "12", fit: "resize", loop: false, tiler: "learned" };
+  const PREF_DEFAULTS = { autogen: true, autoplay: true, stageMs: 900, fade: true, ui: "12", fit: "resize", loop: false, tiler: "learned" };
   const prefs = Object.assign({}, PREF_DEFAULTS, sget(PREFS_KEY) || {});
   function savePrefs() { sset(PREFS_KEY, prefs); }
   function applyPrefs() {
@@ -260,6 +260,19 @@
     lastParams = after;
     sset(STORE_KEY, after);
     updateTitle();
+    autoGenerate();
+  }
+  // Inspector edits regenerate on their own after a short pause (Preferences > Generate on edit).
+  let autoTimer = null;
+  function autoGenerate() {
+    if (!prefs.autogen) return;
+    clearTimeout(autoTimer);
+    autoTimer = setTimeout(runAutoGenerate, 400);
+  }
+  function runAutoGenerate() {
+    if (state.busy) { autoTimer = setTimeout(runAutoGenerate, 400); return; }
+    if (state.generated === JSON.stringify(params())) return;
+    generate({ auto: true });
   }
   // Replace every field at once (open, paste, new, region) as one undo step.
   function replaceParams(p, label) {
@@ -292,6 +305,7 @@
     if (e.kind === "spec") {
       setParams(e[side]);
       sset(STORE_KEY, params());
+      autoGenerate();
     } else if (e.kind === "paint") {
       if (state.result && state.result.id === e.id && await retile(side === "before" ? e.old : e.cells, true)) storePaint(state.result, e[side]);
     }
@@ -346,7 +360,7 @@
   }
 
   // ------------------------------------------------------------ generate
-  async function generate() {
+  async function generate(opts) {
     if (state.busy) return;
     const p = params();
     sset(STORE_KEY, p);
@@ -380,7 +394,7 @@
       reportToConsole(res, (performance.now() - t0) / 1000);
       updatePaintCount();
       await reapplyPaint();
-      if (prefs.autoplay && res.stages.length > 1) { setStage(0, false); startPlay(); }
+      if (prefs.autoplay && !(opts && opts.auto) && res.stages.length > 1) { setStage(0, false); startPlay(); }
       else setStage(res.stages.length - 1, false);
       updateTitle();
     } catch (e) {
@@ -1849,6 +1863,7 @@
       s.onchange = () => { prefs[k] = typeof PREF_DEFAULTS[k] === "number" ? +s.value : s.value; savePrefs(); applyPrefs(); if (k === "stageMs" && state.playing) startPlay(); };
       return s;
     };
+    row("Generate on edit", chk("autogen", "pAutogen"));
     row("Play stages after Generate", chk("autoplay", "pAuto"));
     row("Stage duration", sel("stageMs", "pMs", [[1600, "1.6 s (0.5x)"], [900, "0.9 s (1x)"], [450, "0.45 s (2x)"], [220, "0.22 s (4x)"]]));
     row("Crossfade between stages", chk("fade", "pFade"));
@@ -1933,6 +1948,7 @@
       { id: "ov-classes", label: "Classes instead of tiles", checked: () => state.layer === "classes", run: () => setLayer(state.layer === "classes" ? "tiles" : "classes") },
       { id: "ov-grid", label: "Grid", checked: () => state.ov.grid, run: () => toggleOv("grid") },
       { sep: true },
+      { id: "v-autogen", label: "Generate on edit", checked: () => prefs.autogen, run: () => { prefs.autogen = !prefs.autogen; savePrefs(); } },
       { id: "v-autoplay", label: "Play stages after Generate", checked: () => prefs.autoplay, run: () => { prefs.autoplay = !prefs.autoplay; savePrefs(); } },
       { id: "v-stages", label: "Show stage", items: () => {
         const r = state.result;
