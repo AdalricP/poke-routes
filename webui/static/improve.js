@@ -1,14 +1,19 @@
 // Improvements box: "How should this be different?" -> a headless Claude Code run
 // implements it as one git commit (webui/improve.py). Include on any page with
-// <script src="improve.js" defer></script>; it adds its own button, panel and CSS.
+// <script src="improve.js" defer></script>. If the page has an #improveDock element
+// (the editor shell's bottom "Improve" tab) it renders docked there; otherwise it adds
+// its own floating button, panel and CSS.
 (function () {
   if (window.__improveBox) return;
   window.__improveBox = true;
+  const dock = document.getElementById("improveDock");
 
-  const css = document.createElement("link");
-  css.rel = "stylesheet";
-  css.href = "improve.css";
-  document.head.append(css);
+  if (!dock) {
+    const css = document.createElement("link");
+    css.rel = "stylesheet";
+    css.href = "improve.css";
+    document.head.append(css);
+  }
 
   const el = (tag, cls, text) => {
     const e = document.createElement(tag);
@@ -21,12 +26,35 @@
   btn.type = "button";
   btn.title = "Ask for a change to this software";
   btn.append("Improve", Object.assign(el("span", "imp-dot"), { hidden: true }));
-  const dot = btn.lastChild;
+  const dot = dock ? (document.getElementById("improveDot") || el("span")) : btn.lastChild;
 
-  const panel = el("aside", "imp-panel");
-  panel.hidden = true;
+  const panel = el(dock ? "div" : "aside", dock ? "imp-docked" : "imp-panel");
+  panel.hidden = !dock;
   panel.setAttribute("aria-label", "Improvements");
-  panel.innerHTML = `
+  panel.innerHTML = dock ? `
+      <section>
+        <h2><label for="impText">How should this be different?</label></h2>
+        <div class="imp-sec">
+          <textarea id="impText" placeholder="e.g. show the walkable percentage in the stats panel"></textarea>
+          <div class="imp-row">
+            <select id="impTarget" aria-label="Target">
+              <option value="poke-routes">Generator &amp; web UI</option>
+              <option value="rom">ROM (Arklarna)</option>
+            </select>
+            <button type="button" class="btn primary" id="impSubmit">Submit</button>
+          </div>
+          <p class="imp-note">Queued and run unattended by Claude Code in that repo; each job ends in one commit you can undo. Cmd/Ctrl + Enter submits.</p>
+          <p class="imp-err" id="impErr"></p>
+        </div>
+      </section>
+      <section>
+        <h2>Queue &amp; history</h2>
+        <div class="imp-sec"><ul class="imp-hist" id="impHist"><li class="muted">nothing yet</li></ul></div>
+      </section>
+      <section>
+        <h2>Run log</h2>
+        <div class="imp-sec" id="impLogBox"><p class="imp-cur" id="impCur"></p><pre class="imp-log" id="impLog"></pre></div>
+      </section>` : `
     <header class="imp-head"><h2>Improve</h2><button type="button" class="imp-close" aria-label="Close">&times;</button></header>
     <div class="imp-body">
       <section>
@@ -53,7 +81,9 @@
       </section>
     </div>`;
 
-  document.body.append(btn, panel);
+  if (dock) dock.append(panel); else document.body.append(btn, panel);
+  // docked: "open" means the Improve tab is showing
+  const isOpen = () => (dock ? !!dock.offsetParent : !panel.hidden);
   const $ = (id) => panel.querySelector("#" + id);
 
   const state = { jobs: [], running: null, shown: null, logNext: 0, logFor: null, timer: null, prev: {} };
@@ -83,7 +113,7 @@
     const jobs = state.jobs;
     if (!jobs.length) { ul.append(el("li", "muted", "nothing yet")); return; }
     for (const j of jobs) {
-      const li = el("li");
+      const li = el("li", (state.shown || state.running) === j.id ? "on" : "");
       const req = el("button", "req", j.request);
       req.type = "button";
       req.title = "Show this run's log";
@@ -130,24 +160,26 @@
     state.shown = id;
     state.logFor = null;
     pollLog();
+    renderHist();
   }
 
   async function pollLog() {
     const id = state.shown || state.running;
     const log = $("impLog");
+    const scroller = dock ? $("impLogBox") : log;
     if (!id) { $("impCur").textContent = ""; return; }
     if (state.logFor !== id) { state.logFor = id; state.logNext = 0; log.textContent = ""; }
     let j;
     try { j = await api(`/api/improve/${id}?since=${state.logNext}`); } catch (e) { return; }
     if (state.logFor !== id) return;
     $("impCur").textContent = `${j.status}: ${j.request.slice(0, 90)}`;
-    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 30;
+    const atBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 30;
     for (const line of j.log || []) {
       const cls = /^\[(error|timeout|warn|cancelled)\]|^ {2}!/.test(line) ? "e" : /^[>[]/.test(line) ? "" : "t";
       log.append(Object.assign(el("span", cls, line), {}), "\n");
     }
     state.logNext = j.log_next;
-    if (atBottom) log.scrollTop = log.scrollHeight;
+    if (atBottom) scroller.scrollTop = scroller.scrollHeight;
   }
 
   async function refresh() {
@@ -156,10 +188,15 @@
     // a poke-routes improvement that just landed: offer a reload so the page shows it
     for (const j of h.jobs) {
       const was = state.prev[j.id];
+      if (was && was !== j.status && window.Shell && window.Shell.log) {
+        const bad = ["failed", "timeout", "cancelled"].includes(j.status);
+        window.Shell.log(bad ? "warn" : "info", `Improve ${j.kind === "undo" ? "undo " : ""}${j.status}: ${j.request.slice(0, 120)}`,
+          [j.subject, j.commit && "commit " + j.commit.slice(0, 10), j.error, j.summary].filter(Boolean).join("\n"));
+      }
       if (was && was !== j.status && j.status === "done" && j.target === "poke-routes") {
         $("impCur").textContent = "Done. Reload the page to see the change.";
         if (!panel.querySelector(".imp-reload")) {
-          const r = el("button", "small imp-reload", "Reload page");
+          const r = el("button", dock ? "btn imp-reload" : "small imp-reload", "Reload page");
           r.type = "button";
           r.onclick = () => location.reload();
           panel.querySelector("#impCur").after(r);
@@ -170,14 +207,15 @@
     state.jobs = h.jobs;
     state.running = h.running;
     dot.hidden = !h.running && !h.queued;
-    if (!panel.hidden) { renderHist(); pollLog(); }
+    if (isOpen()) { renderHist(); pollLog(); }
     schedule();
   }
 
   function schedule() {
     clearTimeout(state.timer);
     const busy = state.running || state.jobs.some((j) => j.status === "queued");
-    state.timer = setTimeout(refresh, !panel.hidden && busy ? 1500 : busy ? 5000 : panel.hidden ? 30000 : 4000);
+    const open = isOpen();
+    state.timer = setTimeout(refresh, open && busy ? 1500 : busy ? 5000 : open ? 4000 : 30000);
   }
 
   async function submit() {
@@ -199,16 +237,21 @@
     }
   }
 
-  btn.onclick = () => {
-    panel.hidden = !panel.hidden;
-    if (!panel.hidden) { $("impText").focus(); refresh(); }
-  };
-  panel.querySelector(".imp-close").onclick = () => { panel.hidden = true; };
+  if (dock) {
+    // refresh as soon as the tab is shown
+    if (window.Shell && window.Shell.onBottom) window.Shell.onBottom((tab) => { if (tab === "improve") refresh(); });
+  } else {
+    btn.onclick = () => {
+      panel.hidden = !panel.hidden;
+      if (!panel.hidden) { $("impText").focus(); refresh(); }
+    };
+    panel.querySelector(".imp-close").onclick = () => { panel.hidden = true; };
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !panel.hidden) panel.hidden = true; });
+  }
   $("impSubmit").onclick = submit;
   $("impText").addEventListener("keydown", (e) => {
     e.stopPropagation(); // keep page shortcuts (Ctrl+Enter = Generate) out of the textarea
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); }
   });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !panel.hidden) panel.hidden = true; });
   refresh();
 })();

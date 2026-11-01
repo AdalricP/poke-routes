@@ -4,9 +4,24 @@ A rough local bench for watching poke-routes build a route, stage by stage, draw
 
 Run: `python3 webui/server.py`, then open http://localhost:8790 (stdlib server; set `PORT=` to change the port).
 
+## Editor shell (rough)
+
+The page is laid out like a small game-engine editor (Unity's dark theme was the reference): a menu bar, a toolbar, docked panels you can resize or collapse, and a status bar. It replaced the old one-page bench after the owner found that hard to use. `/index.html` and `/region.html` now redirect to `/`.
+
+- **Menu bar**: File (new route, open/save spec as JSON, open YAML specs too, recent routes, import, export: Porymap zip, scene.json, PNG of the current stage, region JSON, all region specs), Edit (undo/redo of spec edits and paint strokes, copy/paste spec, preferences), View (panels, zoom, frame selection, overlays, which stage to show), Generate (generate, new seed, region, tiler: learned or Ark rule tiles, stage stepping), Window (scene / region / world views, console, timeline, Improve, reset layout), Help (shortcuts, about). Menus show Cmd on macOS and Ctrl elsewhere.
+- **Shortcuts** are all in `SHORTCUTS` in `static/shell-logic.js`. Single keys (Space, arrows, V/H/B/S tools, F frame) only work when no text field or slider has focus. Generate is Cmd/Ctrl+G and never fires from a text field; the old Ctrl+Enter is gone.
+- **Layout**: Hierarchy on the left (exits, lanes, special areas, clearings and lakes, items and events, layers with visibility toggles; click selects, double-click frames). The centre has Scene / Region / World tabs. Inspector on the right, full height: the selected object, then the spec fields in foldouts, the route report and the encounter tables. The bottom dock has Console (log, warnings, generation report), Timeline (stage ruler with change keys, plus zones and items added per stage) and Improve. Panel sizes, open/closed docks, tabs and foldouts are kept in localStorage (`pokeroutes-shell-layout-v1`); Window > Reset layout clears them.
+- **Tools**: select/pan, paint (classes) and stamp (tree block, pond, grass patch...). Paint and stamp post to `/api/retile` (from the world-editor work); without that endpoint the Console says so. Ark-tiled routes can't be painted yet.
+- **World tab**: hosts `static/editor.html` in a frame when that file exists (the shell's File/Edit/Generate items drive its Save/Undo/Generate buttons). Until then the tab shows a placeholder.
+- **Region tab**: the old region page. Click a route box to see it in the Inspector; "Open in Scene" (or double-click) loads its spec plus its region block and generates it.
+- Files: `static/shell.html`, `shell.css` (theme), `shell.js` (menus, docks, console, keys), `bench.js` (scene, inspector, hierarchy, timeline, region/world views, files), `shell-logic.js` (pure: shortcuts, layout maths, undo, recent list, spec conversion), `webui/shell_api.py` (entry page, redirects, Ark atlas, scene/spec exports, spec parsing).
+- Tests: `node webui/tests/shell-logic.test.js`.
+
+Extra API: `GET /api/tilers`, `GET /api/atlas?tiler=ark` (+ `.png`), `POST /api/generate {..., tiler: "ark"}`, `GET /api/scene?id=`, `GET /api/region-specs.zip?seed=`, `POST /api/spec-parse {text}`.
+
 ## Improve box (rough, unattended)
 
-An attempt at Patrick Collison's "liquid software" idea: the small **Improve** button (bottom right, on every page that includes `static/improve.js`) opens a box where you type how the software should be different. The server queues it and runs Claude Code headless on it, one job at a time, and the run log streams into the panel.
+An attempt at Patrick Collison's "liquid software" idea: the **Improve** tab in the editor's bottom dock (or a small floating button on any other page that includes `static/improve.js`) is where you type how the software should be different. The server queues it and runs Claude Code headless on it, one job at a time, and the run log streams into the panel.
 
 - Targets: **Generator & web UI** (this repo) or **ROM** (`arklarna/rom`). ROM jobs work in a fresh worktree `../rom-wt/improve-<id>` on branch `arklarna/improve-<id>`, must build (`make -j10`) and be screenshotted with `tools/romshot`, and only then get squash-merged into `arklarna` and copied to `release/v1/arklarna-v1.gba`.
 - Every job should end in exactly one commit starting with `improve: `. **Undo** reverts it (one revert commit; for the ROM it also rebuilds and recopies the release ROM). Undo refuses if there are staged changes or uncommitted edits to the files that commit touched; other agents' unrelated work in the tree is left alone (jobs are told to stage only their own files).

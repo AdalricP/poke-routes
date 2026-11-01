@@ -1,4 +1,4 @@
-// Pure helpers shared by app.js and the node tests (no DOM in here).
+// Pure helpers shared by bench.js and the node tests (no DOM in here).
 (function (root) {
   "use strict";
 

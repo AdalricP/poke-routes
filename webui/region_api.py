@@ -3,8 +3,7 @@
 GET /api/region?seed=N        region.json for that seed (generated on first use, then cached)
 GET /api/region.png?seed=N    the bare map image the page draws route boxes over
 GET /api/region-spec?seed=N&id=ROUTE   one route's full YAML spec as JSON
-GET /?region=...              index.html with region-bridge.js injected (carries the
-                              region block into /api/generate)
+(The region view itself lives in the editor shell: static/shell.html + bench.js.)
 """
 from __future__ import annotations
 
@@ -54,7 +53,4 @@ def handle(h, u, static: Path) -> None:
         if not rid or not p.exists():
             return h._json({"error": "unknown route"}, 404)
         return h._json(yaml.safe_load(p.read_text()))
-    # index.html with the bridge script
-    html = (static / "index.html").read_text()
-    html = html.replace("</body>", '<script src="region-bridge.js"></script>\n</body>')
-    return h._send(200, html.encode(), "text/html; charset=utf-8")
+    return h._json({"error": "not found"}, 404)

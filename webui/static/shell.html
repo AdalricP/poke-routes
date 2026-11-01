@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>poke-routes editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pixelify+Sans:wght@600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shell.css">
+</head>
+<body>
+<div class="shell" id="shell">
+
+  <!-- menu bar -->
+  <header class="menubar" id="menubar">
+    <span class="logo" aria-hidden="true">poke-routes</span>
+    <nav class="menus" id="menus" role="menubar" aria-label="Main menu"></nav>
+    <span class="doc-title" id="docTitle"></span>
+  </header>
+
+  <!-- toolbar -->
+  <div class="toolbar" id="toolbar" role="toolbar" aria-label="Tools">
+    <div class="tb-group" role="group" aria-label="Scene tools">
+      <button type="button" class="tb-btn" data-tool="select" title="Select (V)" aria-label="Select">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2l8 6.2-3.6.5 2 4.1-1.6.8-2-4.1L4 12z" fill="currentColor"/></svg>
+      </button>
+      <button type="button" class="tb-btn" data-tool="pan" title="Pan (H)" aria-label="Pan">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5l2 2.2H8.8v3.5h3.5V6l2.2 2-2.2 2V8.8H8.8v3.5H10l-2 2.2-2-2.2h1.2V8.8H3.7V10L1.5 8l2.2-2v1.2h3.5V3.7H6z" fill="currentColor"/></svg>
+      </button>
+      <button type="button" class="tb-btn" data-tool="paint" title="Paint classes (B)" aria-label="Paint">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.8 1.7l2.5 2.5-6.6 6.6-2.5-2.5zM4.6 9.2l2.2 2.2c-.4 1.9-1.8 3-4.3 3.1.6-.7.6-1.4.7-2.3.1-1.6.4-2.6 1.4-3z" fill="currentColor"/></svg>
+      </button>
+      <button type="button" class="tb-btn" data-tool="stamp" title="Stamp (S)" aria-label="Stamp">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2h4v4.5l2.5 1.5V10h-9V8L6 6.5zM2.5 11.5h11V14h-11z" fill="currentColor"/></svg>
+      </button>
+      <span class="tb-opts" id="paintOpts" hidden>
+        <select id="paintClass" aria-label="Paint class" title="Class to paint"></select>
+        <select id="brushSize" aria-label="Brush size" title="Brush size">
+          <option value="1">1 cell</option><option value="2">2 cells</option><option value="3">3 cells</option><option value="5">5 cells</option>
+        </select>
+      </span>
+      <span class="tb-opts" id="stampOpts" hidden>
+        <select id="stampKind" aria-label="Stamp" title="Stamp"></select>
+      </span>
+    </div>
+
+    <div class="tb-group tb-center" role="group" aria-label="Stages">
+      <button type="button" class="tb-btn" id="tbFirst" title="First stage (Home)" aria-label="First stage">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3h1.6v10H3zM13 3v10L5.5 8z" fill="currentColor"/></svg>
+      </button>
+      <button type="button" class="tb-btn" id="tbPrev" title="Previous stage (Left arrow)" aria-label="Previous stage">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.5 3v10L4 8z" fill="currentColor"/></svg>
+      </button>
+      <button type="button" class="tb-btn play" id="tbPlay" title="Play stages (Space)" aria-label="Play stages">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path class="i-play" d="M4.5 2.5v11l9-5.5z" fill="currentColor"/><g class="i-pause"><rect x="4" y="3" width="2.6" height="10" fill="currentColor"/><rect x="9.4" y="3" width="2.6" height="10" fill="currentColor"/></g></svg>
+      </button>
+      <button type="button" class="tb-btn" id="tbNext" title="Next stage (Right arrow)" aria-label="Next stage">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 3v10L12 8z" fill="currentColor"/></svg>
+      </button>
+      <button type="button" class="tb-btn" id="tbLast" title="Final stage (End)" aria-label="Final stage">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.4 3H13v10h-1.6zM3 3v10l7.5-5z" fill="currentColor"/></svg>
+      </button>
+      <span class="tb-stage" id="tbStage">no route</span>
+      <span class="tb-sep"></span>
+      <button type="button" class="tb-primary" id="tbGenerate">Generate</button>
+    </div>
+
+    <div class="tb-group tb-right" role="group" aria-label="View">
+      <label class="tb-label">Tiler
+        <select id="tbTiler" aria-label="Tiler">
+          <option value="learned">Learned</option>
+          <option value="ark">Ark</option>
+        </select>
+      </label>
+      <span class="tb-sep"></span>
+      <button type="button" class="tb-btn" id="tbZoomOut" aria-label="Zoom out" title="Zoom out">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7.2" width="10" height="1.6" fill="currentColor"/></svg>
+      </button>
+      <span class="tb-zoom" id="tbZoom">100%</span>
+      <button type="button" class="tb-btn" id="tbZoomIn" aria-label="Zoom in" title="Zoom in">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M7.2 3h1.6v4.2H13v1.6H8.8V13H7.2V8.8H3V7.2h4.2z" fill="currentColor"/></svg>
+      </button>
+      <button type="button" class="tb-btn" id="tbFit" aria-label="Fit to view" title="Fit to view">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h4.5v1.5h-3v3H2zM9.5 2H14v4.5h-1.5v-3h-3zM2 9.5h1.5v3h3V14H2zM12.5 9.5H14V14H9.5v-1.5h3z" fill="currentColor"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- left: hierarchy -->
+  <section class="dock" id="dockLeft" data-dock="left" aria-label="Hierarchy">
+    <header class="dock-head">
+      <span class="dock-tab on">Hierarchy</span>
+      <button type="button" class="dock-collapse" data-collapse="left" aria-label="Collapse Hierarchy" title="Collapse"></button>
+    </header>
+    <div class="dock-strip" data-expand="left" title="Show Hierarchy"><span>Hierarchy</span></div>
+    <div class="dock-body">
+      <div class="search"><input id="hierFilter" type="search" placeholder="Search" aria-label="Filter hierarchy"></div>
+      <ul class="tree" id="tree" role="tree" aria-label="Route parts"></ul>
+    </div>
+  </section>
+
+  <!-- centre: scene / region / world -->
+  <section class="dock center" id="dockCenter" aria-label="Views">
+    <header class="dock-head">
+      <div class="tabs" role="tablist">
+        <button type="button" class="dock-tab" data-center="scene" role="tab">Scene</button>
+        <button type="button" class="dock-tab" data-center="region" role="tab">Region</button>
+        <button type="button" class="dock-tab" data-center="world" role="tab">World</button>
+      </div>
+      <div class="view-ctrls" id="sceneCtrls" aria-label="Scene display">
+        <div class="seg" role="group" aria-label="Layer">
+          <button type="button" class="seg-btn" data-layer="tiles" title="Draw metatiles">Tiles</button>
+          <button type="button" class="seg-btn" data-layer="classes" title="Draw semantic classes">Classes</button>
+        </div>
+        <div class="seg" role="group" aria-label="Overlays">
+          <button type="button" class="seg-btn" data-ov="paths">Paths</button>
+          <button type="button" class="seg-btn" data-ov="areas">Areas</button>
+          <button type="button" class="seg-btn" data-ov="events">Items</button>
+          <button type="button" class="seg-btn" data-ov="grid">Grid</button>
+        </div>
+      </div>
+      <div class="view-ctrls" id="regionCtrls" hidden>
+        <label class="tb-label">Seed <input id="regionSeed" type="number" min="0" value="1" class="num"></label>
+        <button type="button" class="btn" id="regionLoad">Load</button>
+        <span class="muted" id="regionStatus"></span>
+      </div>
+    </header>
+    <div class="dock-body views">
+      <div class="view scene" id="viewScene">
+        <canvas id="map"></canvas>
+        <div class="scene-msg" id="sceneMsg">No route yet. Generate &rarr; Generate.</div>
+        <div class="busy" id="busy" hidden><span class="spin"></span><span id="busyText">generating</span></div>
+        <div class="tip" id="tip" hidden></div>
+      </div>
+      <div class="view region" id="viewRegion" hidden>
+        <div class="regionbox" id="regionBox"><img id="regionImg" alt="Region map"><svg id="regionSvg" preserveAspectRatio="none"></svg></div>
+      </div>
+      <div class="view world" id="viewWorld" hidden>
+        <div class="slot" id="worldSlot"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- right: inspector -->
+  <section class="dock" id="dockRight" data-dock="right" aria-label="Inspector">
+    <header class="dock-head">
+      <span class="dock-tab on">Inspector</span>
+      <button type="button" class="dock-collapse" data-collapse="right" aria-label="Collapse Inspector" title="Collapse"></button>
+    </header>
+    <div class="dock-strip" data-expand="right" title="Show Inspector"><span>Inspector</span></div>
+    <div class="dock-body" id="inspector">
+      <form id="form" autocomplete="off" onsubmit="return false">
+        <details class="fold" data-fold="selection" id="foldSel" open>
+          <summary>Selection</summary>
+          <div class="fold-body" id="selBody"><p class="muted">Nothing selected. Click something in the Scene or Hierarchy.</p></div>
+        </details>
+        <details class="fold" data-fold="route" open>
+          <summary>Route</summary>
+          <div class="fold-body">
+            <div class="prop"><label for="name">Name</label><input id="name" type="text" value="Testweg" maxlength="40"></div>
+            <div class="prop">
+              <label for="seed">Seed</label>
+              <span class="inline"><input id="seed" type="number" min="0" step="1" value="7" class="num grow">
+                <button type="button" class="btn icon" id="dice" title="Random seed and generate" aria-label="Random seed">
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="5.5" cy="5.5" r="1.1" fill="currentColor"/><circle cx="10.5" cy="10.5" r="1.1" fill="currentColor"/><circle cx="8" cy="8" r="1.1" fill="currentColor"/><circle cx="10.5" cy="5.5" r="1.1" fill="currentColor"/><circle cx="5.5" cy="10.5" r="1.1" fill="currentColor"/></svg>
+                </button></span>
+            </div>
+            <div id="g-route"></div>
+            <p class="warn" id="sizewarn" hidden>Too big for the GBA map buffer: generates, but won't export.</p>
+          </div>
+        </details>
+        <details class="fold" data-fold="shape" open><summary>Shape</summary><div class="fold-body" id="g-shape"></div></details>
+        <details class="fold" data-fold="secrets" open><summary>Secrets</summary><div class="fold-body" id="g-secrets"></div></details>
+        <details class="fold" data-fold="encounters-spec" id="sec-encounters" hidden><summary>Encounter levels</summary><div class="fold-body" id="g-encounters"></div></details>
+        <details class="fold" data-fold="other" id="sec-other" hidden><summary>Other</summary><div class="fold-body" id="g-other"></div></details>
+        <details class="fold" data-fold="specials" open>
+          <summary>Special areas</summary>
+          <div class="fold-body">
+            <ul class="chips" id="chips"></ul>
+            <div class="prop"><label for="areaInput">Add</label>
+              <span class="inline"><input id="areaInput" list="areaList" placeholder="auto, pond, a species" class="grow"><button type="button" id="areaAdd" class="btn">Add</button></span></div>
+            <datalist id="areaList"></datalist>
+          </div>
+        </details>
+        <details class="fold" data-fold="exits" open>
+          <summary>Exits</summary>
+          <div class="fold-body">
+            <p class="hint">The first two are joined by the main road.</p>
+            <ol class="exits" id="exits"></ol>
+            <button type="button" id="exitAdd" class="btn">Add exit</button>
+          </div>
+        </details>
+        <details class="fold" data-fold="region" id="foldRegion" hidden>
+          <summary>Region link</summary>
+          <div class="fold-body" id="regionLink"></div>
+        </details>
+        <details class="fold" data-fold="stats">
+          <summary>Route report</summary>
+          <div class="fold-body"><dl class="stats" id="stats"><dt>status</dt><dd>nothing generated</dd></dl></div>
+        </details>
+        <details class="fold" data-fold="encounters" open>
+          <summary>Wild encounters</summary>
+          <div class="fold-body">
+            <div class="seg small" role="tablist">
+              <button type="button" class="seg-btn on" data-enc="dex" role="tab">By rarity</button>
+              <button type="button" class="seg-btn" data-enc="slots" role="tab">Emerald slots</button>
+            </div>
+            <div id="enc"><p class="muted">none yet</p></div>
+          </div>
+        </details>
+      </form>
+    </div>
+  </section>
+
+  <!-- bottom: console / timeline / improve -->
+  <section class="dock" id="dockBottom" data-dock="bottom" aria-label="Console, Timeline, Improve">
+    <header class="dock-head">
+      <div class="tabs" role="tablist">
+        <button type="button" class="dock-tab" data-bottom="console" role="tab">Console <span class="count" id="consoleCount" hidden></span></button>
+        <button type="button" class="dock-tab" data-bottom="timeline" role="tab">Timeline</button>
+        <button type="button" class="dock-tab" data-bottom="improve" role="tab">Improve <span class="dot" id="improveDot" hidden></span></button>
+      </div>
+      <button type="button" class="dock-collapse" data-collapse="bottom" aria-label="Collapse bottom panel" title="Collapse"></button>
+    </header>
+    <div class="dock-body">
+      <div class="pane console" id="paneConsole">
+        <div class="pane-bar">
+          <button type="button" class="btn" id="conClear">Clear</button>
+          <span class="tb-sep"></span>
+          <button type="button" class="seg-btn on" data-level="info" title="Show log messages">Log <b id="nInfo">0</b></button>
+          <button type="button" class="seg-btn on" data-level="warn" title="Show warnings">Warnings <b id="nWarn">0</b></button>
+          <button type="button" class="seg-btn on" data-level="error" title="Show errors">Errors <b id="nError">0</b></button>
+        </div>
+        <div class="con-split">
+          <ol class="con-list" id="conList" tabindex="0" aria-label="Console messages"></ol>
+          <pre class="con-detail" id="conDetail" aria-label="Message detail"></pre>
+        </div>
+      </div>
+      <div class="pane timeline" id="paneTimeline" hidden>
+        <div class="pane-bar">
+          <button type="button" class="tb-btn play" id="tlPlay" aria-label="Play stages" title="Play (Space)">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path class="i-play" d="M4.5 2.5v11l9-5.5z" fill="currentColor"/><g class="i-pause"><rect x="4" y="3" width="2.6" height="10" fill="currentColor"/><rect x="9.4" y="3" width="2.6" height="10" fill="currentColor"/></g></svg>
+          </button>
+          <span class="tl-cur" id="tlCur">no route</span>
+          <span class="grow"></span>
+          <label class="tb-label">Speed
+            <select id="tlSpeed" aria-label="Stage duration">
+              <option value="1600">0.5x</option><option value="900">1x</option><option value="450">2x</option><option value="220">4x</option>
+            </select>
+          </label>
+          <label class="check"><input type="checkbox" id="tlLoop"> Loop</label>
+        </div>
+        <div class="tl" id="tl">
+          <div class="tl-names">
+            <div class="tl-rowname ruler-name">Stage</div>
+            <div class="tl-rowname">Map</div>
+            <div class="tl-rowname">Zones</div>
+            <div class="tl-rowname">Items</div>
+          </div>
+          <div class="tl-tracks" id="tlTracks">
+            <div class="tl-ruler" id="tlRuler"></div>
+            <div class="tl-row" id="tlMap"></div>
+            <div class="tl-row" id="tlZones"></div>
+            <div class="tl-row" id="tlEvents"></div>
+            <div class="tl-head" id="tlHead"></div>
+          </div>
+        </div>
+      </div>
+      <div class="pane improve" id="paneImprove" hidden><div id="improveDock"></div></div>
+    </div>
+  </section>
+
+  <div class="splitter v" id="splitLeft" data-split="left" role="separator" aria-orientation="vertical" aria-label="Resize Hierarchy" tabindex="0"></div>
+  <div class="splitter v" id="splitRight" data-split="right" role="separator" aria-orientation="vertical" aria-label="Resize Inspector" tabindex="0"></div>
+  <div class="splitter h" id="splitBottom" data-split="bottom" role="separator" aria-orientation="horizontal" aria-label="Resize bottom panel" tabindex="0"></div>
+
+  <footer class="statusbar" id="statusbar">
+    <span class="st-msg" id="stMsg">Ready</span>
+    <span class="st-cell" id="stCell"></span>
+  </footer>
+</div>
+
+<div class="menu-layer" id="menuLayer"></div>
+
+<dialog class="dlg" id="dlgPrefs" aria-label="Preferences">
+  <form method="dialog">
+    <header>Preferences</header>
+    <div class="dlg-body" id="prefsBody"></div>
+    <footer><button type="button" class="btn" id="prefsReset">Reset to defaults</button><span class="grow"></span><button class="btn primary" value="ok">Done</button></footer>
+  </form>
+</dialog>
+<dialog class="dlg wide" id="dlgKeys" aria-label="Keyboard shortcuts">
+  <form method="dialog">
+    <header>Keyboard shortcuts</header>
+    <div class="dlg-body" id="keysBody"></div>
+    <footer><span class="hint">Single keys only work when no text field has focus.</span><span class="grow"></span><button class="btn primary" value="ok">Close</button></footer>
+  </form>
+</dialog>
+<dialog class="dlg" id="dlgAbout" aria-label="About">
+  <form method="dialog">
+    <header>About poke-routes</header>
+    <div class="dlg-body">
+      <p>A rough, local bench for watching poke-routes build a Pokémon Emerald route stage by stage. The map is drawn with real Emerald metatiles (General + Fortree) or the Arklarna rule tiles.</p>
+      <p class="muted">Server: <code id="aboutServer"></code></p>
+    </div>
+    <footer><span class="grow"></span><button class="btn primary" value="ok">Close</button></footer>
+  </form>
+</dialog>
+<input type="file" id="fileOpen" accept=".json,.yaml,.yml,application/json,text/yaml" hidden>
+
+<script src="logic.js"></script>
+<script src="shell-logic.js"></script>
+<script src="shell.js"></script>
+<script src="bench.js"></script>
+<script src="improve.js"></script>
+</body>
+</html>

@@ -68,4 +68,4 @@
 
 ### Web UI
 
-`webui/server.py` is a stdlib HTTP server. `POST /api/generate` runs the stages, tiles every snapshot in a worker pool (`fasttile.py`), and returns the class grids and metatile ids. The page draws them from `/api/atlas.png`. `GET /api/export` returns a zip of the export. `region_api.py` serves `/region.html` and passes a route's region block to the generator.
+`webui/server.py` is a stdlib HTTP server. `POST /api/generate` runs the stages, tiles every snapshot in a worker pool (`fasttile.py`), and returns the class grids and metatile ids. The page draws them from `/api/atlas.png`. `GET /api/export` returns a zip of the export. `region_api.py` serves the region data; the page (`static/shell.html` + `bench.js`) shows it in its Region tab and passes a route's region block to the generator. `shell_api.py` serves the page itself, the Ark tiler atlas and the scene / spec exports.

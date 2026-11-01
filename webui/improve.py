@@ -163,7 +163,7 @@ Owner's request:
 >>>
 
 Context: {POKE} is poke-routes, a rough procedural Pokemon Emerald route generator (Python, package pokeroutes/)
-with a stdlib web UI in webui/ (server.py, static/index.html, app.js, style.css; served at http://127.0.0.1:8790).
+with a stdlib web UI in webui/ (server.py; an editor shell: static/shell.html, shell.js, bench.js, shell-logic.js, shell.css; served at http://127.0.0.1:8790).
 It is an experiment log, not a product: keep the lab-notebook tone in any docs you touch (see ../AGENTS.md).
 The generator modules are hot-reloaded by the running server; static files are read per request. If you change
 webui/*.py, say in your last message that the server needs a restart.

@@ -74,11 +74,15 @@ def pair():
 def atlas():
     """(png bytes, metadata) for every metatile of the pair, rendered once."""
     global _atlas
-    if _atlas is not None:
-        return _atlas
+    if _atlas is None:
+        _atlas = build_atlas(pair(), f"gTileset_{PRIMARY.title()}", f"gTileset_{SECONDARY.title()}", "/api/atlas.png")
+    return _atlas
+
+
+def build_atlas(p, primary_sym: str, secondary_sym: str, png_url: str):
+    """(png bytes, metadata) for every metatile of a tileset pair."""
     from PIL import Image
 
-    p = pair()
     n_pri, n_sec = p.metatile_count()
     ids = list(range(n_pri)) + [NUM_PRIMARY_METATILES + i for i in range(n_sec)]
     rows = (len(ids) + ATLAS_COLS - 1) // ATLAS_COLS
@@ -89,11 +93,9 @@ def atlas():
         img[y:y + 16, x:x + 16, 3] = 255
     buf = io.BytesIO()
     Image.fromarray(img).save(buf, "PNG", optimize=True)
-    meta = {"png": "/api/atlas.png", "cell": 16, "columns": ATLAS_COLS, "count": len(ids),
-            "index": {str(m): i for i, m in enumerate(ids)}, "primary": f"gTileset_{PRIMARY.title()}",
-            "secondary": f"gTileset_{SECONDARY.title()}"}
-    _atlas = (buf.getvalue(), meta)
-    return _atlas
+    meta = {"png": png_url, "cell": 16, "columns": ATLAS_COLS, "count": len(ids),
+            "index": {str(m): i for i, m in enumerate(ids)}, "primary": primary_sym, "secondary": secondary_sym}
+    return buf.getvalue(), meta
 
 
 # ------------------------------------------------------------------ worker pool (stage tiling)
@@ -364,6 +366,7 @@ def run_stages(spec):
 
 
 _results: "OrderedDict[str, tuple]" = OrderedDict()
+_ark_ids: set = set()  # result ids tiled with the Ark rule tiler (shell_api.py)
 
 
 def _bbox(cells):
@@ -440,11 +443,23 @@ def generate(params: dict) -> dict:
     route, marks = run_stages(spec)
     t_gen = time.time() - t0
 
-    ft = tiler()
-    final = G().ground.texture_open_ground(ft.tile(route.cls, seed=spec.seed), route.cls, spec.seed)  # same as the CLI
-    t_final = time.time() - t0 - t_gen
+    use = "ark" if params.get("tiler") == "ark" else "learned"
+    final = tiles = None
+    t_final = 0.0
+    if use == "ark":
+        import shell_api
 
-    tiles = _tile_stages(route, final, spec.seed, warnings)
+        try:
+            final, tiles, t_final = shell_api.ark_tiles(route, warnings)
+        except Exception as e:
+            traceback.print_exc()
+            warnings.append(f"Ark tiler unavailable ({type(e).__name__}: {e}); used the learned tiler")
+            use = "learned"
+    if use == "learned":
+        ft = tiler()
+        final = G().ground.texture_open_ground(ft.tile(route.cls, seed=spec.seed), route.cls, spec.seed)  # same as the CLI
+        t_final = time.time() - t0 - t_gen
+        tiles = _tile_stages(route, final, spec.seed, warnings)
     t_stages = time.time() - t0 - t_gen - t_final
 
     stages = []
@@ -477,10 +492,13 @@ def generate(params: dict) -> dict:
     em = part("emerald encounters", lambda: route_extras.emerald_encounters(route), None)
     gid = uuid.uuid4().hex[:12]
     _results[gid] = (route, final)
+    if use == "ark":
+        _ark_ids.add(gid)
     while len(_results) > 12:
-        _results.popitem(last=False)
+        _ark_ids.discard(_results.popitem(last=False)[0])
     return {
         "id": gid, "name": spec.name, "route_id": spec.id, "seed": spec.seed, "biome": getattr(spec, "biome", ""),
+        "tiler": use, "atlas": "/api/atlas?tiler=ark" if use == "ark" else "/api/atlas",
         "width": route.w, "height": route.h, "stages": stages, "zones": zones, "events": events, "exits": exits,
         "report": rep, "encounters": enc, "emerald_encounters": em,
         "log": part("log", lambda: [str(l) for l in route.log if l not in _stage_names()], []),
@@ -516,7 +534,13 @@ def export_zip(gid: str) -> tuple:
             raise ValueError(f"{route.w}x{route.h} is too big for the GBA map buffer: (w+15)*(h+14) must be <= 10240")
         note = None
         try:
-            G().export.write_emerald(route, final, out, PRIMARY, SECONDARY, borders=tl.at.m.get("borders"))
+            if gid in _ark_ids:
+                import shell_api
+                from pokeroutes.ruletile import write_ark_emerald
+
+                write_ark_emerald(route, final, out, shell_api.ark_tiler())
+            else:
+                G().export.write_emerald(route, final, out, PRIMARY, SECONDARY, borders=tl.at.m.get("borders"))
         except Exception as e:  # export.py is in flux: fall back to just the layout files
             traceback.print_exc()
             note = f"pokeroutes.export.write_emerald failed ({type(e).__name__}: {e}); only the layout was written."
@@ -610,10 +634,10 @@ class Handler(BaseHTTPRequestHandler):
             if u.path.startswith("/api/editor"):
                 import editor_api  # region editor (webui/editor_api.py)
                 return editor_api.get(self, u)
-            if u.path.startswith("/api/region") or (u.path in ("/", "/index.html") and "region" in parse_qs(u.query)):
+            if u.path.startswith("/api/region"):
                 import region_api  # region page (webui/region_api.py)
                 return region_api.handle(self, u, STATIC)
-            rel = "index.html" if u.path in ("/", "") else u.path.lstrip("/")
+            rel = "shell.html" if u.path in ("/", "") else u.path.lstrip("/")
             f = (STATIC / rel).resolve()
             if STATIC in f.parents and f.is_file():
                 return self._send(200, f.read_bytes(), TYPES.get(f.suffix, "application/octet-stream"))
@@ -666,6 +690,13 @@ def _with_improve(orig, method):
 
 Handler.do_GET = _with_improve(Handler.do_GET, "GET")
 Handler.do_POST = _with_improve(Handler.do_POST, "POST")
+
+# editor shell (webui/shell_api.py): the entry page, old-URL redirects, Ark tiler atlas,
+# scene.json / region-spec exports and spec-file parsing; everything else passes through.
+import shell_api  # noqa: E402
+
+Handler.do_GET = shell_api.wrap(Handler.do_GET, "GET", sys.modules[__name__])
+Handler.do_POST = shell_api.wrap(Handler.do_POST, "POST", sys.modules[__name__])
 
 
 def main():

@@ -88,7 +88,7 @@ Watch it build in the browser:
 python3 webui/server.py      # http://localhost:8790
 ```
 
-The page plays the stages back in Emerald tiles and lets you change the spec and export a zip. `/region.html` shows a generated region; click a route there to open it in the generator.
+The page is a small editor (menu bar, docked Hierarchy / Scene / Inspector, Console and Timeline at the bottom). It plays the stages back in Emerald tiles and lets you change the spec and export a zip. Its Region tab shows a generated region; click a route there to open it in the generator. See `webui/README.md`.
 
 Generate a region:
 
