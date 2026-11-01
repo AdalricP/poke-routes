@@ -337,7 +337,7 @@ table.enc .pct { display: inline-block; height: 6px; margin-right: 6px; backgrou
 
 /* Improve, docked (improve.js mounts into #improveDock) */
 #improveDock { position: absolute; inset: 0; }
-.imp-docked { position: absolute; inset: 0; display: grid; grid-template-columns: minmax(220px, 30%) minmax(220px, 30%) 1fr; }
+.imp-docked { position: absolute; inset: 0; display: grid; grid-template-columns: minmax(220px, 30%) minmax(220px, 30%) 1fr minmax(160px, 14%); }
 .imp-docked > section { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
 .imp-docked > section:last-child { border-right: 0; }
 .imp-docked h2 { flex: none; margin: 0; height: 22px; padding: 0 8px; line-height: 22px; font-size: 11px; font-weight: 600; color: var(--text-2); background: #333; border-bottom: 1px solid var(--line); }
@@ -353,6 +353,9 @@ table.enc .pct { display: inline-block; height: 6px; margin-right: 6px; backgrou
 .imp-docked .imp-log { margin: 0; font: 11px/1.4 var(--mono); color: var(--text-2); white-space: pre-wrap; word-break: break-word; }
 .imp-docked .imp-log .e { color: var(--error); }
 .imp-docked .imp-log .t { color: var(--text); }
+.imp-docked .imp-usage .big { margin: 2px 0 4px; font-size: 18px; color: var(--text); }
+.imp-docked .imp-usage .bar { height: 6px; background: #474747; border-radius: 2px; overflow: hidden; }
+.imp-docked .imp-usage .bar span { display: block; height: 100%; background: #6f9a5f; }
 .imp-docked .imp-hist { list-style: none; margin: 0; padding: 0; }
 .imp-docked .imp-hist li { padding: 4px 0 5px; border-bottom: 1px solid #333; }
 .imp-docked .imp-hist .req { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 0; color: var(--text); cursor: default; }

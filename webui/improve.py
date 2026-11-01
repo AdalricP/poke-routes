@@ -2,7 +2,7 @@
 and a headless Claude Code run implements it as exactly one git commit.
 
     POST /api/improve              {"request": "...", "target": "poke-routes" | "rom"}
-    GET  /api/improve              history (newest first) + targets
+    GET  /api/improve              history (newest first) + targets + last seen 5-hour usage
     GET  /api/improve/<id>?since=N status and log lines from N on
     POST /api/improve/<id>/undo    queue a git revert of that job's commit
 
@@ -36,6 +36,7 @@ TOOLCHAIN = Path.home() / "toolchains/arm-gnu-toolchain-14.2.rel1-darwin-arm64-a
 DOCS = ARK / "documenting-agent-work"
 HISTORY = HERE / "improvements.json"
 LOGDIR = HERE / "improve-logs"
+USAGE = LOGDIR / "usage.json"
 TIMEOUT = 20 * 60
 AUTHOR = ("AdalricP", "78260488+AdalricP@users.noreply.github.com")
 
@@ -280,6 +281,25 @@ def _fmt_event(ev):
     return out
 
 
+def _note_usage(ev):
+    """Keep the 5-hour window from a rate_limit_event (Claude Code emits one per run in stream-json)."""
+    info = ev.get("rate_limit_info") or {}
+    window = (info.get("unifiedWindows") or {}).get("five_hour")
+    if not window or window.get("utilization") is None:
+        return
+    usage = {"utilization": window["utilization"], "resets_at": window.get("resetsAt"),
+             "status": info.get("status"), "seen": time.time()}
+    LOGDIR.mkdir(exist_ok=True)
+    USAGE.write_text(json.dumps(usage))
+
+
+def _usage():
+    try:
+        return json.loads(USAGE.read_text())
+    except (OSError, ValueError):
+        return None
+
+
 def _run_agent(job):
     jid, target = job["id"], job["target"]
     prompt = build_prompt(job)
@@ -303,6 +323,8 @@ def _run_agent(job):
             except ValueError:
                 _log(jid, raw)
                 continue
+            if ev.get("type") == "rate_limit_event":
+                _note_usage(ev)
             if ev.get("type") == "result":
                 final = str(ev.get("result") or "")
             for line in _fmt_event(ev):
@@ -530,7 +552,7 @@ def history() -> dict:
     with _lock:
         jobs = sorted(_jobs.values(), key=lambda j: j["created"], reverse=True)
         return {"jobs": [public(j) for j in jobs[:100]], "running": _current["id"],
-                "queued": _q.qsize(), "targets": {k: v["label"] for k, v in TARGETS.items()}}
+                "queued": _q.qsize(), "targets": {k: v["label"] for k, v in TARGETS.items()}, "usage": _usage()}
 
 
 # ------------------------------------------------------------------ http glue

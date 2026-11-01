@@ -54,6 +54,10 @@
       <section>
         <h2>Run log</h2>
         <div class="imp-sec" id="impLogBox"><p class="imp-cur" id="impCur"></p><pre class="imp-log" id="impLog"></pre></div>
+      </section>
+      <section>
+        <h2>Usage</h2>
+        <div class="imp-sec imp-usage" id="impUsage"></div>
       </section>` : `
     <header class="imp-head"><h2>Improve</h2><button type="button" class="imp-close" aria-label="Close">&times;</button></header>
     <div class="imp-body">
@@ -74,6 +78,10 @@
         <h2>Run log</h2>
         <p class="imp-cur" id="impCur"></p>
         <pre class="imp-log" id="impLog"></pre>
+      </section>
+      <section>
+        <h2>Usage</h2>
+        <div class="imp-usage" id="impUsage"></div>
       </section>
       <section>
         <h2>History</h2>
@@ -143,6 +151,28 @@
     }
   }
 
+  const clock = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const until = (t) => {
+    const m = Math.max(0, Math.round((t - Date.now() / 1000) / 60));
+    return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+  };
+
+  // Claude Code's 5-hour window, as last reported by an improve run (no run yet = nothing to show)
+  function renderUsage(u) {
+    const box = $("impUsage");
+    box.innerHTML = "";
+    if (!u) { box.append(el("p", "imp-note", "No reading yet: it's taken from the next improve run.")); return; }
+    const reset = u.resets_at && u.resets_at < Date.now() / 1000;
+    const left = Math.max(0, Math.round(100 - u.utilization * 100));
+    box.append(el("p", "big", reset ? "window reset" : `${left}% left`));
+    const bar = el("div", "bar");
+    bar.append(Object.assign(el("span"), { style: `width:${reset ? 100 : left}%` }));
+    box.append(bar);
+    if (u.resets_at) box.append(el("p", "imp-note", reset ? `reset at ${clock(u.resets_at)}; next run shows the new window`
+      : `5-hour window resets ${clock(u.resets_at)} (in ${until(u.resets_at)})`));
+    box.append(el("p", "imp-note", `as of ${clock(u.seen)} (${ago(u.seen)}), from the last improve run${u.status && u.status !== "allowed" ? ", status " + u.status : ""}`));
+  }
+
   async function undo(j, b) {
     if (!confirm(`Revert "${j.subject || j.request}"?`)) return;
     b.disabled = true;
@@ -206,6 +236,7 @@
     }
     state.jobs = h.jobs;
     state.running = h.running;
+    renderUsage(h.usage);
     dot.hidden = !h.running && !h.queued;
     if (isOpen()) { renderHist(); pollLog(); }
     schedule();
