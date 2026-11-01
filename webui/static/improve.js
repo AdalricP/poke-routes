@@ -59,8 +59,8 @@
         <div class="imp-sec"><ul class="imp-hist" id="impHist"><li class="muted">nothing yet</li></ul></div>
       </section>
       <section>
-        <h2>Run log</h2>
-        <div class="imp-sec" id="impLogBox"><p class="imp-cur" id="impCur"></p><pre class="imp-log" id="impLog"></pre></div>
+        <h2 class="imp-wh">Workers <span class="imp-wctl" id="impWctl"><button type="button" data-d="-1" title="Fewer workers">&minus;</button><b id="impWn">-</b><button type="button" data-d="1" title="More workers">+</button></span></h2>
+        <div class="imp-sec" id="impLogBox"><ul class="imp-slots" id="impSlots"></ul><p class="imp-note" id="impOwner"></p><p class="imp-cur" id="impCur"></p><pre class="imp-log" id="impLog"></pre></div>
       </section>
       <section>
         <h2>Usage</h2>
@@ -85,7 +85,9 @@
         <p class="imp-err" id="impErr"></p>
       </section>
       <section>
-        <h2>Run log</h2>
+        <h2 class="imp-wh">Workers <span class="imp-wctl" id="impWctl"><button type="button" data-d="-1" title="Fewer workers">&minus;</button><b id="impWn">-</b><button type="button" data-d="1" title="More workers">+</button></span></h2>
+        <ul class="imp-slots" id="impSlots"></ul>
+        <p class="imp-note" id="impOwner"></p>
         <p class="imp-cur" id="impCur"></p>
         <pre class="imp-log" id="impLog"></pre>
       </section>
@@ -104,7 +106,9 @@
   const isOpen = () => (dock ? !!dock.offsetParent : !panel.hidden);
   const $ = (id) => panel.querySelector("#" + id);
 
-  const state = { jobs: [], running: null, shown: null, logNext: 0, logFor: null, timer: null, prev: {}, screenshot: "" };
+  const state = { jobs: [], running: [], shown: null, logNext: 0, logFor: null, timer: null, prev: {}, h: null, screenshot: "" };
+  const ACTIVE = ["queued", "running", "merging"];
+  const BAD = ["failed", "timeout", "cancelled", "conflict"];
   const maximum_screenshot_width_in_pixels = 1920;
   const red_pen_colour = "#e3201b";
   const red_pen_width_as_fraction_of_image_width = 1 / 320;
@@ -134,7 +138,7 @@
     const jobs = state.jobs;
     if (!jobs.length) { ul.append(el("li", "muted", "nothing yet")); return; }
     for (const j of jobs) {
-      const li = el("li", (state.shown || state.running) === j.id ? "on" : "");
+      const li = el("li", current() === j.id ? "on" : "");
       const req = el("button", "req", j.request);
       req.type = "button";
       req.title = "Show this run's log";
@@ -142,15 +146,17 @@
       const meta = el("div", "meta");
       meta.append(el("span", "st " + j.status, j.status), el("span", "", j.kind === "undo" ? "undo" : (j.mode === "agent" ? "agent, " : "") + j.target_label));
       if (j.commit) meta.append(el("code", "", j.commit.slice(0, 8)));
+      if (j.attempt > 1) meta.append(el("span", "", "re-run"));
+      if (j.held_by) meta.append(el("span", "", "held by " + j.held_by));
       meta.append(el("span", "", ago(j.finished || j.started || j.created)));
-      if (j.kind === "improve" && j.status === "done" && j.commit) {
+      if (j.kind === "improve" && j.status === "done" && j.commit && !(state.h && state.h.readonly && !state.h.owner.port)) {
         const u = el("button", "undo", "Undo");
         u.type = "button";
         u.title = j.target === "rom" ? "git revert on arklarna, rebuild, recopy the release ROM" : "git revert this commit";
         u.onclick = () => undo(j, u);
         meta.append(u);
       }
-      if (j.status === "queued" || j.status === "running") {
+      if ((j.status === "queued" || j.status === "running") && !j.held_by) {
         const c = el("button", "undo", "Cancel");
         c.type = "button";
         c.onclick = () => api(`/api/improve/${j.id}/cancel`, {}).then(refresh).catch((e) => ($("impErr").textContent = e.message));
@@ -158,10 +164,69 @@
       }
       li.append(req, meta);
       if (j.error) li.append(el("p", "sum", j.error));
+      else if (j.notes && j.notes.length && ACTIVE.includes(j.status)) li.append(el("p", "sum", j.notes[j.notes.length - 1]));
+      if (j.root_note) li.append(el("p", "sum", j.root_note));
       else if (j.summary && j.status !== "running") li.append(el("p", "sum", j.summary.split("\n").slice(-3).join(" ").slice(0, 280)));
       if (j.restart_needed) li.append(el("p", "sum", "Changed the server: restart webui/server.py to load it."));
       ul.append(li);
     }
+  }
+
+  const current = () => state.shown || state.running[0] || null;
+  const byId = (id) => state.jobs.find((j) => j.id === id);
+
+  // one row per worker slot: what it runs (click shows that job's log)
+  function renderSlots(h) {
+    const ul = $("impSlots");
+    ul.innerHTML = "";
+    $("impWn").textContent = h.workers;
+    for (const b of $("impWctl").querySelectorAll("button")) {
+      const n = h.workers + Number(b.dataset.d);
+      b.disabled = n < 1 || n > h.max_workers;
+    }
+    const busy = new Set();
+    for (const s of h.slots) {
+      const j = s.job && byId(s.job);
+      if (j) busy.add(j.id);
+      const li = el("li", (j && current() === j.id ? "on " : "") + (s.retiring ? "retiring" : ""));
+      li.append(el("span", "w", `W${s.slot + 1}`));
+      if (j) {
+        li.append(el("span", "st " + j.status, j.status));
+        const r = el("button", "req", j.request);
+        r.type = "button";
+        r.title = `Show this job's log (verifies on port ${s.port})`;
+        r.onclick = () => showLog(j.id);
+        li.append(r);
+      } else li.append(el("span", "idle", s.retiring ? "stopping" : "idle"));
+      ul.append(li);
+    }
+    // jobs run by an older server (before the queue lock) have no slot here
+    for (const j of state.jobs.filter((x) => (x.status === "running" || x.status === "merging") && !busy.has(x.id))) {
+      const li = el("li", current() === j.id ? "on" : "");
+      li.append(el("span", "w", "old"), el("span", "st " + j.status, j.status));
+      const r = el("button", "req", j.request);
+      r.type = "button";
+      r.onclick = () => showLog(j.id);
+      li.append(r);
+      ul.append(li);
+    }
+    const o = h.owner || {};
+    const bits = [];
+    if (h.readonly) bits.push(o.port ? `Read-only here: the queue is run by the server on port ${o.port} (pid ${o.pid}); submit, undo and cancel are passed on to it.`
+      : "No server owns the queue right now.");
+    if (h.queued) bits.push(`${h.queued} queued`);
+    if (h.mem && h.mem.waiting) bits.push(`waiting for memory (${h.mem.avail_mb} MB free, needs ${h.mem.min_mb})`);
+    if (h.legacy && h.legacy.length) bits.push(`an older server (pid ${h.legacy.join(", ")}) is still running its own jobs`);
+    if (h.root_stale) bits.push("main moved but the repo checkout has uncommitted edits; it catches up later");
+    $("impOwner").textContent = bits.join(" · ");
+  }
+
+  async function setWorkers(d) {
+    if (!state.h) return;
+    try {
+      await api("/api/improve/workers", { workers: state.h.workers + d });
+      await refresh();
+    } catch (e) { $("impErr").textContent = e.message; }
   }
 
   const clock = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -204,10 +269,11 @@
     state.logFor = null;
     pollLog();
     renderHist();
+    if (state.h) renderSlots(state.h);
   }
 
   async function pollLog() {
-    const id = state.shown || state.running;
+    const id = current();
     const log = $("impLog");
     const scroller = dock ? $("impLogBox") : log;
     if (!id) { $("impCur").textContent = ""; return; }
@@ -215,7 +281,7 @@
     let j;
     try { j = await api(`/api/improve/${id}?since=${state.logNext}`); } catch (e) { return; }
     if (state.logFor !== id) return;
-    $("impCur").textContent = `${j.status}: ${j.request.slice(0, 90)}`;
+    $("impCur").textContent = `${j.status}${j.attempt > 1 ? " (re-run)" : ""}: ${j.request.slice(0, 90)}`;
     const atBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 30;
     for (const line of j.log || []) {
       const cls = /^\[(error|timeout|warn|cancelled)\]|^ {2}!/.test(line) ? "e" : /^[>[]/.test(line) ? "" : "t";
@@ -232,7 +298,7 @@
     for (const j of h.jobs) {
       const was = state.prev[j.id];
       if (was && was !== j.status && window.Shell && window.Shell.log) {
-        const bad = ["failed", "timeout", "cancelled"].includes(j.status);
+        const bad = BAD.includes(j.status);
         window.Shell.log(bad ? "warn" : "info", `Improve ${j.kind === "undo" ? "undo " : ""}${j.status}: ${j.request.slice(0, 120)}`,
           [j.subject, j.commit && "commit " + j.commit.slice(0, 10), j.error, j.summary].filter(Boolean).join("\n"));
       }
@@ -248,16 +314,17 @@
       state.prev[j.id] = j.status;
     }
     state.jobs = h.jobs;
-    state.running = h.running;
+    state.running = h.running || [];
+    state.h = h;
     renderUsage(h.usage);
-    dot.hidden = !h.running && !h.queued;
-    if (isOpen()) { renderHist(); pollLog(); }
+    dot.hidden = !state.running.length && !h.queued;
+    if (isOpen()) { renderSlots(h); renderHist(); pollLog(); }
     schedule();
   }
 
   function schedule() {
     clearTimeout(state.timer);
-    const busy = state.running || state.jobs.some((j) => j.status === "queued");
+    const busy = state.running.length || state.jobs.some((j) => j.status === "queued");
     const open = isOpen();
     state.timer = setTimeout(refresh, open && busy ? 1500 : busy ? 5000 : open ? 4000 : 30000);
   }
@@ -447,6 +514,7 @@
   $("impPenBtn").onclick = () => capture_and_attach_screenshot("pen");
   $("impShotDrop").onclick = () => set_attached_screenshot("");
   $("impSubmit").onclick = submit;
+  for (const b of $("impWctl").querySelectorAll("button")) b.onclick = () => setWorkers(Number(b.dataset.d));
   $("impText").addEventListener("keydown", (e) => {
     e.stopPropagation(); // keep page shortcuts (Ctrl+Enter = Generate) out of the textarea
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }

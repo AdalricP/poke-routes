@@ -708,6 +708,8 @@ def main():
     pool().submit(int, 0).result()  # spin the workers up before the first request
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"poke-routes web UI on http://localhost:{PORT}", flush=True)
+    import improve  # take the improve-queue lock (or show it read-only) and resume queued jobs
+    improve.start(PORT)
     srv.serve_forever()
 
 

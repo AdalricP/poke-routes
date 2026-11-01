@@ -359,7 +359,25 @@ table.enc .pct { display: inline-block; height: 6px; margin-right: 6px; backgrou
 .imp-docked .meta .st { padding: 0 5px; border-radius: 2px; background: #474747; color: var(--text-2); }
 .imp-docked .meta .st.done { background: #2f4a2a; color: #bfe3b2; }
 .imp-docked .meta .st.running { background: #2c4a6a; color: #cfe4fa; }
-.imp-docked .meta .st.failed, .imp-docked .meta .st.timeout { background: #5a2a27; color: #ffc9c4; }
+.imp-docked .st.merging { background: #4a3f22; color: #f3dfa6; }
+.imp-docked .meta .st.failed, .imp-docked .meta .st.timeout, .imp-docked .st.conflict { background: #5a2a27; color: #ffc9c4; }
+.imp-docked .imp-wh { display: flex; align-items: center; justify-content: space-between; }
+.imp-wctl { display: inline-flex; align-items: center; gap: 2px; }
+.imp-wctl b { min-width: 14px; text-align: center; font-weight: 600; color: var(--text); }
+.imp-wctl button { width: 16px; height: 16px; padding: 0; line-height: 14px; background: #474747; border: 1px solid #222; border-radius: 2px; color: var(--text); font-size: 11px; cursor: default; }
+.imp-wctl button:hover:not(:disabled) { background: #555; }
+.imp-wctl button:disabled { opacity: .4; }
+.imp-slots { list-style: none; margin: 0 0 4px; padding: 0; }
+.imp-slots li { display: flex; align-items: center; gap: 6px; height: 18px; font-size: 11px; color: var(--text-3); }
+.imp-slots li.on .req { color: #9cc6f0; }
+.imp-slots .w { flex: none; width: 22px; font-family: var(--mono); color: var(--text-3); }
+.imp-slots .st { flex: none; padding: 0 5px; border-radius: 2px; background: #474747; color: var(--text-2); }
+.imp-slots .st.running { background: #2c4a6a; color: #cfe4fa; }
+.imp-slots .req { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; border: 0; background: none; padding: 0; color: var(--text); font-size: 11px; cursor: default; }
+.imp-slots .req:hover { text-decoration: underline; text-decoration-color: #777; }
+.imp-slots .idle { color: #6a6a6a; }
+.imp-slots li.retiring { opacity: .6; }
+.imp-docked #impOwner:empty { display: none; }
 .imp-docked .meta .undo { height: 16px; padding: 0 6px; background: #474747; border: 1px solid #222; border-radius: 2px; color: var(--text); font-size: 11px; cursor: default; }
 .imp-docked .meta .undo:hover:not(:disabled) { background: #555; }
 .imp-docked .sum { margin: 2px 0 0; color: var(--text-3); font-size: 11px; }

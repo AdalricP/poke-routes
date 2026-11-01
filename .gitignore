@@ -1,5 +1,5 @@
 # pret/pokeemerald checkout (fetched, see README)
-vendor/
+vendor
 
 # generated output
 out/
@@ -37,4 +37,7 @@ docs/img/erlenbruch-ark.png
 # improvements box: history and run logs (local only)
 webui/improvements.json
 webui/improvements.tmp
+webui/improvements.json.lock
+webui/improvements.meta.json
+webui/.improvements*.tmp
 webui/improve-logs/
