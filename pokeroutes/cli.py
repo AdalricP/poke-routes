@@ -23,6 +23,7 @@ def _generate_and_write(spec, a, route=None, offsets=None):
     from .autotile import Autotiler
     from .export import debug_image, report, seal_edges, stage_sheet, write_emerald, write_scene
     from .generate import generate
+    from .ground import texture_open_ground
     from .tileset import load_pair
 
     if route is None:
@@ -45,7 +46,7 @@ def _generate_and_write(spec, a, route=None, offsets=None):
         layout.render(tiler.pair()).save(out / "emerald.png")
     elif model.exists() and EMERALD.exists():
         tiler = Autotiler.load(model)
-        layout = tiler.tile(route.cls, seed=spec.seed)
+        layout = texture_open_ground(tiler.tile(route.cls, seed=spec.seed), route.cls, spec.seed)
         write_emerald(route, layout, out / "emerald", primary, secondary, offsets=offsets,
                       borders=tiler.m.get("borders"))
         layout.render(load_pair(EMERALD / "data/tilesets", primary, secondary)).save(out / "emerald.png")

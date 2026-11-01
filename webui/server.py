@@ -130,7 +130,7 @@ import importlib  # noqa: E402
 import typing  # noqa: E402
 
 GEN_MODULES = ["pokeroutes.noise", "pokeroutes.spec", "pokeroutes.classify", "pokeroutes.generate",
-               "pokeroutes.places", "pokeroutes.export"]
+               "pokeroutes.places", "pokeroutes.export", "pokeroutes.ground"]
 _gen_lock = threading.Lock()
 _gen_stamp = None
 
@@ -165,6 +165,7 @@ def G() -> _Gen:
             _G.gen = gen
             _G.places = sys.modules.get("pokeroutes.places")
             _G.export = sys.modules["pokeroutes.export"]
+            _G.ground = sys.modules["pokeroutes.ground"]
             _patch_snap(gen.Route)
             _gen_stamp = st
         return _G
@@ -440,7 +441,7 @@ def generate(params: dict) -> dict:
     t_gen = time.time() - t0
 
     ft = tiler()
-    final = ft.tile(route.cls, seed=spec.seed)  # identical to the CLI's Autotiler output
+    final = G().ground.texture_open_ground(ft.tile(route.cls, seed=spec.seed), route.cls, spec.seed)  # same as the CLI
     t_final = time.time() - t0 - t_gen
 
     tiles = _tile_stages(route, final, spec.seed, warnings)
