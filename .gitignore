@@ -1,0 +1,35 @@
+# pret/pokeemerald checkout (fetched, see README)
+vendor/
+
+# generated output
+out/
+region_out/
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# web UI caches
+webui/cache/
+webui/.cache/
+webui/static/cache/
+
+# Pokémon art and large media that should not be published
+inspirations/
+viewer/assets/
+docs/frames/
+docs/audio/
+docs/img/walk.*
+docs/img/battle.jpg
+docs/img/cottage.jpg
+docs/img/night.jpg
+docs/img/pond.jpg
+docs/img/erlenbruch-ark.png
+
+# macOS
+.DS_Store
+
+# the learned tiling models are small and stay in the repo
+!pokeroutes/models/*.json

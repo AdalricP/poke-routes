@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>poke-routes region</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body { margin: 0; background: #16181c; color: #e6e6e6; font: 14px/1.4 system-ui, sans-serif; }
+  .rwrap { display: grid; grid-template-columns: 1fr 320px; gap: 16px; padding: 16px; }
+  @media (max-width: 900px) { .rwrap { grid-template-columns: 1fr; } }
+  header.rh { display: flex; gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid #2a2d33; }
+  header.rh h1 { font-size: 18px; margin: 0; }
+  header.rh a { color: #9cc3ff; }
+  .mapbox { position: relative; max-width: 100%; }
+  .mapbox img { width: 100%; display: block; image-rendering: pixelated; }
+  .mapbox svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .r { fill: rgba(255,255,255,0.04); stroke: rgba(255,255,255,0.55); stroke-width: 0.3; cursor: pointer; }
+  .r:hover, .r.sel { fill: rgba(255,214,92,0.25); stroke: #ffd65c; stroke-width: 0.5; }
+  aside.info { background: #1e2126; border: 1px solid #2a2d33; padding: 12px; border-radius: 6px; }
+  aside.info h2 { margin: 0 0 4px; font-size: 16px; }
+  .muted { color: #9aa0a8; }
+  button.go { margin-top: 10px; padding: 8px 12px; background: #ffd65c; color: #111; border: 0; border-radius: 4px; cursor: pointer; font-weight: 600; }
+  pre.tiers { font: 10px/1.05 ui-monospace, monospace; color: #c9c9c9; overflow: auto; max-height: 260px; }
+  input[type=number] { width: 90px; }
+</style>
+</head>
+<body>
+<header class="rh">
+  <h1>Region</h1>
+  <label>Seed <input id="seed" type="number" min="0" value="1"></label>
+  <button id="load" type="button">Load</button>
+  <span class="muted" id="status"></span>
+  <a href="/" style="margin-left:auto">route bench</a>
+</header>
+<div class="rwrap">
+  <div class="mapbox" id="mapbox"><img id="map" alt="region map"><svg id="ov" preserveAspectRatio="none"></svg></div>
+  <aside class="info" id="info"><p class="muted">Click a route box to see its role, exits and elevation, then open it in the route bench.</p></aside>
+</div>
+<script src="region.js"></script>
+</body>
+</html>

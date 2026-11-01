@@ -1,0 +1,141 @@
+# poke-routes
+
+Generates Pokémon Emerald routes from a short YAML file and writes them out as maps you can open in Porymap and build into pokeemerald or pokeemerald-expansion.
+
+<p align="center">
+  <img src="docs/img/route-build.gif" width="420" alt="A forest route being built stage by stage in Emerald tiles">
+</p>
+
+The routes are meant to feel like Game Freak's: a line with braids in it, with a dirt road you can follow and side lanes that split off and rejoin. Turns are long straight runs, so the map is easy to walk with a d-pad. Most of the interesting places are off the main road, behind a cut tree or a gap in the hedge.
+
+It started as the route generator for Arklarna, a ROM hack, and most of the example output comes from there.
+
+## How it works
+
+A route is built in stages, and each stage edits the same grid of terrain classes (tree, grass, road, tall grass, water, rock, ledge, and a few more). The GIF above is those stages played back.
+
+1. The skeleton is planned first (`braid.py`). The main lane runs from the entry exit to the far exit, with nodes along it. Between two nodes, up to two side lanes split off and run alongside. Each one rejoins at the next node, merges early, or stops short in a pocket with an item or a lookout. Everything else is forest by default, with a fixed gap of trees between unrelated lanes.
+2. Stages carve that plan into the grid (`stages.py`, `generate.py`): branches, clearings, special areas, water, the road on the critical path, tall grass, ledges, hidden trails, then dressing. Dressing places signposts, HM obstacles on optional lanes (cut trees, smashable rocks, Strength boulders), lore spots, NPCs and items. Sections of the route can sit on different elevation tiers.
+3. A cleanup pass removes leftovers, and a last pass carves a way to any walkable pocket that can't be reached from the entrance.
+
+Forest, meadow and riverland are the tested biomes. Beach, desert, mountain and volcanic run but are still rough.
+
+### Special areas
+
+Special areas (`pokeroutes/areas/`) are small composed places dropped into a route, each tied to a Pokémon and to a habitat that makes sense for it. Most are hidden, so you find them through a cut tree, a hidden gap, a ledge, or past an NPC. The Pokémon stand in the overworld (pokeemerald-expansion's species object events), and you can talk to them and battle them.
+
+<p align="center">
+  <img src="docs/img/thunderstruck-oak.png" width="560" alt="The Thunderstruck Oak: a lightning-split oak with Pichu, Pikachu and a Raichu">
+</p>
+
+The Thunderstruck Oak is a Pikachu nursery under an oak that lightning split open. Pichu play on the fallen limb while a Raichu watches from the rocks. The areas come from recipes and a regional Pokédex. Without a Pokédex file the generator uses a few built-in shapes (grove, meadow, pond, hollow, standing stones).
+
+### Tiling
+
+The generator only produces terrain classes. Two tilers turn them into metatiles:
+
+- The learned autotiler (`learn.py`, `autotile.py`, `classify.py`) was trained on the 238 Emerald layouts that use the General primary tileset. For each cell it picks the metatiles real maps use for the same 3x3 neighbourhood, then makes a few passes that nudge neighbours toward pairs found side by side in the original maps. The biomes outside the forest family have their own models, trained on the routes that look like them (Route 111 for desert, Routes 105 to 107 for sea, and so on). The models are listed in `pokeroutes/models/index.json`.
+- The rule-based tiler (`ruletile.py`) is for custom tilesets that no map uses yet, so there is nothing to learn from. It reads a class table for the tileset and uses blob masks for edges, 2x2 trees and ledge rows.
+
+<p align="center">
+  <img src="docs/img/autotile-desert.png" alt="A desert class grid and the same grid tiled with Emerald's Route 111 metatiles">
+</p>
+
+<p align="center">
+  <img src="docs/img/tilers-erlenbruch.png" alt="The same route tiled with Emerald's tiles and with Arklarna's custom tileset">
+  <br><sub>The same route with the learned tiler on Emerald tiles (left) and the rule tiler on Arklarna's tileset (right).</sub>
+</p>
+
+### Regions
+
+`pokeroutes.region` generates a whole region and then a spec for every route in it. It builds terrain with erosion, rivers and lakes, works out climate and biomes, carves the legendary landmarks, places the cities, and lays out a route graph. Each route in the graph gets a role (straight, turn, crossroads, loop, dead end, mountain pass, river crossing, coastal, sea), and that role shapes how the route generator builds it.
+
+<p align="center">
+  <img src="docs/img/region-stages.png" alt="Region generation in six steps: terrain, erosion, climate, legendaries, cities, routes">
+</p>
+
+## Quickstart
+
+You need Python 3.9 or newer and a partial checkout of pret/pokeemerald, which the learned tiler reads tiles and layouts from.
+
+```sh
+pip install numpy scipy pillow pyyaml
+
+git clone --filter=blob:none --no-checkout https://github.com/pret/pokeemerald vendor/pokeemerald
+cd vendor/pokeemerald
+git sparse-checkout set --no-cone /data/layouts /data/tilesets /include/constants /src/data/tilesets
+git checkout
+cd ../..
+```
+
+Generate a route:
+
+```sh
+python3 -m pokeroutes generate examples/bernsteinweg.yaml --stages
+```
+
+This writes `out/Bernsteinweg/`:
+
+- `emerald/data/layouts/<Id>/` with `map.bin`, `border.bin` and an entry for `layouts.json`, and `emerald/data/maps/<Id>/` with `map.json` and `scripts.inc`, ready to merge into a pokeemerald tree and open in Porymap
+- `emerald.png`, the tiled map
+- `plan.png` and `stages.png`, the class grid and one panel per stage
+- `scene.json` and `report.json`, the zones, events and a reachability summary
+
+Watch it build in the browser:
+
+```sh
+python3 webui/server.py      # http://localhost:8790
+```
+
+The page plays the stages back in Emerald tiles and lets you change the spec and export a zip. `/region.html` shows a generated region; click a route there to open it in the generator.
+
+Generate a region:
+
+```sh
+python3 -m pokeroutes.region generate --seed 1   # writes region_out/1/
+```
+
+Other commands: `python3 -m pokeroutes learn --biomes` retrains the tiling models, `region` generates several route specs together so special areas don't repeat and exits line up, and `generate --tileset ark` uses the rule tiler (it needs a ROM tree with Arklarna's tileset, set with `ARK_ROM`).
+
+## Examples
+
+A spec is short. Every field has a default, so most specs set only the size, the exits and a few counts:
+
+```yaml
+name: Bernsteinweg
+size: [48, 72]
+seed: 7
+biome: forest
+exits:
+  - {side: south, at: 0.45, width: 2, to: MAP_LITTLEROOT_TOWN}
+  - {side: north, at: 0.6, width: 2, to: MAP_ROUTE101}
+  - {side: east, at: 0.35, to: MAP_ERLENBRUCH}
+meander: 0.7
+branches: 4
+clearings: 4
+lakes: 1
+tall_grass: 0.3
+hidden_paths: 2
+hidden_items: 4
+special_areas: [auto, auto, pond, hollow]
+```
+
+The three specs in `examples/` give these routes:
+
+| Bernsteinweg (forest) | Erlenbruch (riverland) | Kiefernheide (meadow) |
+| --- | --- | --- |
+| <img src="docs/img/route-bernsteinweg.png" width="260"> | <img src="docs/img/route-erlenbruch.png" width="260"> | <img src="docs/img/route-kiefernheide.png" width="260"> |
+
+And a region, seed 1:
+
+<p align="center">
+  <img src="docs/img/region-map.png" alt="A generated region with towns, routes and legendary landmarks">
+</p>
+
+## Status
+
+This is a work in progress. The forest routes are the most finished. Other biomes and the cave interiors under special areas are rough. Routes generated from a region use its role, goal and elevation tiers, but not yet its rivers or coastline. Most of the planned special-area recipes are not written yet.
+
+## License
+
+The code is MIT licensed (see [LICENSE](LICENSE)). No Pokémon tiles, sprites or other art are included. They belong to Nintendo, Game Freak and The Pokémon Company, and the tiler reads them from your own pret/pokeemerald checkout in `vendor/`.

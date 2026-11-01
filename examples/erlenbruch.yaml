@@ -1,0 +1,29 @@
+name: Erlenbruch
+size: [56, 60]
+seed: 23
+biome: riverland
+exits:
+  - {side: west, at: 0.5, to: MAP_BERNSTEINWEG}
+  - {side: east, at: 0.4, to: MAP_KIEFERNHEIDE}
+meander: 0.8
+branches: 3
+loops: 2
+dead_ends: 2
+clearings: 3
+lakes: 4
+tall_grass: 0.4
+hidden_paths: 3
+hidden_items: 5
+special_areas: [auto, auto, pond]
+species_file: ../../arklarna/design/pokedex.json
+music: MUS_ARK_ERLENBRUCH
+weather: WEATHER_RAIN
+# braided skeleton: two sections, up to 3 lanes, a river crossing with a bridge,
+# and a secret exit off a hidden trail (no target map yet)
+sections: 2
+max_lanes: 3
+merge_chance: 0.35
+dead_end_chance: 0.3
+ledge_chance: 0.5
+endings:
+  - {kind: secret, side: south}

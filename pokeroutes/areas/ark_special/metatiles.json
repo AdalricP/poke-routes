@@ -1,0 +1,1736 @@
+{
+ "about": "Custom special-area metatiles drawn in General palette 2 (slot 2 of the primary). Ids are provisional (free space after Fortree's 0x317); the tileset owner assigns real ones. Each metatile: 4 bottom-layer tile refs into tiles.png (tile 0 = blank), top layer empty.",
+ "palette_slot": 2,
+ "first_id": 896,
+ "tiles": "tiles.png",
+ "pieces": {
+  "split_oak": {
+   "size": [
+    6,
+    6
+   ],
+   "metatiles": [
+    [
+     {
+      "id": 896,
+      "name": "split_oak_0_0",
+      "bottom": [
+       {
+        "tile": 1,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 2,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 2,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 1,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 897,
+      "name": "split_oak_0_1",
+      "bottom": [
+       {
+        "tile": 3,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 4,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 5,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 6,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 898,
+      "name": "split_oak_0_2",
+      "bottom": [
+       {
+        "tile": 7,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 8,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 9,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 10,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 899,
+      "name": "split_oak_0_3",
+      "bottom": [
+       {
+        "tile": 11,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 12,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 13,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 14,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 900,
+      "name": "split_oak_0_4",
+      "bottom": [
+       {
+        "tile": 15,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 16,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 17,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 18,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 901,
+      "name": "split_oak_0_5",
+      "bottom": [
+       {
+        "tile": 1,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 2,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 2,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 1,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     }
+    ],
+    [
+     {
+      "id": 902,
+      "name": "split_oak_1_0",
+      "bottom": [
+       {
+        "tile": 1,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 2,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 2,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 1,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 903,
+      "name": "split_oak_1_1",
+      "bottom": [
+       {
+        "tile": 19,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 20,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 21,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 22,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 904,
+      "name": "split_oak_1_2",
+      "bottom": [
+       {
+        "tile": 23,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 24,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 25,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 26,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 905,
+      "name": "split_oak_1_3",
+      "bottom": [
+       {
+        "tile": 27,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 28,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 29,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 30,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 906,
+      "name": "split_oak_1_4",
+      "bottom": [
+       {
+        "tile": 31,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 32,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 33,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 34,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 907,
+      "name": "split_oak_1_5",
+      "bottom": [
+       {
+        "tile": 1,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 2,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 2,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 1,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     }
+    ],
+    [
+     {
+      "id": 908,
+      "name": "split_oak_2_0",
+      "bottom": [
+       {
+        "tile": 1,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 2,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 2,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 1,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 909,
+      "name": "split_oak_2_1",
+      "bottom": [
+       {
+        "tile": 35,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 36,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 37,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 38,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 910,
+      "name": "split_oak_2_2",
+      "bottom": [
+       {
+        "tile": 39,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 40,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 41,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 42,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 911,
+      "name": "split_oak_2_3",
+      "bottom": [
+       {
+        "tile": 43,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 44,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 45,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 46,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 912,
+      "name": "split_oak_2_4",
+      "bottom": [
+       {
+        "tile": 47,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 48,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 49,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 50,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 913,
+      "name": "split_oak_2_5",
+      "bottom": [
+       {
+        "tile": 1,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 2,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 51,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 1,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     }
+    ],
+    [
+     {
+      "id": 914,
+      "name": "split_oak_3_0",
+      "bottom": [
+       {
+        "tile": 1,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 52,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 53,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 54,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 915,
+      "name": "split_oak_3_1",
+      "bottom": [
+       {
+        "tile": 54,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 55,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 56,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 57,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 916,
+      "name": "split_oak_3_2",
+      "bottom": [
+       {
+        "tile": 58,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 59,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 60,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 61,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 917,
+      "name": "split_oak_3_3",
+      "bottom": [
+       {
+        "tile": 62,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 63,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 64,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 65,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 918,
+      "name": "split_oak_3_4",
+      "bottom": [
+       {
+        "tile": 66,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 52,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 67,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 68,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 919,
+      "name": "split_oak_3_5",
+      "bottom": [
+       {
+        "tile": 1,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 2,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 69,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 1,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     }
+    ],
+    [
+     {
+      "id": 920,
+      "name": "split_oak_4_0",
+      "bottom": [
+       {
+        "tile": 70,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 71,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 72,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 68,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 921,
+      "name": "split_oak_4_1",
+      "bottom": [
+       {
+        "tile": 73,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 74,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 75,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 76,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 922,
+      "name": "split_oak_4_2",
+      "bottom": [
+       {
+        "tile": 77,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 78,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 79,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 80,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 923,
+      "name": "split_oak_4_3",
+      "bottom": [
+       {
+        "tile": 81,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 82,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 83,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 84,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 924,
+      "name": "split_oak_4_4",
+      "bottom": [
+       {
+        "tile": 85,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 86,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 87,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 88,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 925,
+      "name": "split_oak_4_5",
+      "bottom": [
+       {
+        "tile": 73,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 89,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 86,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 50,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     }
+    ],
+    [
+     {
+      "id": 926,
+      "name": "split_oak_5_0",
+      "bottom": [
+       {
+        "tile": 90,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 86,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 91,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 92,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 927,
+      "name": "split_oak_5_1",
+      "bottom": [
+       {
+        "tile": 93,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 94,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 95,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 96,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 928,
+      "name": "split_oak_5_2",
+      "bottom": [
+       {
+        "tile": 97,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 98,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 99,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 100,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 929,
+      "name": "split_oak_5_3",
+      "bottom": [
+       {
+        "tile": 101,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 102,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 102,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 103,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 930,
+      "name": "split_oak_5_4",
+      "bottom": [
+       {
+        "tile": 104,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 105,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 106,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 73,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 931,
+      "name": "split_oak_5_5",
+      "bottom": [
+       {
+        "tile": 107,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 108,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 109,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 90,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     }
+    ]
+   ]
+  },
+  "fallen_log": {
+   "size": [
+    5,
+    2
+   ],
+   "metatiles": [
+    [
+     {
+      "id": 932,
+      "name": "fallen_log_0_0",
+      "bottom": [
+       {
+        "tile": 1,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 110,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 111,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 112,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 933,
+      "name": "fallen_log_0_1",
+      "bottom": [
+       {
+        "tile": 113,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 114,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 115,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 116,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 934,
+      "name": "fallen_log_0_2",
+      "bottom": [
+       {
+        "tile": 117,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 118,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 119,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 120,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 935,
+      "name": "fallen_log_0_3",
+      "bottom": [
+       {
+        "tile": 121,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 122,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 123,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 124,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 936,
+      "name": "fallen_log_0_4",
+      "bottom": [
+       {
+        "tile": 125,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 2,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 126,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 127,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     }
+    ],
+    [
+     {
+      "id": 937,
+      "name": "fallen_log_1_0",
+      "bottom": [
+       {
+        "tile": 128,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 129,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 130,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 131,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 938,
+      "name": "fallen_log_1_1",
+      "bottom": [
+       {
+        "tile": 132,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 133,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 134,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 135,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 939,
+      "name": "fallen_log_1_2",
+      "bottom": [
+       {
+        "tile": 136,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 137,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 138,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 139,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 940,
+      "name": "fallen_log_1_3",
+      "bottom": [
+       {
+        "tile": 140,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 141,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 142,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 143,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     },
+     {
+      "id": 941,
+      "name": "fallen_log_1_4",
+      "bottom": [
+       {
+        "tile": 144,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 145,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 146,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 147,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 1,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     }
+    ]
+   ]
+  },
+  "scorch_a": {
+   "size": [
+    1,
+    1
+   ],
+   "metatiles": [
+    [
+     {
+      "id": 942,
+      "name": "scorch_a_0_0",
+      "bottom": [
+       {
+        "tile": 148,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 149,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 150,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 151,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     }
+    ]
+   ]
+  },
+  "scorch_b": {
+   "size": [
+    1,
+    1
+   ],
+   "metatiles": [
+    [
+     {
+      "id": 943,
+      "name": "scorch_b_0_0",
+      "bottom": [
+       {
+        "tile": 152,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 153,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 154,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 155,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     }
+    ]
+   ]
+  },
+  "scorch_c": {
+   "size": [
+    1,
+    1
+   ],
+   "metatiles": [
+    [
+     {
+      "id": 944,
+      "name": "scorch_c_0_0",
+      "bottom": [
+       {
+        "tile": 156,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 157,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 158,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       },
+       {
+        "tile": 159,
+        "pal": 2,
+        "hflip": false,
+        "vflip": false
+       }
+      ],
+      "top": null,
+      "blocked": 0,
+      "behavior": "MB_NORMAL",
+      "layer": "LAYER_NORMAL"
+     }
+    ]
+   ]
+  }
+ }
+}

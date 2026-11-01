@@ -1,0 +1,84 @@
+{
+  "forest": {
+    "model": "general_fortree",
+    "tileset": "general_fortree",
+    "note": "trained earlier"
+  },
+  "meadow": {
+    "model": "general_fortree",
+    "tileset": "general_fortree",
+    "note": "trained earlier"
+  },
+  "riverland": {
+    "model": "general_fortree",
+    "tileset": "general_fortree",
+    "note": "trained earlier"
+  },
+  "beach": {
+    "model": "general_slateport",
+    "tileset": "general_slateport",
+    "layouts": [
+      "Route109_Layout",
+      "Route108_Layout",
+      "SlateportCity_Layout"
+    ],
+    "note": "sand beaches, shoreline, sea rocks (Route 109 / 108)",
+    "classes": "abdefghknprstuvwxz"
+  },
+  "sea": {
+    "model": "general_dewford",
+    "tileset": "general_dewford",
+    "layouts": [
+      "Route105_Layout",
+      "Route106_Layout",
+      "Route107_Layout",
+      "DewfordTown_Layout"
+    ],
+    "note": "open sea with small sandy islands and grass (Routes 105-107)",
+    "classes": "abdefghknprstuvwxz"
+  },
+  "ocean_currents": {
+    "model": "general_pacifidlog",
+    "tileset": "general_pacifidlog",
+    "layouts": [
+      "Route131_Layout",
+      "Route132_Layout",
+      "Route133_Layout",
+      "Route134_Layout",
+      "PacifidlogTown_Layout"
+    ],
+    "note": "deep sea, shoals, floating-log bridges (Routes 131-134)",
+    "classes": "abdefghknpqrstuvwxz"
+  },
+  "desert": {
+    "model": "general_mauville",
+    "tileset": "general_mauville",
+    "layouts": [
+      "Route111_Layout"
+    ],
+    "note": "Route 111: deep sand, boulders, rock walls",
+    "classes": "abdefghknprstuvwxz"
+  },
+  "mountain": {
+    "model": "general_lavaridge",
+    "tileset": "general_lavaridge",
+    "layouts": [
+      "Route112_Layout",
+      "JaggedPass_Layout",
+      "MtChimney_Layout",
+      "LavaridgeTown_Layout"
+    ],
+    "note": "Route 112, Jagged Pass, Mt. Chimney: tiers, cliffs, stairs, lava",
+    "classes": "abdefghklnprstuvwxyz"
+  },
+  "volcanic": {
+    "model": "general_fallarbor",
+    "tileset": "general_fallarbor",
+    "layouts": [
+      "Route113_Layout",
+      "FallarborTown_Layout"
+    ],
+    "note": "Route 113: ash grass, ash ground, grey ash cliffs",
+    "classes": "abdefghknprstuvwxyz"
+  }
+}

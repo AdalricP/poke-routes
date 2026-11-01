@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arklarna Route Viewer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="plaque" class="plaque hidden"><span id="plaque-title"></span><small id="plaque-sub"></small></div>
+<div id="dialog" class="dialog hidden"><p id="dialog-text"></p><span class="more">▼</span></div>
+<div id="battle" class="battle hidden"></div>
+<div id="party" class="party"></div>
+<canvas id="minimap" class="minimap hidden"></canvas>
+<div id="hud" class="hud">
+  <span>arrows / WASD move · shift run · space interact · M map · T time of day · N next route · ♪ music</span>
+</div>
+<button id="sound" class="sound" title="music">♪</button>
+<div id="loading" class="loading">Arklarna</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

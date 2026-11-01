@@ -1,0 +1,22 @@
+name: Bernsteinweg
+size: [48, 72]
+seed: 7
+biome: forest
+# Littleroot Town's north opening and Route 101's south opening are 2 wide, so those
+# exits are too; the ROM installer lines them up (computes the connection offsets).
+exits:
+  - {side: south, at: 0.45, width: 2, to: MAP_LITTLEROOT_TOWN}
+  - {side: north, at: 0.6, width: 2, to: MAP_ROUTE101}
+  - {side: east, at: 0.35, to: MAP_ERLENBRUCH}
+meander: 0.7
+branches: 4
+loops: 1
+dead_ends: 2
+clearings: 4
+lakes: 1
+tall_grass: 0.3
+hidden_paths: 2
+hidden_items: 4
+special_areas: [auto, auto, pond, hollow]
+species_file: ../../arklarna/design/pokedex.json
+music: MUS_ARK_BERNSTEINWEG

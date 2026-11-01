@@ -1,0 +1,399 @@
+{
+ "thunderstruck_oak": {
+  "species": "Pikachu",
+  "kind": "inline",
+  "context": "deep_forest",
+  "biomes": [
+   "forest"
+  ],
+  "footprint": [
+   17,
+   13
+  ],
+  "visibility": "hidden",
+  "door": "auto",
+  "activity": "nursery (nesting and raising young)",
+  "ecology": "Pikachu are forest animals that den in dry tree hollows and feed on stored charge. A knoll of iron-rich rock is the highest ground in the wood and takes the lightning: the strikes split the oak, keep the knoll bald, and leave the stone and the dead wood holding a charge. Mothers raise Pichu here because the split trunk is a dry, warm den and the fallen limb is a safe place to sun and play, with a Raichu watching from the rocks.",
+  "fix": "Concept: 'bald hill' moved into the forest as a rocky knoll in deep woodland (Pikachu are not open-meadow animals). Dex habitats meadow,forest -> forest,deep_forest.",
+  "dex_habitats": [
+   "forest",
+   "deep_forest"
+  ],
+  "compose": [
+   [
+    "clearing",
+    0,
+    0,
+    {
+     "ry": 5.4,
+     "rx": 7.8,
+     "rough": 0.55
+    }
+   ],
+   [
+    "split_oak",
+    -1,
+    -2,
+    {
+     "name": "oak"
+    }
+   ],
+   [
+    "fallen_log",
+    1,
+    3,
+    {
+     "name": "log"
+    }
+   ],
+   [
+    "rock_ring",
+    -1,
+    0,
+    {
+     "ry": 4.8,
+     "rx": 7.4,
+     "gaps": [
+      "s",
+      "se",
+      "sw"
+     ],
+     "step": 2.6
+    }
+   ],
+   [
+    "bare_ring",
+    3,
+    3,
+    {
+     "r": 1.3,
+     "c": "v",
+     "scorch": true
+    }
+   ],
+   [
+    "boulders",
+    -1,
+    5,
+    {
+     "n": 1,
+     "r": 1.5
+    }
+   ],
+   [
+    "tall_grass",
+    4,
+    -6,
+    {
+     "ry": 1.2,
+     "rx": 1.8
+    }
+   ],
+   [
+    "tall_grass",
+    4,
+    7,
+    {
+     "ry": 1.0,
+     "rx": 1.5
+    }
+   ]
+  ],
+  "mons": [
+   {
+    "species": "Pikachu",
+    "at": "oak",
+    "n": 1,
+    "move": "sleep",
+    "on": "f",
+    "text": "A PIKACHU is curled in the split of the trunk, fur crackling as it breathes."
+   },
+   {
+    "species": "Pikachu",
+    "at": [
+     1,
+     2
+    ],
+    "n": 1,
+    "move": "sleep",
+    "on": "u",
+    "text": "A PIKACHU is sunning itself on the log. It opens one eye."
+   },
+   {
+    "species": "Pikachu",
+    "at": [
+     1,
+     5
+    ],
+    "n": 1,
+    "move": "look_around",
+    "on": "u",
+    "text": "PIKACHU! It stands up on the log, cheeks sparking."
+   },
+   {
+    "species": "Pichu",
+    "at": "log_front",
+    "n": 3,
+    "move": "wander",
+    "spread": 2.2,
+    "text": "A PICHU tumbles over its own tail and squeaks at you!"
+   },
+   {
+    "species": "Pichu",
+    "at": "log_end",
+    "n": 1,
+    "move": "spar:right",
+    "text": "This PICHU keeps headbutting the log. Sparks fly off the bark."
+   },
+   {
+    "species": "Raichu",
+    "at": [
+     -5,
+     5
+    ],
+    "n": 1,
+    "move": "look_around",
+    "on": "u",
+    "lead": true,
+    "unique": true,
+    "text": "The RAICHU on the rocks has been watching you since you left the road."
+   }
+  ],
+  "interact": [
+   {
+    "type": "npc",
+    "gfx": "SCIENTIST_1",
+    "at": [
+     4,
+     -2
+    ],
+    "move": "face",
+    "face": "oak",
+    "text": "Third strike this summer, same tree. The rock here is half iron. The PIKACHU only moved in after the first strike. The mothers den in the split where it stays warm, and the young ones play on the old limb."
+   },
+   {
+    "type": "hidden_item",
+    "at": "oak_roots",
+    "item": "ITEM_THUNDER_STONE",
+    "when": "night",
+    "text": "The roots are cold. Something here only shows up after dark."
+   }
+  ],
+  "on_enter": {
+   "text": "The hair on your arms lifts. Something on the rocks squeaks a warning.",
+   "cry": "Raichu"
+  },
+  "encounters": [
+   [
+    "Pikachu",
+    30
+   ],
+   [
+    "Pichu",
+    15
+   ],
+   [
+    "Raichu",
+    3
+   ]
+  ],
+  "story": "A great oak on a knoll of iron-rich rock in the middle of the forest, split by lightning a century ago and still alive. Pikachu nest in the charred heart and Pichu play among the roots; a Raichu keeps watch from the rocks.",
+  "access": "cut_tree"
+ },
+ "blind_cellar": {
+  "species": "Deino",
+  "kind": "submap",
+  "context": "ruins",
+  "biomes": [
+   "forest",
+   "meadow"
+  ],
+  "approach_footprint": [
+   13,
+   10
+  ],
+  "visibility": "secret",
+  "door": "auto",
+  "activity": "living / hunting by sound",
+  "ecology": "Deino are blind cave dragons that find food by sound and bite whatever moves. A burned manor's wine cellar is a cave in all but name: dark, cool, one way in, and full of soft casks to chew.",
+  "fix": "None: dex habitats cave_deep,ruins already fit an underground ruin.",
+  "entrance": {
+   "kind": "cave_mouth",
+   "note": "the cellar stair under a heap of fallen masonry"
+  },
+  "approach": [
+   [
+    "clearing",
+    0,
+    0,
+    {
+     "ry": 3.8,
+     "rx": 5.5,
+     "rough": 0.3
+    }
+   ],
+   [
+    "ruin_room",
+    0,
+    0,
+    {
+     "h": 7,
+     "w": 9,
+     "door": "s",
+     "broken": 0.3,
+     "floor": "p"
+    }
+   ],
+   [
+    "cave_mouth",
+    0,
+    0,
+    {
+     "name": "stair",
+     "mass": [
+      2,
+      3
+     ]
+    }
+   ],
+   [
+    "burrows",
+    1,
+    0,
+    {
+     "n": 0
+    }
+   ]
+  ],
+  "approach_interact": [
+   {
+    "type": "sign",
+    "at": [
+     3,
+     3
+    ],
+    "text": "Burnt timbers. A cellar stair goes down into the dark under the rubble. Something down there is chewing wood."
+   }
+  ],
+  "interior": {
+   "type": "cellar",
+   "size": [
+    18,
+    14
+   ],
+   "suffix": "BLIND_CELLAR",
+   "music": "MUS_ABANDONED_SHIP",
+   "compose": [
+    [
+     "fill",
+     -1,
+     0,
+     {
+      "h": 9,
+      "w": 14,
+      "c": "v"
+     }
+    ],
+    [
+     "ruin_wall",
+     -3,
+     -2,
+     {
+      "length": 9,
+      "axis": "x",
+      "broken": 0.25,
+      "piece": "boulder"
+     }
+    ],
+    [
+     "ruin_wall",
+     0,
+     2,
+     {
+      "length": 9,
+      "axis": "x",
+      "broken": 0.25,
+      "piece": "boulder"
+     }
+    ],
+    [
+     "boulders",
+     -4,
+     5,
+     {
+      "n": 2,
+      "r": 1.5
+     }
+    ]
+   ],
+   "mons": [
+    {
+     "species": "Deino",
+     "at": [
+      -2,
+      -3
+     ],
+     "n": 2,
+     "move": "wander_slow",
+     "spread": 2,
+     "text": "The DEINO swings its head toward the sound of your steps..."
+    },
+    {
+     "species": "Deino",
+     "at": [
+      1,
+      3
+     ],
+     "n": 2,
+     "move": "wander_slow",
+     "spread": 2,
+     "text": "A DEINO bumps a cask and bites it, then turns to bite you."
+    },
+    {
+     "species": "Zweilous",
+     "at": [
+      -4,
+      4
+     ],
+     "move": "look_around",
+     "lead": true,
+     "unique": true,
+     "text": "Two heads, both listening. The ZWEILOUS lunges!"
+    }
+   ],
+   "interact": [
+    {
+     "type": "hidden_item",
+     "at": [
+      -4,
+      -6
+     ],
+     "item": "ITEM_DRAGON_FANG"
+    },
+    {
+     "type": "sign",
+     "at": [
+      3,
+      -5
+     ],
+     "text": "A steward's ledger, swollen with vinegar. The last entry: 'Casks gnawed again. Rats? Too big for rats.'"
+    }
+   ],
+   "story": "Rows of burst casks in the dark. The floor is wet with old vinegar and the Deino find you by your footsteps."
+  },
+  "encounters": [
+   [
+    "Deino",
+    30
+   ],
+   [
+    "Zubat",
+    20
+   ]
+  ],
+  "story": "A wine cellar under a burned manor, still smelling of vinegar, where blind Deino chew on the casks and on anything that moves.",
+  "access": "npc_block",
+  "blocker_gfx": "OLD_MAN",
+  "blocker_text": "That's the old Brandt manor. Burned with the family in it. I don't let anyone down that lane. If you go round by the brambles, I never saw you."
+ }
+}

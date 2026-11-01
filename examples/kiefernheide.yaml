@@ -1,0 +1,27 @@
+name: Kiefernheide
+size: [64, 48]
+seed: 41
+biome: meadow
+exits:
+  - {side: west, at: 0.55, to: MAP_ERLENBRUCH}
+  - {side: north, at: 0.78}  # towards Huettenau, not built yet: no connection
+meander: 0.6
+branches: 3
+loops: 1
+dead_ends: 2
+clearings: 2
+lakes: 1
+tall_grass: 0.35
+hidden_paths: 2
+hidden_items: 5
+special_areas: [auto, auto, stones]
+species_file: ../../arklarna/design/pokedex.json
+music: MUS_ARK_KIEFERNHEIDE
+# braided skeleton along the L (west -> corner clearing -> north): hedged fields
+# between the lanes, an extra unconnected exit a side lane runs to
+sections: 3
+max_lanes: 3
+merge_chance: 0.3
+dead_end_chance: 0.3
+ledge_chance: 0.4
+extra_exits: 1

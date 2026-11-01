@@ -1,0 +1,1165 @@
+{
+ "counting_grove": {
+  "species": "Sudowoodo",
+  "kind": "inline",
+  "context": "deep_forest",
+  "biomes": [
+   "forest"
+  ],
+  "footprint": [
+   15,
+   12
+  ],
+  "visibility": "hidden",
+  "access": "hidden_gap",
+  "activity": "hiding in plain sight (living)",
+  "ecology": "Sudowoodo is a rock that mimics a tree to avoid predators, so it lives where there are plenty of real saplings to stand among. A replanted forestry grove of young trees in neat rows is the perfect cover; when the warden turns his back, they shuffle.",
+  "fix": "None: dex habitats forest,deep_forest fit.",
+  "compose": [
+   [
+    "clearing",
+    0,
+    0,
+    {
+     "ry": 4.8,
+     "rx": 6.6,
+     "rough": 0.4
+    }
+   ],
+   [
+    "mound",
+    -3,
+    -6,
+    {}
+   ],
+   [
+    "thicket",
+    -4,
+    5,
+    {
+     "ry": 1.2,
+     "rx": 1.6
+    }
+   ],
+   [
+    "anchor",
+    0,
+    0,
+    {
+     "name": "rows"
+    }
+   ],
+   [
+    "sign",
+    3,
+    -5,
+    {
+     "text": "FORESTRY PLANTING, YEAR 420. 48 OAKS. Underneath, in pencil: 51? 47? 50?"
+    }
+   ]
+  ],
+  "mons": [
+   {
+    "species": "Sudowoodo",
+    "at": [
+     -2,
+     -3
+    ],
+    "move": "tree_disguise",
+    "text": "The 'tree' flinches. It's a SUDOWOODO!"
+   },
+   {
+    "species": "Sudowoodo",
+    "at": [
+     -2,
+     1
+    ],
+    "move": "tree_disguise",
+    "text": "This sapling has arms. SUDOWOODO!"
+   },
+   {
+    "species": "Sudowoodo",
+    "at": [
+     1,
+     3
+    ],
+    "move": "tree_disguise",
+    "text": "You touch the bark. It's cold stone. SUDOWOODO!"
+   },
+   {
+    "species": "Sudowoodo",
+    "at": [
+     1,
+     -1
+    ],
+    "move": "face:left",
+    "lead": true,
+    "unique": true,
+    "text": "One of the trees has turned round to look at the warden. It hasn't noticed you yet."
+   }
+  ],
+  "interact": [
+   {
+    "type": "npc",
+    "gfx": "HIKER",
+    "at": [
+     2,
+     -4
+    ],
+    "move": "face:right",
+    "text": "Forty-eight. I planted forty-eight. Every morning I count, and every morning it's a different number. My wife says I drink."
+   },
+   {
+    "type": "hidden_item",
+    "at": [
+     -3,
+     4
+    ],
+    "item": "ITEM_DAMP_ROCK"
+   }
+  ],
+  "on_enter": {
+   "text": "The young trees stand in rows. One of them has moved since you looked."
+  },
+  "encounters": [
+   [
+    "Sudowoodo",
+    25
+   ]
+  ],
+  "story": "A forestry grove of young trees planted in rows. Some of the trees are Sudowoodo, and the warden counts a different number every morning."
+ },
+ "oxbow_flats": {
+  "species": "Mudkip",
+  "kind": "inline",
+  "context": "riverbank",
+  "biomes": [
+   "riverland"
+  ],
+  "footprint": [
+   16,
+   11
+  ],
+  "visibility": "hidden",
+  "access": "ledge",
+  "activity": "playing / feeding in the shallows",
+  "ecology": "Mudkip sense the water with their fins and need soft, wet banks to dig and slide on. A cut-off river bend keeps still, warm, muddy shallows full of small prey, away from the current that would sweep the young away. The Swampert sits where the oxbow meets the river, watching for floods.",
+  "fix": "None: dex habitats marsh,riverbank fit.",
+  "compose": [
+   [
+    "clearing",
+    0,
+    0,
+    {
+     "ry": 4.6,
+     "rx": 7.4,
+     "rough": 0.5,
+     "ground": "g"
+    }
+   ],
+   [
+    "pond",
+    -1,
+    0,
+    {
+     "ry": 2.0,
+     "rx": 5.0,
+     "rough": 0.6
+    }
+   ],
+   [
+    "bare_ring",
+    1,
+    0,
+    {
+     "r": 3.4,
+     "c": "p",
+     "inner": 1.6
+    }
+   ],
+   [
+    "reeds",
+    0,
+    0,
+    {
+     "r": 7,
+     "density": 0.5
+    }
+   ],
+   [
+    "pond",
+    -3,
+    6,
+    {
+     "ry": 1.2,
+     "rx": 1.6
+    }
+   ]
+  ],
+  "mons": [
+   {
+    "species": "Mudkip",
+    "at": [
+     1,
+     -3
+    ],
+    "n": 3,
+    "move": "wander",
+    "spread": 2.5,
+    "text": "A MUDKIP slides down the bank on its belly and bumps into you!"
+   },
+   {
+    "species": "Mudkip",
+    "at": [
+     -1,
+     -2
+    ],
+    "n": 1,
+    "move": "wander_slow",
+    "on": "w",
+    "text": "A MUDKIP pops up out of the mud, blowing bubbles."
+   },
+   {
+    "species": "Marshtomp",
+    "at": [
+     2,
+     4
+    ],
+    "n": 1,
+    "move": "look_around",
+    "text": "MARSHTOMP! It slaps the mud flat with its tail."
+   },
+   {
+    "species": "Swampert",
+    "at": [
+     -3,
+     5
+    ],
+    "n": 1,
+    "move": "face:up",
+    "lead": true,
+    "unique": true,
+    "on": "w",
+    "text": "The SWAMPERT has been watching the river. Now it's watching you."
+   }
+  ],
+  "interact": [
+   {
+    "type": "npc",
+    "gfx": "FISHERMAN",
+    "at": [
+     3,
+     -6
+    ],
+    "move": "face:right",
+    "text": "Don't stand downstream of the big one. When the SWAMPERT gets up and leaves, the river comes over the bank within the hour. Every time."
+   },
+   {
+    "type": "hidden_item",
+    "at": [
+     0,
+     -6
+    ],
+    "item": "ITEM_MYSTIC_WATER"
+   }
+  ],
+  "encounters": [
+   [
+    "Mudkip",
+    30
+   ],
+   [
+    "Marshtomp",
+    6
+   ],
+   [
+    "Poliwag",
+    15
+   ]
+  ],
+  "story": "A wide mud oxbow cut off from the river, where Mudkip slide down the banks all day and a Swampert sits half-buried at the river end, watching for floods."
+ },
+ "heaving_commons": {
+  "species": "Diglett",
+  "kind": "inline",
+  "context": "meadow",
+  "biomes": [
+   "meadow",
+   "farmland"
+  ],
+  "footprint": [
+   14,
+   11
+  ],
+  "visibility": "visible",
+  "access": "none",
+  "activity": "feeding underground (tilling the soil)",
+  "ecology": "Diglett eat roots and grubs and need deep, loose, unstoned soil. A village green, grazed for centuries and never ploughed, is exactly that. The villagers tolerate them because the grass grows best where they dig.",
+  "fix": "None: dex habitats meadow,farmland,cave fit.",
+  "compose": [
+   [
+    "clearing",
+    0,
+    0,
+    {
+     "ry": 4.6,
+     "rx": 6.4,
+     "rough": 0.3
+    }
+   ],
+   [
+    "fence_pen",
+    0,
+    0,
+    {
+     "h": 9,
+     "w": 12,
+     "gate": "s"
+    }
+   ],
+   [
+    "burrows",
+    0,
+    0,
+    {
+     "n": 9,
+     "r": 3.6
+    }
+   ],
+   [
+    "sign",
+    4,
+    3,
+    {
+     "text": "PARISH COMMON. Grazing by right of the village. Do not fill in the holes. By order."
+    }
+   ]
+  ],
+  "mons": [
+   {
+    "species": "Diglett",
+    "at": [
+     -1,
+     -2
+    ],
+    "n": 3,
+    "move": "buried",
+    "spread": 3,
+    "text": "The ground bulges. A DIGLETT pops up!"
+   },
+   {
+    "species": "Diglett",
+    "at": [
+     1,
+     2
+    ],
+    "n": 1,
+    "move": "look_around",
+    "text": "A DIGLETT is poking out of its hole, sniffing."
+   },
+   {
+    "species": "Dugtrio",
+    "at": [
+     -2,
+     3
+    ],
+    "n": 1,
+    "move": "buried",
+    "lead": true,
+    "unique": true,
+    "text": "Three heads come up at once. DUGTRIO!"
+   }
+  ],
+  "interact": [
+   {
+    "type": "npc",
+    "gfx": "OLD_WOMAN",
+    "at": [
+     3,
+     -3
+    ],
+    "move": "face:up",
+    "text": "Every night new hills, in lines. My husband swore they spelled his name the week before he died. I don't believe in that. I just don't walk on them."
+   }
+  ],
+  "encounters": [
+   [
+    "Diglett",
+    30
+   ],
+   [
+    "Dugtrio",
+    4
+   ]
+  ],
+  "story": "A fenced village green where molehills appear overnight in neat patterns. The Dugtrio underneath aren't saying."
+ },
+ "hollow_lane": {
+  "species": "Tauros",
+  "kind": "inline",
+  "context": "farmland",
+  "biomes": [
+   "meadow",
+   "farmland"
+  ],
+  "footprint": [
+   16,
+   8
+  ],
+  "visibility": "territorial",
+  "access": "none",
+  "activity": "territorial display (herd run)",
+  "ecology": "Tauros are herd animals that settle rank by charging. A sunken lane between high hedgebanks is a ready-made racecourse: long, straight, and walled in. The herd claims it every evening and runs anyone off it.",
+  "fix": "None: dex habitats meadow,farmland fit.",
+  "door": "s",
+  "compose": [
+   [
+    "fill",
+    0,
+    0,
+    {
+     "h": 3,
+     "w": 16,
+     "c": "p"
+    }
+   ],
+   [
+    "thicket",
+    -3,
+    -4,
+    {
+     "ry": 1.2,
+     "rx": 3.5
+    }
+   ],
+   [
+    "thicket",
+    -3,
+    4,
+    {
+     "ry": 1.2,
+     "rx": 3.5
+    }
+   ],
+   [
+    "thicket",
+    3,
+    -5,
+    {
+     "ry": 1.0,
+     "rx": 2.6
+    }
+   ],
+   [
+    "thicket",
+    3,
+    5,
+    {
+     "ry": 1.0,
+     "rx": 2.6
+    }
+   ],
+   [
+    "fill",
+    2,
+    0,
+    {
+     "h": 2,
+     "w": 3,
+     "c": "g"
+    }
+   ],
+   [
+    "boulders",
+    0,
+    0,
+    {
+     "n": 2,
+     "r": 6
+    }
+   ]
+  ],
+  "mons": [
+   {
+    "species": "Tauros",
+    "at": [
+     0,
+     -5
+    ],
+    "n": 2,
+    "move": "pace_h",
+    "spread": 2,
+    "text": "TAUROS lowers its horns and paws the dirt!"
+   },
+   {
+    "species": "Tauros",
+    "at": [
+     0,
+     5
+    ],
+    "n": 1,
+    "move": "spar:left",
+    "lead": true,
+    "unique": true,
+    "text": "The herd bull. TAUROS charges!"
+   }
+  ],
+  "ambush": {
+   "species": "Tauros",
+   "text": "Hooves! A TAUROS comes down the lane at full tilt!"
+  },
+  "interact": [
+   {
+    "type": "sign",
+    "at": [
+     2,
+     0
+    ],
+    "text": "HOLLOW LANE. Use the hedge gaps after sundown."
+   }
+  ],
+  "encounters": [
+   [
+    "Tauros",
+    25
+   ],
+   [
+    "Miltank",
+    8
+   ]
+  ],
+  "story": "A sunken lane worn ten feet deep between hedgebanks, which the Tauros herd uses as a racetrack every evening. Hear hooves, find a gap in the hedge, and fast."
+ },
+ "lighthouse_rookery": {
+  "species": "Wingull",
+  "kind": "inline",
+  "context": "sea_shore",
+  "biomes": [
+   "coast"
+  ],
+  "footprint": [
+   14,
+   11
+  ],
+  "visibility": "hidden",
+  "access": "strength_boulder",
+  "activity": "nesting colony",
+  "ecology": "Wingull nest in noisy colonies on bare rock right above the sea, where gulls can't be reached by anything that walks. A headland cut off by a rockfall is perfect: the old lighthouse keeper's path is blocked by a boulder and nothing but the birds has been up since.",
+  "fix": "Concept: no lighthouse tiles exist yet, so the tower is shown as its stone footing on a rocky headland. Habitats unchanged.",
+  "compose": [
+   [
+    "clearing",
+    0,
+    0,
+    {
+     "ry": 4.4,
+     "rx": 6.2,
+     "rough": 0.5,
+     "ground": "d"
+    }
+   ],
+   [
+    "rock_ring",
+    0,
+    0,
+    {
+     "ry": 4.2,
+     "rx": 6.0,
+     "gaps": [
+      "s"
+     ],
+     "step": 2.4
+    }
+   ],
+   [
+    "ruin_room",
+    -1,
+    0,
+    {
+     "h": 4,
+     "w": 5,
+     "door": "s",
+     "broken": 0.15,
+     "floor": "p"
+    }
+   ],
+   [
+    "pale_patch",
+    2,
+    -3,
+    {
+     "h": 2,
+     "w": 3
+    }
+   ],
+   [
+    "pale_patch",
+    1,
+    3,
+    {
+     "h": 2,
+     "w": 3
+    }
+   ]
+  ],
+  "mons": [
+   {
+    "species": "Wingull",
+    "at": [
+     -1,
+     0
+    ],
+    "n": 2,
+    "move": "sleep",
+    "spread": 1,
+    "text": "A WINGULL is sitting on a nest of seaweed. It screeches!"
+   },
+   {
+    "species": "Wingull",
+    "at": [
+     2,
+     -3
+    ],
+    "n": 2,
+    "move": "wander",
+    "spread": 2,
+    "text": "WINGULL! It dives at your head."
+   },
+   {
+    "species": "Wingull",
+    "at": [
+     1,
+     3
+    ],
+    "n": 1,
+    "move": "circle",
+    "text": "WINGULL wheels around you, shrieking."
+   },
+   {
+    "species": "Pelipper",
+    "at": [
+     -3,
+     4
+    ],
+    "n": 1,
+    "move": "look_around",
+    "on": "u",
+    "lead": true,
+    "unique": true,
+    "text": "An old PELIPPER, its bill full of something. It doesn't want to share."
+   }
+  ],
+  "interact": [
+   {
+    "type": "sign",
+    "at": [
+     1,
+     0
+    ],
+    "text": "Keeper's log, last page: 'Wind from the north. The birds went quiet at noon. Something big under the'"
+   },
+   {
+    "type": "hidden_item",
+    "at": [
+     -1,
+     1
+    ],
+    "item": "ITEM_PRETTY_FEATHER"
+   }
+  ],
+  "encounters": [
+   [
+    "Wingull",
+    30
+   ],
+   [
+    "Pelipper",
+    5
+   ]
+  ],
+  "story": "The footing of a decommissioned lighthouse on a headland white with Wingull and their droppings. The keeper's log ends mid-sentence."
+ },
+ "hourglass_dunes": {
+  "species": "Trapinch",
+  "kind": "inline",
+  "context": "dunes",
+  "biomes": [
+   "coast",
+   "desert"
+  ],
+  "footprint": [
+   16,
+   12
+  ],
+  "visibility": "hidden",
+  "access": "hidden_gap",
+  "activity": "ambush hunting from sand pits",
+  "ecology": "Trapinch dig funnel pits in loose, dry sand and wait at the bottom for prey to slide in. The drained lake bed is fine dry sand with nothing to anchor it, ideal pit ground; the Flygon that hatch here hum over the dunes in the noon heat.",
+  "fix": "Dex habitats mountain,beach -> beach,dunes (Trapinch need loose sand, not rock).",
+  "dex_habitats": [
+   "beach",
+   "dunes"
+  ],
+  "compose": [
+   [
+    "clearing",
+    0,
+    0,
+    {
+     "ry": 5.0,
+     "rx": 7.2,
+     "rough": 0.5,
+     "ground": "d"
+    }
+   ],
+   [
+    "worn_ring",
+    -1,
+    -3,
+    {
+     "ry": 1.4,
+     "rx": 1.6,
+     "c": "v"
+    }
+   ],
+   [
+    "worn_ring",
+    1,
+    3,
+    {
+     "ry": 1.4,
+     "rx": 1.6,
+     "c": "v"
+    }
+   ],
+   [
+    "worn_ring",
+    -2,
+    4,
+    {
+     "ry": 1.0,
+     "rx": 1.2,
+     "c": "v"
+    }
+   ],
+   [
+    "boulders",
+    0,
+    0,
+    {
+     "n": 2,
+     "r": 5
+    }
+   ],
+   [
+    "anchor",
+    -1,
+    -3,
+    {
+     "name": "pit1"
+    }
+   ],
+   [
+    "anchor",
+    1,
+    3,
+    {
+     "name": "pit2"
+    }
+   ]
+  ],
+  "mons": [
+   {
+    "species": "Trapinch",
+    "at": "pit1",
+    "move": "buried",
+    "text": "The sand at the bottom of the pit snaps shut. TRAPINCH!"
+   },
+   {
+    "species": "Trapinch",
+    "at": "pit2",
+    "move": "buried",
+    "text": "Jaws come up out of the sand. TRAPINCH!"
+   },
+   {
+    "species": "Vibrava",
+    "at": [
+     2,
+     -2
+    ],
+    "n": 1,
+    "move": "wander",
+    "text": "VIBRAVA buzzes in a wobbling circle, kicking up sand."
+   },
+   {
+    "species": "Flygon",
+    "at": [
+     -4,
+     1
+    ],
+    "n": 1,
+    "move": "circle",
+    "lead": true,
+    "unique": true,
+    "text": "The hum you've heard all morning stops. FLYGON is right above you."
+   }
+  ],
+  "interact": [
+   {
+    "type": "npc",
+    "gfx": "HIKER",
+    "at": [
+     4,
+     -5
+    ],
+    "move": "face:up",
+    "text": "Walk on the crests, never in the hollows. They found the surveyor at the bottom of one at sundown, still holding his chain."
+   },
+   {
+    "type": "hidden_item",
+    "at": "pit2",
+    "item": "ITEM_SOFT_SAND"
+   }
+  ],
+  "encounters": [
+   [
+    "Trapinch",
+    30
+   ],
+   [
+    "Vibrava",
+    5
+   ],
+   [
+    "Sandshrew",
+    10
+   ]
+  ],
+  "story": "An inland dune field from a drained lake, dotted with sliding sand funnels. A Flygon hums over it in the heat."
+ },
+ "rolling_scree": {
+  "species": "Geodude",
+  "kind": "inline",
+  "context": "cliff_base",
+  "biomes": [
+   "mountain"
+  ],
+  "footprint": [
+   12,
+   14
+  ],
+  "visibility": "hidden",
+  "access": "rock_smash",
+  "activity": "play (rolling contests)",
+  "ecology": "Geodude live on bare rock and sleep looking like stones. A long scree slope at the foot of a cliff is all loose rock, and the young roll down it for fun and to shed their old skin of grit; the Graveler climb back up for another go.",
+  "fix": "None: dex habitats cave,mountain,cliff,volcanic fit.",
+  "door": "s",
+  "compose": [
+   [
+    "cliff",
+    0,
+    0,
+    {
+     "side": "n",
+     "depth": 3,
+     "c": "r"
+    }
+   ],
+   [
+    "clearing",
+    1,
+    0,
+    {
+     "ry": 5.2,
+     "rx": 4.6,
+     "rough": 0.4,
+     "ground": "v"
+    }
+   ],
+   [
+    "ledge",
+    -1,
+    0,
+    {
+     "length": 5
+    }
+   ],
+   [
+    "ledge",
+    2,
+    -1,
+    {
+     "length": 4
+    }
+   ],
+   [
+    "boulders",
+    1,
+    0,
+    {
+     "n": 5,
+     "r": 4
+    }
+   ]
+  ],
+  "mons": [
+   {
+    "species": "Geodude",
+    "at": [
+     0,
+     -2
+    ],
+    "n": 3,
+    "move": "rock_disguise",
+    "spread": 3,
+    "text": "The rock you stepped past has hands. GEODUDE!"
+   },
+   {
+    "species": "Graveler",
+    "at": [
+     -2,
+     2
+    ],
+    "n": 1,
+    "move": "pace_v",
+    "text": "A GRAVELER comes rolling down the slope at you!"
+   },
+   {
+    "species": "Graveler",
+    "at": [
+     3,
+     2
+    ],
+    "n": 1,
+    "move": "look_around",
+    "lead": true,
+    "unique": true,
+    "text": "This GRAVELER is waiting its turn at the top. It doesn't like queue-jumpers."
+   }
+  ],
+  "interact": [
+   {
+    "type": "sign",
+    "at": [
+     4,
+     -3
+    ],
+    "text": "DANGER. FALLING ROCK. Some of it falls uphill."
+   },
+   {
+    "type": "hidden_item",
+    "at": [
+     1,
+     3
+    ],
+    "item": "ITEM_HARD_STONE"
+   }
+  ],
+  "encounters": [
+   [
+    "Geodude",
+    30
+   ],
+   [
+    "Graveler",
+    6
+   ]
+  ],
+  "story": "A long steep slope where every few seconds a Graveler lets go from the top and rolls to the bottom, then climbs back up for another go."
+ },
+ "mint_moulds": {
+  "species": "Slugma",
+  "kind": "submap",
+  "context": "volcanic",
+  "biomes": [
+   "volcanic",
+   "mountain"
+  ],
+  "approach_footprint": [
+   11,
+   9
+  ],
+  "visibility": "hidden",
+  "access": "strength_boulder",
+  "activity": "resting in the warmth (living)",
+  "ecology": "Slugma are living magma and cool to stone if they leave heat. An old mint sunk into a lava tube still has rivers of molten rock running through the coin moulds, the warmest beds on the mountain. They sleep in half-set coins.",
+  "fix": "None: dex habitat volcanic fits.",
+  "entrance": {
+   "kind": "cave_mouth",
+   "note": "the mint's adit, half buried in ash"
+  },
+  "approach": [
+   [
+    "clearing",
+    0,
+    0,
+    {
+     "ry": 3.4,
+     "rx": 4.6,
+     "rough": 0.4,
+     "ground": "v"
+    }
+   ],
+   [
+    "cave_mouth",
+    -1,
+    0,
+    {
+     "name": "adit",
+     "mass": [
+      3,
+      5
+     ]
+    }
+   ],
+   [
+    "boulders",
+    1,
+    0,
+    {
+     "n": 2,
+     "r": 3
+    }
+   ]
+  ],
+  "approach_interact": [
+   {
+    "type": "sign",
+    "at": [
+     2,
+     2
+    ],
+    "text": "GLUTWERK MINT No.2. CLOSED BY ORDER, 388 AL. The door is warm to the touch."
+   }
+  ],
+  "interior": {
+   "type": "cave",
+   "size": [
+    18,
+    14
+   ],
+   "suffix": "MINT_MOULDS",
+   "music": "MUS_MT_CHIMNEY",
+   "compose": [
+    [
+     "fill",
+     -1,
+     0,
+     {
+      "h": 9,
+      "w": 14,
+      "c": "v"
+     }
+    ],
+    [
+     "stream",
+     -1,
+     0,
+     {
+      "length": 12,
+      "axis": "x",
+      "width": 1,
+      "water": "l",
+      "wobble": 0.3
+     }
+    ],
+    [
+     "fill",
+     -4,
+     -4,
+     {
+      "h": 1,
+      "w": 3,
+      "c": "l"
+     }
+    ],
+    [
+     "fill",
+     -4,
+     3,
+     {
+      "h": 1,
+      "w": 3,
+      "c": "l"
+     }
+    ],
+    [
+     "boulders",
+     2,
+     0,
+     {
+      "n": 3,
+      "r": 5
+     }
+    ]
+   ],
+   "mons": [
+    {
+     "species": "Slugma",
+     "at": [
+      -3,
+      -4
+     ],
+     "n": 2,
+     "move": "sleep",
+     "spread": 2,
+     "text": "A SLUGMA is asleep in a half-set coin mould. It's too hot to touch."
+    },
+    {
+     "species": "Slugma",
+     "at": [
+      1,
+      2
+     ],
+     "n": 2,
+     "move": "wander_slow",
+     "spread": 2,
+     "text": "SLUGMA oozes toward the heat of your body!"
+    },
+    {
+     "species": "Magcargo",
+     "at": [
+      -4,
+      4
+     ],
+     "move": "look_around",
+     "lead": true,
+     "unique": true,
+     "text": "MAGCARGO's shell is crusted with coins. It does not want to share them."
+    }
+   ],
+   "interact": [
+    {
+     "type": "npc",
+     "gfx": "MAN_4",
+     "at": [
+      2,
+      -5
+     ],
+     "move": "face:up",
+     "text": "I worked the stamping floor here. Walk your SLUGMA round the moulds a few times. The heat does them good. Don't ask how I know."
+    },
+    {
+     "type": "hidden_item",
+     "at": [
+      -4,
+      0
+     ],
+     "item": "ITEM_HEAT_ROCK"
+    }
+   ],
+   "story": "Coin moulds full of rock that never cooled. Slugma sleep in the half-set coins."
+  },
+  "encounters": [
+   [
+    "Slugma",
+    30
+   ],
+   [
+    "Magcargo",
+    4
+   ]
+  ],
+  "story": "An abandoned mint inside a lava tube, where molten rock poured into the coin moulds and set. Slugma sleep in the half-set coins."
+ }
+}
