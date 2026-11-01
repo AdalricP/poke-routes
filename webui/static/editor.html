@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>poke-routes region editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="editor/editor.css">
+<style>html, body, #root { height: 100%; }</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="editor/logic.js"></script>
+<script src="editor/app.js"></script>
+<script>
+  // ?seed=N or ?load=NAME; the editor itself lives in editor/app.js (PREditor.init)
+  (function () {
+    const q = new URLSearchParams(location.search);
+    window.editor = PREditor.init(document.getElementById("root"), {
+      seed: q.get("seed") != null ? +q.get("seed") : undefined, load: q.get("load") || undefined,
+    });
+  })();
+</script>
+</body>
+</html>

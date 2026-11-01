@@ -467,7 +467,7 @@ def add_back_gates(net: Network, limit: int = 2) -> None:
     """A few routes get a second way into the town they touch (multiple starts)."""
     done = 0
     for n in net.nodes:
-        if done >= limit or n["kind"] != "route" or n.get("mode") == "sea":
+        if done >= limit or n["kind"] != "route" or n.get("mode") == "sea" or n.get("pinned"):
             continue
         k = n["idx"]
         mine = [c for c in net.conns if k in (c["a"], c["b"])]
@@ -523,9 +523,11 @@ def ascii_id(s: str) -> str:
 
 def name_routes(w: World, net: Network) -> None:
     rng = np.random.default_rng(w.seed * 31 + 7)
-    used = set()
+    used = {n["name"] for n in net.nodes if n["kind"] == "route" and n.get("pinned")}
     for n in net.nodes:
         if n["kind"] != "route":
+            continue
+        if n.get("pinned"):
             continue
         x0, y0, x1, y1 = n["rect"]
         sub = w.biome[y0:y1, x0:x1]
@@ -543,6 +545,11 @@ def name_routes(w: World, net: Network) -> None:
             nm = p + s
             if nm not in used:
                 break
+        k = 2
+        base = nm
+        while nm in used:  # names are how routes point at each other: never repeat one
+            nm = f"{base} {k}"
+            k += 1
         used.add(nm)
         n["name"] = nm
         n["id"] = ascii_id(nm)
@@ -614,15 +621,30 @@ def wild_sites(w: World, net: "Network", n: int) -> list:
     return out
 
 
-def build_network(w: World) -> Network:
+def build_network(w: World, keep: Optional[List[dict]] = None, plan: Optional[List[dict]] = None) -> Network:
+    """Lay the route network. ``keep``: route dicts (as in ``w.routes``) to keep as they
+    are; links are then only laid where a kept chain has a gap. ``plan``: the previous
+    ``w.links`` (for link order, links the editor dropped and user-drawn links)."""
     net = Network(w)
     C = {n["id"]: n["idx"] for n in net.nodes if n["kind"] == "city"}
+    plan = plan or []
+    pins = add_kept(w, net, keep or [], plan)
+    dropped = {l["name"] for l in plan if l.get("dropped")}
 
     links: List[dict] = []
 
     def add(link):
         links.append(link)
-        net.lay(link)
+        if link["name"] in dropped:
+            link["routes"] = pins.get(link["name"], [])
+            link["dropped"] = True
+            return
+        if keep is None or not pins.get(link["name"]):
+            net.lay(link)
+            if keep is not None and not link.get("routes"):
+                link["routes"] = []
+            return
+        lay_around(net, link, pins[link["name"]])
 
     add(dict(name="Tvangsburg-Pilsau", kind="main", src=[(C["tvangsburg"], 0)], dst=[(C["pilsau"], 0)]))
     add(dict(name="Tvangsburg-Huettenau", kind="main", src=[(C["tvangsburg"], 0)], dst=[(C["huettenau"], 0)]))
@@ -660,20 +682,42 @@ def build_network(w: World) -> Network:
     branch("Brandung branch", "kyogre_caves")
     branch("Skerries crossing", "silver_skerries", mode="sea")
     # wild places in whatever part of the map no route reaches yet: long dead ends
-    for lm in wild_sites(w, net, 2):
-        w.landmarks.append(lm)
-        net.reserved[lm.y, lm.x] = lm.id
+    wild = [lm for lm in w.landmarks if lm.id.startswith("wild_")]
+    if not wild:  # first build: find them (an edited map keeps the ones it has)
+        wild = wild_sites(w, net, 2)
+        w.landmarks.extend(wild)
+    for lm in wild:
+        if 0 <= lm.y < w.H and 0 <= lm.x < w.W:
+            net.reserved[lm.y, lm.x] = lm.id
         branch(f"{lm.name} branch", lm.id)
     # a loop: Hüttenau gets a second way out that rejoins the Pilsau road
     first = [k for k in links[0].get("routes", [])]
     add(dict(name="Huettenau-Pilsau loop", kind="loop", src=[(C["huettenau"], 0)] + [(k, 4.0) for k in links[1].get("routes", [])[-1:]],
              dst=[(C["pilsau"], 2.0)] + [(k, 0.0) for k in first]))
+    # links drawn by hand in the editor
+    for ul in plan:
+        if ul.get("kind") != "user":
+            continue
+        link = user_link(w, net, ul)
+        if link is not None:
+            add(link)
+        else:
+            w.log.append(f"{ul['name']}: an end is gone; not laid")
     add_back_gates(net)
     classify(w, net)
+    for n in net.nodes:  # roles the owner set by hand stay
+        man = (n.get("keep") or {}).get("manual") or {}
+        if n["kind"] == "route" and man.get("role"):
+            n["role"] = man["role"]
     name_routes(w, net)
-    w.links = [dict(name=l["name"], kind=l["kind"], mode=l.get("mode", "land"),
-                    routes=[net.nodes[k]["name"] for k in l.get("routes", [])], landmark=l.get("landmark"))
-               for l in links]
+    w.links = []
+    for l in links:
+        d = dict(name=l["name"], kind=l["kind"], mode=l.get("mode", "land"),
+                 routes=[net.nodes[k]["name"] for k in l.get("routes", [])], landmark=l.get("landmark"))
+        for k in ("dropped", "src_ref", "dst_ref"):
+            if l.get(k):
+                d[k] = l[k]
+        w.links.append(d)
     w.routes = [route_json(w, net, n) for n in net.nodes if n["kind"] == "route"]
     w.overrides["network"] = net
     w.log.append(f"routes: {len(w.routes)} ({', '.join(r['name'] + ':' + r['role'] for r in w.routes)})")
@@ -686,6 +730,142 @@ def route_json(w: World, net: Network, n: dict) -> dict:
         to = net.nodes[e["to"]]
         exits.append(dict(side=e["side"], cell=e["cell"], to=to.get("name"), to_map=to.get("map"), link=e["link"]))
     path = [list(c) for p in n["paths"] for c in p]
-    return dict(name=n["name"], id=n["id"], map=n["map"], rect=n["rect"], role=n["role"], shape=n["shape"],
-                tags=n["tags"], mode=n.get("mode", "land"), link=n.get("link"), exits=exits, path=path,
-                goal=n.get("goal"), goal_landmark=n.get("goal_landmark"), biome_code=n.get("biome_code"))
+    d = dict(name=n["name"], id=n["id"], map=n["map"], rect=n["rect"], role=n["role"], shape=n["shape"],
+             tags=n["tags"], mode=n.get("mode", "land"), link=n.get("link"), exits=exits, path=path,
+             goal=n.get("goal"), goal_landmark=n.get("goal_landmark"), biome_code=n.get("biome_code"),
+             kind_link=n.get("kind_link"))
+    old = n.get("keep") or {}
+    for k in ("pinned", "manual", "spec_overrides"):  # editor state rides along
+        if old.get(k):
+            d[k] = old[k]
+    return d
+
+
+# ------------------------------------------------------------------ editing support
+
+DELTA = {"east": (1, 0), "west": (-1, 0), "south": (0, 1), "north": (0, -1)}
+
+
+def add_kept(w: World, net: Network, keep: List[dict], plan: List[dict]) -> Dict[str, List[int]]:
+    """Put kept routes into the network as fixed nodes, with the connections they
+    still have to cities and to each other. Returns link name -> kept node indices
+    in the order the link visits them."""
+    by_name = {n["name"]: n["idx"] for n in net.nodes}
+    kinds = {l["name"]: l.get("kind", "main") for l in plan}
+    for r in keep:
+        k = net.add_node("route", r["rect"], link=r.get("link"), mode=r.get("mode", "land"),
+                         kind_link=r.get("kind_link") or kinds.get(r.get("link"), "main"),
+                         name=r["name"], id=r["id"], map=r["map"], pinned=True, keep=r)
+        net.nodes[k]["paths"].append([tuple(c) for c in r.get("path") or []])
+        if r.get("goal"):
+            net.nodes[k]["goal"] = list(r["goal"])
+            net.nodes[k]["goal_landmark"] = r.get("goal_landmark")
+        by_name[r["name"]] = k
+    seen = set()
+    for n in net.nodes:
+        r = n.get("keep")
+        if not r:
+            continue
+        for e in r.get("exits", []):
+            t = by_name.get(e.get("to"))
+            if t is None or t == n["idx"]:
+                continue
+            dx, dy = DELTA[e["side"]]
+            ca = (int(e["cell"][0]), int(e["cell"][1]))
+            cb = (ca[0] + dx, ca[1] + dy)
+            key = frozenset([(n["idx"], ca), (t, cb)])
+            if key in seen:
+                continue
+            seen.add(key)
+            net.conns.append(dict(a=n["idx"], b=t, cell_a=ca, cell_b=cb, side_a=e["side"], side_b=OPP[e["side"]],
+                                  link=e.get("link") or r.get("link") or ""))
+    pins: Dict[str, List[int]] = {}
+    order = {l["name"]: l.get("routes", []) for l in plan}
+    for n in net.nodes:
+        r = n.get("keep")
+        if r:
+            pins.setdefault(r.get("link") or "", []).append(n["idx"])
+    for name, ks in pins.items():
+        seq = order.get(name, [])
+        ks.sort(key=lambda k: seq.index(net.nodes[k]["name"]) if net.nodes[k]["name"] in seq else len(seq))
+    return pins
+
+
+def _linked(net: Network, a: int, bs) -> bool:
+    bs = set(bs)
+    return any((c["a"] == a and c["b"] in bs) or (c["b"] == a and c["a"] in bs) for c in net.conns)
+
+
+def lay_around(net: Network, link: dict, pins: List[int]) -> None:
+    """Lay ``link`` through its kept routes: only the missing pieces (start -> first
+    kept route, between kept routes that lost their joint, last kept route -> end)."""
+    out: List[int] = []
+
+    def piece(src, dst=None, goal=None):
+        sub = {k: v for k, v in link.items() if k not in ("src", "dst", "goal", "routes")}
+        sub["src"] = src
+        if goal is not None:
+            sub["goal"] = goal
+        else:
+            sub["dst"] = dst
+        net.lay(sub)
+        out.extend(sub.get("routes", []))
+
+    srcs = [k for k, _ in link["src"] if k not in pins]
+    if not _linked(net, pins[0], srcs):
+        piece([(k, p) for k, p in link["src"] if k not in pins], dst=[(pins[0], 0.0)])
+    for a, b in zip(pins, pins[1:]):
+        out.append(a)
+        if not _linked(net, a, [b]):
+            piece([(a, 0.0)], dst=[(b, 0.0)])
+    out.append(pins[-1])
+    last = net.nodes[pins[-1]]
+    if "goal" in link:
+        if not last.get("goal") and not _linked(net, pins[-1], [k for k in range(len(net.nodes)) if k not in pins]):
+            piece([(pins[-1], 0.0)], goal=link["goal"])
+    elif not _linked(net, pins[-1], [k for k, _ in link["dst"]]):
+        piece([(pins[-1], 0.0)], dst=link["dst"])
+    link["routes"] = out
+
+
+def user_link(w: World, net: Network, ul: dict) -> Optional[dict]:
+    """A link the owner drew: {name, src_ref, dst_ref}; refs are {city|route|landmark: id}."""
+    def node(ref):
+        if not ref:
+            return None
+        for n in net.nodes:
+            if ("city" in ref and n["kind"] == "city" and n.get("id") == ref["city"]) or \
+                    ("route" in ref and n["kind"] == "route" and n.get("name") == ref["route"]):
+                return n["idx"]
+        return None
+
+    s = node(ul.get("src_ref"))
+    if s is None:
+        return None
+    link = dict(name=ul["name"], kind="user", src=[(s, 0.0)], mode=ul.get("mode", "land"),
+                src_ref=ul.get("src_ref"), dst_ref=ul.get("dst_ref"))
+    dref = ul.get("dst_ref") or {}
+    if "landmark" in dref:
+        lm = w.landmark(dref["landmark"])
+        if lm is None:
+            return None
+        if lm.mode == "sea":
+            link["mode"] = "sea"
+        # aim at the nearest open, passable cell (the landmark itself may be lava or rock)
+        cost = net.scost if link["mode"] == "sea" else net.lcost
+        ys, xs = np.mgrid[0:w.H, 0:w.W]
+        d = np.hypot(xs - lm.x, ys - lm.y)
+        ok = np.isfinite(cost) & (net.occ == -1) & (d <= 8)
+        if link["mode"] == "sea":
+            ok |= (d <= 2.5) & (net.occ == -1)  # an island: land at the very end is fine
+        if not ok.any():
+            return None
+        gy, gx = np.unravel_index(int(np.argmin(np.where(ok, d, np.inf))), d.shape)
+        link["goal"] = (int(gx), int(gy))
+        link["landmark"] = lm.id
+    else:
+        d = node(dref)
+        if d is None or d == s:
+            return None
+        link["dst"] = [(d, 0.0)]
+    return link

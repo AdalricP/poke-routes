@@ -339,7 +339,9 @@ def hydrology(w: World, max_lakes: int = 3, river_cells: int = 0) -> None:
 
 # ------------------------------------------------------------------ climate and biomes
 
-def climate(w: World) -> None:
+def climate(w: World, reuse_noise: bool = False) -> None:
+    """``reuse_noise``: use the moisture noise from the last call instead of drawing
+    new noise (the editor re-runs climate on an edited map without reshuffling it)."""
     rng = w.rng
     xs, ys = _grid(w)
     v = (ys + 0.5) / w.H
@@ -362,16 +364,22 @@ def climate(w: World) -> None:
     m = ndi.gaussian_filter(m, 1.5)
     dcoast = ndi.distance_transform_edt(land)
     driver = ndi.distance_transform_edt(~(w.river | w.lake)) if w.river is not None else dcoast
-    noise = norm01(Fbm(rng, 4, gain=0.6)(xs / 12, ys / 12)) - 0.5
+    noise = w.overrides.get("moist_noise") if reuse_noise else None
+    if noise is None:
+        noise = norm01(Fbm(rng, 4, gain=0.6)(xs / 12, ys / 12)) - 0.5
+    w.overrides["moist_noise"] = noise
     moist = 0.16 + 0.34 * m + 0.18 * np.exp(-dcoast / 8) + 0.22 * np.exp(-driver / 3) + 0.55 * noise
     moist += w.overrides.get("rain", 0)
     w.temp, w.moist = temp, np.clip(moist, 0, 1)
 
 
-def make_tiers(w: World) -> None:
-    """Five elevation tiers on land (0 lowland .. 4 peaks) from height quantiles."""
+def make_tiers(w: World, q=None) -> None:
+    """Five elevation tiers on land (0 lowland .. 4 peaks) from height quantiles
+    (or from fixed thresholds ``q``, so edits don't shift every tier on the map)."""
     land = w.land
-    q = np.quantile(w.height[land], [0.30, 0.58, 0.80, 0.93])
+    if q is None:
+        q = np.quantile(w.height[land], [0.30, 0.58, 0.80, 0.93])
+    q = np.asarray(q, dtype=float)
     t = np.digitize(w.height, q).astype(np.int8)
     t[~land] = 0
     w.tiers = t

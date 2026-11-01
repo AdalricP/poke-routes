@@ -227,6 +227,10 @@ def route_spec(w: World, r: dict, idx: int) -> dict:
     }
     if role == "dead_end" and reg["goal"]:
         spec["endings"] = [{"kind": "special", "side": reg["goal"]["side"], "area": reg["goal"]["landmark"] or "auto"}]
+    # hand edits from the region editor win over the derived values
+    for k, v in (r.get("spec_overrides") or {}).items():
+        if k not in ("region", "size", "name", "id", "exits"):
+            spec[k] = v
     return spec
 
 

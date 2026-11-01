@@ -607,6 +607,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"error": str(e)}, 400)
                 return self._send(200, data, "application/zip",
                                   {"Content-Disposition": f'attachment; filename="{name}"'})
+            if u.path.startswith("/api/editor"):
+                import editor_api  # region editor (webui/editor_api.py)
+                return editor_api.get(self, u)
             if u.path.startswith("/api/region") or (u.path in ("/", "/index.html") and "region" in parse_qs(u.query)):
                 import region_api  # region page (webui/region_api.py)
                 return region_api.handle(self, u, STATIC)
@@ -621,6 +624,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
+        if u.path.startswith("/api/editor/") or u.path == "/api/retile":
+            import editor_api  # region editor + bench paint (webui/editor_api.py)
+            try:
+                return editor_api.post(self, u, sys.modules[__name__])
+            except Exception as e:
+                traceback.print_exc()
+                return self._json({"error": f"{type(e).__name__}: {e}"}, 500)
         if u.path != "/api/generate":
             return self._json({"error": "not found"}, 404)
         try:
