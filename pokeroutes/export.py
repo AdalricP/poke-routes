@@ -316,6 +316,9 @@ PROP_OBJ = {"cut_tree": ("OBJ_EVENT_GFX_CUTTABLE_TREE", "EventScript_CutTree"),
             "rock_smash": ("OBJ_EVENT_GFX_BREAKABLE_ROCK", "EventScript_RockSmash"),
             "strength_boulder": ("OBJ_EVENT_GFX_PUSHABLE_BOULDER", "EventScript_StrengthBoulder")}
 TEMP_FLAGS = [f"FLAG_TEMP_{i:X}" for i in range(0x11, 0x20)]
+# Cut trees and smashed rocks need a flag: removeobject sets it, and with flag 0 the object
+# respawns as soon as the camera scrolls. FLAG_TEMP_* clear on map load, like vanilla.
+HM_TEMP_FLAGS = [f"FLAG_TEMP_{i:X}" for i in range(0x1, 0x11)]
 
 
 def build_events(route: Route, elev, settle, taken: set, cname: str):
@@ -327,6 +330,7 @@ def build_events(route: Route, elev, settle, taken: set, cname: str):
     objs, bgs, coords, warps, flags, sc = [], [], [], [], [], []
     used = set()
     n = {"sign": 0, "npc": 0, "ball": 0, "hidden": 0}
+    hm_pool = list(HM_TEMP_FLAGS)
 
     def free(y, x):
         return (y, x) not in used
@@ -343,7 +347,8 @@ def build_events(route: Route, elev, settle, taken: set, cname: str):
                         "flag": flag, "quantity": 1, "underfoot": False})
         elif k in PROP_OBJ and free(e.y, e.x):
             gfx, script = PROP_OBJ[k]
-            objs.append(_obj(gfx, e.x, e.y, script))
+            flag = hm_pool.pop(0) if k != "strength_boulder" and hm_pool else "0"
+            objs.append(_obj(gfx, e.x, e.y, script, flag))
             used.add((e.y, e.x))
         elif k == "item_ball" and free(e.y, e.x):
             n["ball"] += 1
