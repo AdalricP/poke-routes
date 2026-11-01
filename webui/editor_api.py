@@ -70,8 +70,17 @@ def get(h, u) -> None:
 
 
 def post(h, u, srv) -> None:
+    from urllib.parse import urlparse
+
     from pokeroutes.region import edit
 
+    # only this page may post: a JSON body forces a CORS preflight (which fails) and a
+    # foreign Origin is refused, so another site can't write files through the browser
+    origin = h.headers.get("Origin")
+    if origin and urlparse(origin).hostname not in ("127.0.0.1", "localhost"):
+        return h._json({"error": "forbidden origin"}, 403)
+    if not (h.headers.get("Content-Type") or "").startswith("application/json"):
+        return h._json({"error": "send JSON (Content-Type: application/json)"}, 415)
     try:
         b = _body(h)
     except ValueError as e:

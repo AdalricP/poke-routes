@@ -921,5 +921,7 @@
     }
     generate();
   }
+  // for bench-paint.js (tile-level fixing on the finished route)
+  window.PRBench = { state, draw, buildCanvases, setStage, stopPlay, fetchJSON, CELL };
   boot();
 })();

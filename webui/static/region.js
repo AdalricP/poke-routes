@@ -9,6 +9,8 @@
 
   async function load() {
     seed = Math.max(0, parseInt($("seed").value, 10) || 0);
+    const edLink = document.querySelector('a[href^="/editor.html"]');
+    if (edLink) edLink.href = `/editor.html?seed=${seed}`;
     $("status").textContent = "generating (first time takes a few seconds)...";
     const r = await fetch(`/api/region?seed=${seed}`);
     data = await r.json();
