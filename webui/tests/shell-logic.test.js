@@ -104,7 +104,7 @@ function skeleton() {
     { label: "File", items: ids(["new", "open"]).concat([{ id: "recent", label: "Open recent", items: () => [] }, { sep: true }],
       ids(["save", "saveas"]), [{ id: "export", label: "Export", items: ids(["exp-zip", "exp-scene", "exp-png"]) }]) },
     { label: "Edit", items: ids(["undo", "redo", "copy-spec", "paste-spec", "deselect", "prefs"]) },
-    { label: "View", items: [{ head: "x" }].concat(ids(["zin", "zout", "zfit", "z100", "frame", "ov-paths", "ov-areas", "ov-items", "ov-classes", "ov-grid"])) },
+    { label: "View", items: [{ head: "x" }].concat(ids(["zin", "zout", "zfit", "z100", "frame", "ov-areas", "ov-items", "ov-classes", "ov-grid"])) },
     { label: "Generate", items: ids(["gen", "regen", "gen-region", "play", "next", "prev", "first", "last"]) },
     { label: "Window", items: ids(["w-scene", "w-reset"]) },
     { label: "Help", items: ids(["keys", "about"]) },
@@ -132,15 +132,11 @@ test("no browser-reserved combos", () => {
   }
 });
 
-test("Generate only fires outside text fields (the old Ctrl+Enter is gone)", () => {
+test("Generate has no key (the toolbar button is it)", () => {
   const { menus, extra } = skeleton();
-  const cmdG = ev({ metaKey: true, key: "g", code: "KeyG" });
-  assert.strictEqual(SL.findShortcut(menus, cmdG, "none", true, extra).id, "gen");
-  assert.strictEqual(SL.findShortcut(menus, cmdG, "control", true, extra).id, "gen");
-  assert.strictEqual(SL.findShortcut(menus, cmdG, "text", true, extra), null);
-  const ctrlEnter = ev({ ctrlKey: true, key: "Enter", code: "Enter" });
-  assert.strictEqual(SL.findShortcut(menus, ctrlEnter, "none", false, extra), null);
-  assert.strictEqual(SL.findShortcut(menus, ev({ metaKey: true, key: "Enter", code: "Enter" }), "none", true, extra), null);
+  for (const k of [{ metaKey: true, key: "g", code: "KeyG" }, { metaKey: true, shiftKey: true, key: "G", code: "KeyG" },
+    { ctrlKey: true, key: "Enter", code: "Enter" }, { metaKey: true, key: "Enter", code: "Enter" }])
+    assert.strictEqual(SL.findShortcut(menus, ev(k), "none", true, extra), null);
 });
 
 test("findShortcut: platform, focus and enabled()", () => {
@@ -160,9 +156,9 @@ test("findShortcut: platform, focus and enabled()", () => {
   const m2 = [{ label: "X", items: [{ id: "a", label: "a", shortcut: "Mod+e", enabled: () => false }] }];
   assert.strictEqual(SL.findShortcut(m2, ev({ metaKey: true, key: "e", code: "KeyE" }), "none", true), null);
   // overlays are Alt+digit and stay out of text fields (Option+1 types "¡" there)
-  const alt1 = ev({ altKey: true, key: "¡", code: "Digit1" });
-  assert.strictEqual(SL.findShortcut(menus, alt1, "none", true, extra).id, "ov-paths");
-  assert.strictEqual(SL.findShortcut(menus, alt1, "text", true, extra), null);
+  const alt2 = ev({ altKey: true, key: "™", code: "Digit2" });
+  assert.strictEqual(SL.findShortcut(menus, alt2, "none", true, extra).id, "ov-areas");
+  assert.strictEqual(SL.findShortcut(menus, alt2, "text", true, extra), null);
 });
 
 test("dynamic submenus are skipped when flattening", () => {

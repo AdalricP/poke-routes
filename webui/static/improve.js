@@ -526,7 +526,7 @@
   $("impSubmit").onclick = submit;
   for (const b of $("impWctl").querySelectorAll("button")) b.onclick = () => setWorkers(Number(b.dataset.d));
   $("impText").addEventListener("keydown", (e) => {
-    e.stopPropagation(); // keep page shortcuts (Ctrl+Enter = Generate) out of the textarea
+    e.stopPropagation(); // keep page shortcuts out of the textarea
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
   });
   refresh();

@@ -181,17 +181,17 @@
     undo: "Mod+z", redo: "Mod+Shift+z", deselect: "Escape", prefs: "Mod+,",
     // View
     zin: "Mod+=", zout: "Mod+-", zfit: "Mod+0", frame: "f",
-    "ov-paths": "Alt+1", "ov-areas": "Alt+2", "ov-items": "Alt+3", "ov-classes": "Alt+4", "ov-grid": "Alt+5",
-    // Generate
-    gen: "Mod+g", regen: "Mod+Shift+g", play: "Space", next: "ArrowRight", prev: "ArrowLeft", first: "Home", last: "End",
+    "ov-areas": "Alt+2", "ov-items": "Alt+3", "ov-classes": "Alt+4", "ov-grid": "Alt+5",
+    // Generate (no key for Generate itself: the toolbar button is it)
+    play: "Space", next: "ArrowRight", prev: "ArrowLeft", first: "Home", last: "End",
     // Help
     keys: "Mod+/",
     // not in a menu: scene tools and plain-key zoom
     "tool-select": "v", "tool-pan": "h", "tool-paint": "b", "tool-stamp": "s", "x-zin": "=", "x-zout": "-", "x-zfit": "0", "x-help": "?",
   };
   const ALT_SHORTCUTS = { redo: "Mod+y", zin: "Mod+Shift+=" };
-  // Modifier shortcuts that still must not fire while typing (Generate never runs from a text field).
-  const NOT_IN_FIELDS = ["gen", "regen", "ov-paths", "ov-areas", "ov-items", "ov-classes", "ov-grid"];
+  // Modifier shortcuts that still must not fire while typing.
+  const NOT_IN_FIELDS = ["ov-areas", "ov-items", "ov-classes", "ov-grid"];
 
   // Fill shortcut / alt / field into menu items (and extra key items) by id.
   function attachShortcuts(menus, extra) {

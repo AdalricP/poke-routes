@@ -45,7 +45,7 @@
     tileCanvases: [], classCanvases: [], changedMasks: [], stageInfo: [], flashStart: 0,
     view: { zoom: 1, ox: 0, oy: 0 },
     layer: viewSaved.layer === "classes" ? "classes" : "tiles",
-    ov: Object.assign({ paths: true, areas: true, events: true, grid: false }, viewSaved.ov || {}),
+    ov: Object.assign({ areas: true, events: true, grid: false }, viewSaved.ov || {}),
     hover: null, hoverArea: null, sel: null,
     playing: false, timer: null, busy: false,
     specials: [], exits: [], tab: "dex",
@@ -683,7 +683,7 @@
       const i = (r.exits || []).findIndex((e) => e.cells.some(([y, x]) => x === c.x && y === c.y));
       if (i >= 0) hit = { type: "exit", i };
     }
-    if (!hit && state.ov.paths) {
+    if (!hit) {
       for (let i = nz - 1; i >= 0; i--) {
         const z = r.zones[i];
         if (PR.PATH_KINDS.includes(z.kind) && z.cells.some(([y, x]) => x === c.x && y === c.y)) { hit = { type: "zone", i }; break; }
@@ -741,7 +741,6 @@
     const s = CELL * zoom;
     if (state.ov.grid && s >= 8) drawGrid(g, r, ox, oy, s);
     const zones = PR.zonesAt(r, state.stage);
-    if (state.ov.paths) drawPaths(g, zones, ox, oy, s);
     if (state.ov.events) drawEvents(g, PR.eventsAt(r, state.stage), ox, oy, s);
     if (state.ov.areas) drawAreas(g, zones, ox, oy, s);
     if (!opt.interactive) return;
@@ -788,22 +787,6 @@
       });
       g.stroke();
     }
-  }
-
-  function drawPaths(g, zones, ox, oy, s) {
-    const lw = Math.max(2, Math.min(6, s * 0.2));
-    g.lineJoin = "round";
-    g.lineCap = "round";
-    for (const pass of [0, 1]) {
-      for (const z of zones) {
-        if (!PR.PATH_KINDS.includes(z.kind)) continue;
-        g.setLineDash(z.kind === "hidden" ? [lw * 1.6, lw * 1.6] : z.kind === "trail" ? [lw * 0.5, lw * 1.8] : []);
-        g.strokeStyle = pass === 0 ? "rgba(0,0,0,0.38)" : PR.PATH_COLORS[z.kind];
-        g.lineWidth = pass === 0 ? lw + 2.5 : lw;
-        pathLines(g, z, ox, oy, s);
-      }
-    }
-    g.setLineDash([]);
   }
 
   function drawEvents(g, events, ox, oy, s) {
@@ -1129,7 +1112,7 @@
     if (!r) return null;
     const st = r.stages[state.stage];
     const zoneNode = (z, i) => ({
-      id: "z:" + i, label: z.name || kname(z.kind), meta: PR.PATH_KINDS.includes(z.kind) ? kname(z.kind).toLowerCase() : `${z.cells.length} cells`,
+      id: "z:" + i, label: z.name || kname(z.kind), meta: PR.PATH_KINDS.includes(z.kind) ? "" : `${z.cells.length} cells`,
       icon: PR.PATH_KINDS.includes(z.kind) ? { cls: "line", color: PR.PATH_COLORS[z.kind] } : z.kind === "special" ? { cls: "ring" } :
         { color: z.kind === "lake" ? PR.CLASS_COLORS.w : PR.CLASS_COLORS.g },
       sel: { type: "zone", i }, dim: i >= st.zones,
@@ -1156,7 +1139,6 @@
     const layers = [
       { id: "l:tiles", label: "Metatiles", meta: state.layer === "tiles" ? "shown" : "", icon: { color: "#7aa060" }, run: () => setLayer("tiles"), on: state.layer === "tiles" },
       { id: "l:classes", label: "Classes", meta: state.layer === "classes" ? "shown" : "", icon: { color: "#c49a5a" }, run: () => setLayer("classes"), on: state.layer === "classes" },
-      { id: "l:paths", label: "Paths overlay", icon: { cls: "line", color: PR.PATH_COLORS.main }, eye: eye("paths") },
       { id: "l:areas", label: "Areas overlay", icon: { cls: "ring" }, eye: eye("areas") },
       { id: "l:events", label: "Items overlay", icon: { cls: "dot", color: "#e0453a" }, eye: eye("events") },
       { id: "l:grid", label: "Grid", icon: { color: "#666" }, eye: eye("grid") },
@@ -1811,7 +1793,6 @@
       { id: "frame", label: "Frame selection", enabled: sceneRoute, run: focusSel },
       { sep: true },
       { head: "Overlays" },
-      { id: "ov-paths", label: "Paths", checked: () => state.ov.paths, run: () => toggleOv("paths") },
       { id: "ov-areas", label: "Areas", checked: () => state.ov.areas, run: () => toggleOv("areas") },
       { id: "ov-items", label: "Items", checked: () => state.ov.events, run: () => toggleOv("events") },
       { id: "ov-classes", label: "Classes instead of tiles", checked: () => state.layer === "classes", run: () => setLayer(state.layer === "classes" ? "tiles" : "classes") },
