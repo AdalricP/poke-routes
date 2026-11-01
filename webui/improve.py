@@ -20,7 +20,7 @@ there, a merge step under a global lock rebases it onto the latest main and fast
 (and the repo-root checkout the server serves from). A conflict re-runs the job once on fresh
 main; a second conflict leaves the branch for the owner. ROM jobs keep their own worktree flow
 in the ROM repo and only one runs at a time. No job starts while free + inactive memory is
-under ~1.5 GB.
+under ~0.8 GB.
 
 Only one server process runs workers: it holds an fcntl lock on webui/improvements.json.lock.
 Other servers show the queue read-only (from the state file) and forward submit / undo /
@@ -86,7 +86,7 @@ png_file_signature = b"\x89PNG\r\n\x1a\n"
 MAX_WORKERS = 6
 DEFAULT_WORKERS = 3
 PORT_BASE = 8800                 # a job in slot s verifies with its own server copy on PORT_BASE + s
-MEM_MIN_MB = _env_int("IMPROVE_MEM_MIN_MB", 1536)
+MEM_MIN_MB = _env_int("IMPROVE_MEM_MIN_MB", 800)
 ROOT_WAIT = _env_int("IMPROVE_ROOT_WAIT", 120)    # seconds to wait for the root checkout to be clean
 LEGACY_GRACE = _env_int("IMPROVE_LEGACY_GRACE", 20)
 START_GAP = 5                    # seconds between job starts, so the last agent has allocated before we measure
