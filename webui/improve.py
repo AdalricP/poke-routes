@@ -47,7 +47,7 @@ TARGETS = {
 # Tools the unattended run may never use, even in bypassPermissions mode (deny rules win).
 DENY = ["Bash(git push:*)", "Bash(git push *)", "Bash(*git push*)", "Bash(git remote:*)",
         "Bash(git config:*)", "Bash(gh:*)", "Bash(sudo:*)", "Bash(rm -rf /*)", "Bash(rm -rf ~*)",
-        "Bash(curl * -X POST*)", "Bash(npm publish:*)", "Bash(vercel:*)"]
+        "Bash(npm publish:*)", "Bash(vercel:*)"]
 
 _lock = threading.RLock()
 _jobs: dict = {}          # id -> job dict (persisted, minus live log)
@@ -173,8 +173,8 @@ How to verify before committing (do all that apply, and fix what breaks):
 - python3 -m pokeroutes generate examples/bernsteinweg.yaml (and erlenbruch.yaml, kiefernheide.yaml) all succeed.
 - Web UI checks: `node --check` on every changed .js file; start a second copy with
   `PORT=8799 python3 webui/server.py` in the background, then
-  `curl -s localhost:8799/api/spec-schema` and
-  `curl -s -X POST -H 'Content-Type: application/json' -d '{{"seed":7}}' localhost:8799/api/generate`
+  `curl -s 127.0.0.1:8799/api/spec-schema` and
+  `curl -s -X POST -H 'Content-Type: application/json' -d '{{"seed":7}}' 127.0.0.1:8799/api/generate`
   must return JSON without "error"; then kill that copy (only the one on 8799).
 - If the change is visual, render or screenshot it and look at it.
 
