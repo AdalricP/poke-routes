@@ -375,7 +375,6 @@ class Planner:
         self.nodes.append(Node(self._oid("node"), "exit", c0[0], c0[1], exit_index=0))
         k_int = 0
         prev_v = 0
-        swing_side_of_this_node = 1 if rng.random() < 0.5 else -1
         for li, (f, U) in enumerate(self.legs):
             vlo, vhi = self.vrange(f)
             m = per_leg[li]
@@ -409,8 +408,7 @@ class Planner:
                 uu = int(round(u))
                 t = uu / max(1, U)
                 v_lin = (prev_v if li == 0 else 0) * (1 - t) + v_end * t if li == n_legs - 1 else 0
-                swing_side_of_this_node = -swing_side_of_this_node
-                v = int(v_lin + swing_side_of_this_node * rng.uniform(0.45, 1.0) * (vhi - vlo) * 0.35 * spec.meander)
+                v = int(v_lin + rng.uniform(-1, 1) * (vhi - vlo) * 0.3 * spec.meander)
                 sig, ov = 0, 0
                 if kind == "spectacle":
                     sig = 1 if (vhi - v) > (v - vlo) else -1
@@ -481,15 +479,14 @@ class Planner:
         u_lo = ua + hua + lead
         u_hi = ub - hub - lead
         room = u_hi - u_lo
-        k = int(round(jog_scale * spec.meander * max(0, room) / 14 + rng.uniform(-0.4, 0.6)))
+        # a few orthogonal bends per section (bends get a pond / obstacle later so they have a reason)
+        k = int(round(jog_scale * spec.meander * max(0, room) / 15 + rng.uniform(-0.4, 0.4)))
         k = max(0, min(k, 3))
         amp_hi = 4 + int(8 * spec.meander)
         levels = [va]
-        swing = 1 if rng.random() < 0.5 else -1
         for _ in range(k):
             for _try in range(10):
-                swing = -swing if rng.random() < 0.75 else swing
-                step = int(rng.integers(4, amp_hi + 1)) * swing
+                step = int(rng.integers(4, amp_hi + 1)) * (1 if rng.random() < 0.5 else -1)
                 nv = int(np.clip(levels[-1] + step, band[0], band[1]))
                 if abs(nv - levels[-1]) >= 4:
                     levels.append(nv)

@@ -184,7 +184,7 @@ def emptiest(route: Route, margin: int = 5, taken: Sequence[Cell] = ()) -> Optio
 
 
 from .stages import (  # noqa: E402  (stages need the helpers above)
-    stage_base, stage_skeleton, stage_branches, stage_clearings, stage_lakes, stage_road, stage_verges,
+    stage_base, stage_skeleton, stage_branches, stage_clearings, stage_lakes, stage_road,
     stage_tall_grass, stage_ledges, stage_dressing, _walk_mask,
 )
 
@@ -292,7 +292,6 @@ STAGES: List[Tuple[str, Callable[[Route], None]]] = [
     ("specials", stage_specials),
     ("lakes", stage_lakes),
     ("road", stage_road),
-    ("verges", stage_verges),
     ("tall_grass", stage_tall_grass),
     ("ledges", stage_ledges),
     ("hidden", stage_hidden),
