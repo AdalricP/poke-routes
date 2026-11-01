@@ -1,0 +1,68 @@
+/* Improvements box. Uses the page's tokens (style.css) with fallbacks so any page can include it. */
+.imp-btn {
+  position: fixed; right: 12px; bottom: 12px; z-index: 40;
+  height: 28px; padding: 0 10px; border-radius: 4px;
+  background: var(--panel, #f8f6f0); color: var(--ink-2, #5c584e);
+  border: 1px solid var(--line, #d9d4c7); font: 13px/1 var(--pixel, ui-monospace, monospace);
+  cursor: pointer;
+}
+.imp-btn:hover { border-color: var(--ink-3, #8b867a); color: var(--ink, #26241f); }
+.imp-btn .imp-dot { display: inline-block; width: 6px; height: 6px; border-radius: 1px; margin-left: 6px;
+  background: var(--accent, #3e6b47); vertical-align: 1px; }
+.imp-btn .imp-dot[hidden] { display: none; }
+
+.imp-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 41; width: min(420px, 100vw);
+  background: var(--panel, #f8f6f0); color: var(--ink, #26241f); border-left: 1px solid var(--line, #d9d4c7);
+  display: flex; flex-direction: column; font: 14px/1.45 var(--text, system-ui, sans-serif);
+  box-shadow: -4px 0 14px rgba(0, 0, 0, 0.08);
+}
+.imp-panel[hidden] { display: none; }
+.imp-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--line, #d9d4c7); }
+.imp-head h2 { margin: 0; }
+.imp-close { border: 0; background: none; color: var(--ink-3, #8b867a); font-size: 18px; line-height: 1; padding: 2px 4px; cursor: pointer; }
+.imp-close:hover { color: var(--ink, #26241f); }
+.imp-body { overflow-y: auto; flex: 1; padding: 0 16px 16px; }
+.imp-body section { padding: 12px 0 14px; border-top: 1px solid var(--line, #d9d4c7); }
+.imp-body section:first-child { border-top: 0; }
+.imp-body textarea {
+  width: 100%; min-height: 96px; resize: vertical; padding: 8px; font: inherit; color: inherit;
+  background: var(--field, #fff); border: 1px solid var(--line, #d9d4c7); border-radius: 4px;
+}
+.imp-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.imp-row select { flex: 1; min-width: 0; height: 30px; padding: 0 6px; font: inherit; color: inherit;
+  background: var(--field, #fff); border: 1px solid var(--line, #d9d4c7); border-radius: 4px; }
+.imp-row .primary { flex: none; padding: 0 16px; height: 30px; font-size: 14px; }
+.imp-note { color: var(--ink-3, #8b867a); font-size: 12px; margin: 6px 0 0; }
+.imp-err { color: var(--warn, #9a4b16); font-size: 12.5px; margin: 6px 0 0; }
+.imp-err:empty { display: none; }
+
+.imp-log {
+  margin: 0; max-height: 260px; overflow: auto; padding: 8px; border-radius: 4px;
+  background: var(--field, #fff); border: 1px solid var(--line, #d9d4c7);
+  font: 11.5px/1.45 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap; word-break: break-word;
+  color: var(--ink-2, #5c584e);
+}
+.imp-log:empty::before { content: "nothing running"; color: var(--ink-3, #8b867a); }
+.imp-log .t { color: var(--ink, #26241f); }
+.imp-log .e { color: var(--warn, #9a4b16); }
+.imp-cur { font-size: 12.5px; color: var(--ink-2, #5c584e); margin: 0 0 6px; }
+.imp-cur button { margin-left: 6px; }
+
+.imp-hist { list-style: none; margin: 0; padding: 0; }
+.imp-hist li { padding: 8px 0; border-bottom: 1px solid var(--line, #d9d4c7); }
+.imp-hist li:last-child { border-bottom: 0; }
+.imp-hist .req { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 0;
+  color: inherit; font: inherit; cursor: pointer; }
+.imp-hist .req:hover { text-decoration: underline; text-underline-offset: 3px; }
+.imp-hist .meta { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; margin-top: 3px;
+  font-size: 12px; color: var(--ink-3, #8b867a); }
+.imp-hist .st { font-family: var(--pixel, ui-monospace, monospace); color: var(--ink-2, #5c584e); }
+.imp-hist .st.done { color: var(--accent, #3e6b47); }
+.imp-hist .st.failed, .imp-hist .st.timeout { color: var(--warn, #9a4b16); }
+.imp-hist code { font: 11.5px ui-monospace, "SF Mono", Menlo, monospace; }
+.imp-hist .undo { margin-left: auto; height: 24px; padding: 0 8px; font-size: 12px; border-radius: 4px;
+  background: var(--field, #fff); border: 1px solid var(--line, #d9d4c7); color: inherit; cursor: pointer; }
+.imp-hist .undo:hover { border-color: var(--ink-3, #8b867a); }
+.imp-hist .sum { margin: 4px 0 0; font-size: 12.5px; color: var(--ink-2, #5c584e); }

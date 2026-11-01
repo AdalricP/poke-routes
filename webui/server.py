@@ -636,6 +636,27 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": f"{type(e).__name__}: {e}"}, 500)
 
 
+# ------------------------------------------------------------------ improvements box (webui/improve.py)
+# Routes /api/improve* to improve.py before the normal handlers; everything else is untouched.
+
+def _with_improve(orig, method):
+    def handler(self):
+        u = urlparse(self.path)
+        if u.path == "/api/improve" or u.path.startswith("/api/improve/"):
+            import improve
+            try:
+                return improve.handle(self, method, u)
+            except Exception as e:
+                traceback.print_exc()
+                return self._json({"error": f"{type(e).__name__}: {e}"}, 500)
+        return orig(self)
+    return handler
+
+
+Handler.do_GET = _with_improve(Handler.do_GET, "GET")
+Handler.do_POST = _with_improve(Handler.do_POST, "POST")
+
+
 def main():
     G()
     tiler()
