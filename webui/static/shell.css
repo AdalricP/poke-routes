@@ -211,7 +211,6 @@ body.resizing.h * { cursor: row-resize !important; }
 .tree .empty { padding: 6px 12px; color: var(--text-3); }
 
 /* ------------------------------------------------------------ views */
-.view-ctrls { display: flex; align-items: center; gap: 6px; margin-left: auto; padding: 0 6px; }
 .views { overflow: hidden; }
 .view { position: absolute; inset: 0; }
 .scene { background: var(--scene); overflow: hidden; cursor: default; }

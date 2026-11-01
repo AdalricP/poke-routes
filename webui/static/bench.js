@@ -1538,7 +1538,6 @@
   }
 
   function show_center_tab(tab) {
-    $("sceneCtrls").hidden = tab !== "scene";
     $("viewScene").hidden = tab !== "scene";
     $("viewMap").hidden = tab === "scene";
     if (tab !== "scene") show_region_editor_in_mode(tab);
