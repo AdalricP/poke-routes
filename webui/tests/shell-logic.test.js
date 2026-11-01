@@ -366,6 +366,17 @@ test("brush and stamp cells clip to the map", () => {
   for (const s of Object.values(SL.STAMPS)) for (const [, , k] of s.cells) assert.ok("fgptwrsexa".includes(k));
 });
 
+test("tidyPaint removes tree slivers and lone water a stroke leaves behind", () => {
+  const rows = ["ffffff", "ffffff", "ffffff", "ffffff", "ffffff", "ffffff"];
+  // a 1-wide path at x=2 and another at x=4 leave a 1-wide tree wall at x=3
+  const stroke = [];
+  for (let y = 1; y < 5; y++) stroke.push([2, y, "p"], [4, y, "p"]);
+  const fixes = SL.tidyPaint(rows, stroke);
+  for (let y = 1; y < 5; y++) assert.ok(fixes.some(([x, yy, k]) => x === 3 && yy === y && k === "g"), `x=3 y=${y}`);
+  assert.ok(!fixes.some(([x, y]) => stroke.some(([sx, sy]) => sx === x && sy === y)), "painted cells stay as painted");
+  assert.deepStrictEqual(SL.tidyPaint(["gggg", "gwgg", "gggg", "gggg"], [[2, 2, "p"]]), [[1, 1, "g"]]);
+});
+
 test("stroke interpolation and paint memory", () => {
   assert.deepStrictEqual(SL.lineCells({ x: 0, y: 0 }, { x: 3, y: 1 }).map((c) => [c.x, c.y]), [[0, 0], [1, 0], [2, 1], [3, 1]]);
   assert.deepStrictEqual(SL.lineCells({ x: 2, y: 2 }, { x: 2, y: 2 }), [{ x: 2, y: 2 }]);

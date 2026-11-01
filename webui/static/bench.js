@@ -909,7 +909,8 @@
       for (const [x, y, k] of SL.stampCells($("stampKind").value, c.x, c.y, r.width, r.height)) state.paint.cells.set(`${x},${y}`, k);
     } else {
       const pts = state.paint.last ? SL.lineCells(state.paint.last, c).slice(1) : [c];
-      for (const p of pts) for (const [x, y, k] of SL.brushCells(p.x, p.y, +$("brushSize").value, $("paintClass").value, r.width, r.height)) state.paint.cells.set(`${x},${y}`, k);
+      const k = $("paintClass").value, size = SL.TWO_WIDE.includes(k) ? Math.max(2, +$("brushSize").value) : +$("brushSize").value;
+      for (const p of pts) for (const [x, y] of SL.brushCells(p.x, p.y, size, k, r.width, r.height)) state.paint.cells.set(`${x},${y}`, k);
     }
     state.paint.last = c;
     draw();
@@ -917,9 +918,9 @@
   async function commitPaint() {
     const r = state.result;
     const fin = r.stages[r.stages.length - 1];
+    const stroke = [...state.paint.cells].map(([k, cls]) => [...k.split(",").map(Number), cls]);
     const cells = [], old = [];
-    for (const [k, cls] of state.paint.cells) {
-      const [x, y] = k.split(",").map(Number);
+    for (const [x, y, cls] of stroke.concat(SL.tidyPaint(fin.cls, stroke))) {
       const was = fin.cls[y][x];
       if (was === cls) continue;
       cells.push([x, y, cls]);

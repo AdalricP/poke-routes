@@ -486,6 +486,38 @@
   function paintList(map) {
     return Object.entries(map || {}).map(([k, c]) => { const [x, y] = k.split(",").map(Number); return [x, y, c]; });
   }
+  // Classes GBA metatiles draw at least 2 cells wide (trees are 2x2, a 1-cell pond has no tiles).
+  const TWO_WIDE = "fw";
+  // The generator's stage_cleanup (pokeroutes/generate.py) for a paint stroke: around the
+  // painted cells, 1-wide tree walls become grass, grass boxed in by trees becomes tree and
+  // lone water cells become grass. The painted cells themselves are left as painted.
+  // `rows` is the finished stage's cls (strings); returns the extra [x, y, class] cells.
+  function tidyPaint(rows, cells) {
+    const H = rows.length, W = H ? rows[0].length : 0;
+    const g = rows.map((r) => r.split(""));
+    const painted = new Set();
+    for (const [x, y, k] of cells) { g[y][x] = k; painted.add(`${x},${y}`); }
+    const near = new Set();
+    for (const [x, y] of cells) for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const cx = x + dx, cy = y + dy;
+      if (cx > 0 && cy > 0 && cx < W - 1 && cy < H - 1 && !painted.has(`${cx},${cy}`)) near.add(`${cx},${cy}`);
+    }
+    const fixes = new Map();
+    for (let pass = 0; pass < 3; pass++) {
+      let changed = 0;
+      for (const key of near) {
+        const [x, y] = key.split(",").map(Number);
+        const c = g[y][x], up = g[y - 1][x], dn = g[y + 1][x], lf = g[y][x - 1], rt = g[y][x + 1];
+        let to = null;
+        if (c === "f" && ((up !== "f" && dn !== "f") || (lf !== "f" && rt !== "f"))) to = "g";
+        else if ((c === "g" || c === "t") && up === "f" && dn === "f" && lf === "f" && rt === "f") to = "f";
+        else if (c === "w" && up !== "w" && dn !== "w" && lf !== "w" && rt !== "w") to = "g";
+        if (to) { g[y][x] = to; fixes.set(key, to); changed++; }
+      }
+      if (!changed) break;
+    }
+    return [...fixes].map(([k, c]) => { const [x, y] = k.split(",").map(Number); return [x, y, c]; });
+  }
   function stampCells(name, x, y, W, H) {
     const s = STAMPS[name];
     if (!s) return [];
@@ -499,6 +531,7 @@
     computeRects, dragSize, nearHomeEdge, MIN_CENTER, MIN_SIDE,
     History, RECENT_KEY, pushRecent, recentLabel, specToParams, paramsToSpecFile, safeFileName,
     STAMPS, brushCells, stampCells, lineCells, PAINT_KEY, paintKey, mergePaint, paintList,
+    TWO_WIDE, tidyPaint,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.SL = api;
