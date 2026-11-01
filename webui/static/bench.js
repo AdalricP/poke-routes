@@ -1,5 +1,5 @@
 /* Route bench inside the editor shell: spec inspector -> /api/generate -> stage canvases
-   drawn from the metatile atlas, plus the hierarchy, timeline, region and world views,
+   drawn from the metatile atlas, plus the hierarchy, timeline, region view,
    file operations and the menu model. Shell services come from shell.js (window.Shell),
    pure helpers from logic.js (window.PR) and shell-logic.js (window.SL). */
 (function () {
@@ -283,14 +283,12 @@
   }
 
   async function undo() {
-    if (Shell.layout.center === "world" && worldClick("undoBtn")) return;
     const e = undoStack.undo();
     if (!e) { Shell.status("Nothing to undo"); return; }
     await applyEntry(e, "before");
     Shell.status("Undid " + entryLabel(e));
   }
   async function redo() {
-    if (Shell.layout.center === "world" && worldClick("redoBtn")) return;
     const e = undoStack.redo();
     if (!e) { Shell.status("Nothing to redo"); return; }
     await applyEntry(e, "after");
@@ -1600,91 +1598,12 @@
     box.append(b);
   }
 
-  // ------------------------------------------------------------ world view (editor.html)
-  let worldFrame = null;
-  let worldSrc = "editor.html";
-  async function showWorld() {
-    if (worldFrame || $("worldSlot").dataset.state === "loading") return;
-    const slot = $("worldSlot");
-    slot.dataset.state = "loading";
-    slot.textContent = "Loading the world map editor…";
-    let ok = false;
-    try { ok = (await fetch("editor.html", { cache: "no-store" })).ok; } catch (e) { ok = false; }
-    if (!ok) {
-      slot.dataset.state = "";
-      slot.textContent = "The world map editor isn't installed on this server yet (webui/static/editor.html). It will show up here once it lands.";
-      return;
-    }
-    slot.hidden = true;
-    worldFrame = el("iframe");
-    worldFrame.title = "World map editor";
-    worldFrame.src = worldSrc;
-    worldFrame.addEventListener("load", onWorldLoad);
-    $("viewWorld").append(worldFrame);
-  }
-  // The editor (static/editor/app.js) runs in a frame so its stylesheet stays its own.
-  // Its "open in bench" calls window.open("/?region=..."); inside the shell that
-  // becomes: load the spec it left in localStorage and generate it in the Scene tab.
-  function openFromWorld(url) {
-    const u = new URL(String(url || "/"), location.href);
-    if (u.origin !== location.origin) return null;
-    if (u.pathname === "/region.html" || u.searchParams.get("view") === "region") { Shell.setCenter("region"); return null; }
-    const saved = sget(STORE_KEY);
-    if (saved) replaceParams(saved, "world route");
-    state.region = sget(REGION_KEY);
-    renderRegionLink();
-    Shell.setCenter("scene");
-    log("info", `Opened ${params().name} from the world map editor`);
-    generate();
-    return null;
-  }
-  function onWorldLoad() {
-    let win;
-    try { win = worldFrame.contentWindow; void win.location.pathname; } catch (e) { return; }
-    if (!/\/editor\.html$/.test(win.location.pathname)) {
-      // the editor followed a link to another page of this app: handle it here instead
-      const href = win.location.href;
-      worldFrame.src = worldSrc;
-      openFromWorld(href);
-      return;
-    }
-    win.open = (url) => openFromWorld(url);
-    try {
-      const d = worldFrame.contentDocument;
-      const st = d.createElement("style");
-      st.textContent = ".ed-top .links { display: none !important; }";
-      d.head.append(st);
-    } catch (e) { /* same origin, but stay quiet */ }
-  }
-  // Drive the embedded editor from the shell menus (PREditor actions on window.editor).
-  const WORLD_ACTIONS = { undoBtn: "undo", redoBtn: "redo", saveBtn: "save", genBtn: "generate", exportBtn: "exportSpecs" };
-  function worldClick(id) {
-    if (Shell.layout.center !== "world" || !worldFrame) return false;
-    try {
-      const ed = worldFrame.contentWindow.editor;
-      const fn = ed && ed[WORLD_ACTIONS[id]];
-      if (typeof fn !== "function") return false;
-      fn();
-      return true;
-    } catch (e) { log("error", "World editor: " + e.message); return true; }
-  }
-  function editRegionInWorld() {
-    const s = Math.max(0, parseInt($("regionSeed").value, 10) || 0);
-    Shell.setCenter("world");
-    const ed = worldFrame && worldFrame.contentWindow && worldFrame.contentWindow.editor;
-    if (ed && typeof ed.generate === "function") { ed.generate(s); return; }
-    worldSrc = `editor.html?seed=${s}`;
-    if (worldFrame) worldFrame.src = worldSrc;
-  }
-
   Shell.onCenter((tab) => {
     $("sceneCtrls").hidden = tab !== "scene";
     $("regionCtrls").hidden = tab !== "region";
     $("viewScene").hidden = tab !== "scene";
     $("viewRegion").hidden = tab !== "region";
-    $("viewWorld").hidden = tab !== "world";
     if (tab === "region" && !state.regionData) loadRegion();
-    if (tab === "world") showWorld();
     if (tab === "scene") requestAnimationFrame(resize);
     renderSelection();
   });
@@ -1817,7 +1736,6 @@
     } catch (e) { log("error", "Region export failed: " + e.message); }
   }
   async function exportAllSpecs() {
-    if (worldClick("exportBtn")) return;
     const s = state.regionSeed || sget("pokeroutes-shell-region-seed") || 1;
     try { log("info", `Exported ${await downloadURL(`/api/region-specs.zip?seed=${s}`, `region-${s}_specs.zip`)}`); }
     catch (e) { log("error", "Spec export failed: " + e.message); }
@@ -1907,7 +1825,7 @@
           .concat([{ sep: true }, { label: "Clear recent", run: () => { sdel(SL.RECENT_KEY); log("info", "Cleared recent routes"); } }]);
       } },
       { sep: true },
-      { id: "save", label: "Save spec", run: () => { if (!worldClick("saveBtn")) saveSpec(false); } },
+      { id: "save", label: "Save spec", run: () => saveSpec(false) },
       { id: "saveas", label: "Save spec as…", run: () => saveSpec(true) },
       { sep: true },
       { id: "import", label: "Import", items: [
@@ -1925,8 +1843,8 @@
       ] },
     ] },
     { label: "Edit", items: [
-      { id: "undo", label: "Undo", run: undo, enabled: () => undoStack.canUndo() || Shell.layout.center === "world" },
-      { id: "redo", label: "Redo", run: redo, enabled: () => undoStack.canRedo() || Shell.layout.center === "world" },
+      { id: "undo", label: "Undo", run: undo, enabled: () => undoStack.canUndo() },
+      { id: "redo", label: "Redo", run: redo, enabled: () => undoStack.canRedo() },
       { sep: true },
       { id: "clear-paint", label: "Clear painted cells", enabled: () => hasRoute() && Object.keys(savedPaint(state.result)).length > 0, run: clearPaint },
       { sep: true },
@@ -1967,7 +1885,7 @@
       { id: "gen", label: "Generate", run: () => { Shell.setCenter("scene"); generate(); } },
       { id: "regen", label: "Regenerate with new seed", run: () => { Shell.setCenter("scene"); regenerate(); } },
       { sep: true },
-      { id: "gen-region", label: "Generate region…", run: () => { Shell.setCenter("region"); if (!worldClick("genBtn")) { $("regionSeed").focus(); $("regionSeed").select(); } } },
+      { id: "gen-region", label: "Generate region…", run: () => { Shell.setCenter("region"); $("regionSeed").focus(); $("regionSeed").select(); } },
       { sep: true },
       { id: "tiler", label: "Tiler", items: [
         { id: "t-learned", label: "Learned (Emerald General + Fortree)", radio: true, checked: () => prefs.tiler === "learned", run: () => setTiler("learned") },
@@ -1983,7 +1901,6 @@
     { label: "Window", items: [
       { id: "w-scene", label: "Route bench (Scene)", radio: true, checked: () => Shell.layout.center === "scene", run: () => Shell.setCenter("scene") },
       { id: "w-region", label: "Region map", radio: true, checked: () => Shell.layout.center === "region", run: () => Shell.setCenter("region") },
-      { id: "w-world", label: "World map editor", radio: true, checked: () => Shell.layout.center === "world", run: () => Shell.setCenter("world") },
       { sep: true },
       { id: "w-console", label: "Console", run: () => Shell.setBottom("console") },
       { id: "w-timeline", label: "Timeline", run: () => Shell.setBottom("timeline") },
@@ -2033,7 +1950,6 @@
     $("areaInput").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); addSpecial(); } });
     $("exitAdd").onclick = () => { if (state.exits.length < 4) { state.exits.push({ side: "west", at: 0.5, width: 3 }); renderExits(); edited("exits"); } };
     $("regionLoad").onclick = () => loadRegion();
-    $("regionEdit").onclick = editRegionInWorld;
     $("paintClear").onclick = clearPaint;
     $("regionSeed").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); loadRegion(); } });
     const pc = $("paintClass");
@@ -2077,9 +1993,7 @@
     $("regionCtrls").hidden = c !== "region";
     $("viewScene").hidden = c !== "scene";
     $("viewRegion").hidden = c !== "region";
-    $("viewWorld").hidden = c !== "world";
     if (c === "region") loadRegion();
-    if (c === "world") showWorld();
     if (q.has("view") || q.has("region")) window.history.replaceState(null, "", "/");
     resize();
     loadOptions();

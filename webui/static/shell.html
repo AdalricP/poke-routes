@@ -102,13 +102,12 @@
     </div>
   </section>
 
-  <!-- centre: scene / region / world -->
+  <!-- centre: scene / region -->
   <section class="dock center" id="dockCenter" aria-label="Views">
     <header class="dock-head">
       <div class="tabs" role="tablist">
         <button type="button" class="dock-tab" data-center="scene" role="tab">Scene</button>
         <button type="button" class="dock-tab" data-center="region" role="tab">Region</button>
-        <button type="button" class="dock-tab" data-center="world" role="tab">World</button>
       </div>
       <div class="view-ctrls" id="sceneCtrls" aria-label="Scene display">
         <div class="seg" role="group" aria-label="Layer">
@@ -125,7 +124,6 @@
       <div class="view-ctrls" id="regionCtrls" hidden>
         <label class="tb-label">Seed <input id="regionSeed" type="number" min="0" value="1" class="num"></label>
         <button type="button" class="btn" id="regionLoad">Load</button>
-        <button type="button" class="btn" id="regionEdit" title="Open this region in the World map editor">Edit in World</button>
         <span class="muted" id="regionStatus"></span>
       </div>
     </header>
@@ -138,9 +136,6 @@
       </div>
       <div class="view region" id="viewRegion" hidden>
         <div class="regionbox" id="regionBox"><img id="regionImg" alt="Region map"><svg id="regionSvg" preserveAspectRatio="none"></svg></div>
-      </div>
-      <div class="view world" id="viewWorld" hidden>
-        <div class="slot" id="worldSlot"></div>
       </div>
     </div>
   </section>
