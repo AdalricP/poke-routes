@@ -1419,6 +1419,8 @@ def handle(h, method: str, u) -> None:
         if method == "GET":
             if not parts:
                 return h._json(history())
+            if parts == ["usage"]:
+                return h._json(__import__("usage").current())  # webui/usage.py: on-demand 5-hour reading
             job = _view_jobs().get(parts[0])
             if not job:
                 return h._json({"error": "unknown job"}, 404)

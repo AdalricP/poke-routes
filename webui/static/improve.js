@@ -235,11 +235,13 @@
     return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
   };
 
-  // Claude Code's 5-hour window, as last reported by an improve run (no run yet = nothing to show)
+  // Claude Code's 5-hour window: from the last improve run, or a tiny check the server makes (webui/usage.py)
   function renderUsage(u) {
     const box = $("impUsage");
+    if (!u && box.childElementCount) return;
     box.innerHTML = "";
-    if (!u) { box.append(el("p", "imp-note", "No reading yet.")); return; }
+    if (!u) { box.append(el("p", "imp-note", "Checking…")); return; }
+    if (u.utilization == null) { box.append(el("p", "imp-note", `No reading: ${u.error || "unknown"}.`)); return; }
     const reset = u.resets_at && u.resets_at < Date.now() / 1000;
     const left = Math.max(0, Math.round(100 - u.utilization * 100));
     box.append(el("p", "big", reset ? "window reset" : `${left}% left`));
@@ -248,7 +250,16 @@
     box.append(bar);
     if (u.resets_at) box.append(el("p", "imp-note", reset ? `reset at ${clock(u.resets_at)}`
       : `resets ${clock(u.resets_at)} (in ${until(u.resets_at)})`));
-    box.append(el("p", "imp-note", `as of ${ago(u.seen)}${u.status && u.status !== "allowed" ? ", status " + u.status : ""}`));
+    box.append(el("p", "imp-note", `as of ${ago(u.seen)}, ${u.source === "check" ? "usage check" : "last run"}${u.status && u.status !== "allowed" ? ", status " + u.status : ""}`));
+    if (u.error) box.append(el("p", "imp-note", `couldn't refresh: ${u.error}`));
+  }
+
+  async function pollUsage() {
+    if (document.hidden || state.usageBusy) return;
+    state.usageBusy = true;
+    try { renderUsage(await (await fetch("/api/improve/usage")).json()); }
+    catch (e) { renderUsage({ error: "the page server didn't answer" }); }
+    state.usageBusy = false;
   }
 
   async function undo(j, b) {
@@ -316,9 +327,8 @@
     state.jobs = h.jobs;
     state.running = h.running || [];
     state.h = h;
-    renderUsage(h.usage);
     dot.hidden = !state.running.length && !h.queued;
-    if (isOpen()) { renderSlots(h); renderHist(); pollLog(); }
+    if (isOpen()) { renderSlots(h); renderHist(); pollLog(); pollUsage(); } else renderUsage(h.usage);
     schedule();
   }
 
