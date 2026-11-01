@@ -298,7 +298,9 @@ def _advance_main(repo, old, new, log, root_wait):
             return True, True, ""
         if _git(repo, "rev-parse", f"refs/heads/{MAIN}") != old:
             return False, None, ""
-        if time.time() >= deadline:
+        # an old-style server's agent may be editing the root and will commit from its index: moving
+        # main under it would make that commit undo ours, so while one is busy we only ever wait
+        if time.time() >= deadline and not _st["legacy"]:
             break
         if not told:
             log("[merge] the repo checkout has uncommitted edits to files this job changes; waiting "
