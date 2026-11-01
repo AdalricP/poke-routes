@@ -43,7 +43,8 @@ PORT = int(os.environ.get("PORT", 8790))
 EMERALD = ROOT / "vendor" / "pokeemerald"
 MODEL = ROOT / "pokeroutes" / "models" / "general_fortree.json"
 PRIMARY, SECONDARY = "general", "fortree"
-SPECIES_FILE = "/Users/aryan/Desktop/experiments/arklarna/design/pokedex.json"
+# the Pokedex: $POKEROUTES_SPECIES_FILE, else the sibling arklarna checkout, else the original dev path
+SPECIES_FILE = os.environ.get("POKEROUTES_SPECIES_FILE") or next((str(p) for p in (ROOT.parent / "arklarna" / "design" / "pokedex.json", Path("/Users/aryan/Desktop/experiments/arklarna/design/pokedex.json")) if p.is_file()), str(ROOT.parent / "arklarna" / "design" / "pokedex.json"))
 STATIC = HERE / "static"
 ATLAS_COLS = 32
 
