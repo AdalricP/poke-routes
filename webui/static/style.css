@@ -170,21 +170,20 @@ button:disabled { opacity: 0.45; cursor: default; }
 .tip p { margin: 0; color: var(--ink-2); }
 
 /* ---------------------------------------------------------------- timeline */
-.timeline { display: grid; grid-template-columns: auto 1fr 180px; gap: 14px; align-items: center;
+.timeline { display: grid; grid-template-columns: auto 1fr 220px; gap: 14px; align-items: center;
   padding: 10px 16px 12px; border-top: 1px solid var(--line); background: var(--panel); }
 .play .i-pause { display: none; }
 .play.playing .i-play { display: none; }
 .play.playing .i-pause { display: inline; }
 .track { min-width: 0; }
-.track input { display: block; }
-.ticks { list-style: none; margin: 4px 0 0; padding: 0; display: flex; justify-content: space-between; }
-.ticks li { flex: 1 1 0; min-width: 0; text-align: center; }
-.ticks li:first-child { text-align: left; }
-.ticks li:last-child { text-align: right; }
-.ticks button { border: 0; background: none; padding: 0 1px; font: 11.5px var(--pixel); color: var(--ink-3);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.ticks button.on { color: var(--ink); }
-.ticks button.past { color: var(--ink-2); }
+.ticks { list-style: none; margin: 0; padding: 0; display: flex; gap: 2px; cursor: pointer; touch-action: none; user-select: none; }
+.ticks li { flex: 1 1 0; min-width: 0; padding-top: 9px; position: relative; text-align: center;
+  font: 11.5px var(--pixel); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ticks li::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 5px; border-radius: 1px; background: var(--line); }
+.ticks li:hover { color: var(--ink-2); }
+.ticks li.past::before { background: var(--accent); opacity: 0.45; }
+.ticks li.on::before { background: var(--accent); }
+.ticks li.on { color: var(--ink); }
 .stagename { display: flex; flex-direction: column; text-align: right; }
 .stagename span { font-size: 11.5px; color: var(--ink-3); }
 .stagename strong { font: 600 17px/1.2 var(--pixel); }
@@ -227,5 +226,5 @@ table.enc .types { color: var(--ink-3); font-size: 11.5px; display: block; }
   .stage { height: 80vh; }
   .timeline { grid-template-columns: auto 1fr; padding: 10px 16px; }
   .stagename { grid-column: 1 / -1; text-align: left; }
-  .ticks { display: none; }
+  .ticks li { font-size: 0; }
 }

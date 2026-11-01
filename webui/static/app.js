@@ -6,6 +6,8 @@
   const CELL = 16;
   const STAGE_MS = 900;
   const FADE_MS = 260;
+  const changed_cells_highlight_duration_in_milliseconds = 1100;
+  const changed_cells_highlight_peak_opacity = 0.7;
   const LAND_RATES = [20, 20, 10, 10, 10, 10, 5, 5, 4, 4, 1, 1];
   const WATER_RATES = [60, 30, 5, 4, 1];
   const STORE_KEY = "pokeroutes-webui-v1";
@@ -14,6 +16,7 @@
     atlas: null, atlasImg: null, result: null,
     stage: 0, prevStage: null, fadeStart: 0,
     tileCanvases: [], classCanvases: [],
+    changed_cells_mask_canvas_per_stage: [], changed_cell_count_per_stage: [], changed_cells_highlight_start_time: 0,
     view: { zoom: 1, ox: 0, oy: 0 },
     layer: "tiles", ov: { paths: true, areas: true, events: true, grid: false },
     hover: null, hoverArea: null, highlight: null,
@@ -275,8 +278,7 @@
       $("empty").hidden = true;
       $("timing").textContent = `server ${res.timing.total.toFixed(1)} s (generate ${res.timing.generate.toFixed(1)}, ` +
         `tiles ${(res.timing.tile_final + res.timing.tile_stages).toFixed(1)}), round trip ${((performance.now() - t0) / 1000).toFixed(1)} s`;
-      setStage(0, false);
-      startPlay();
+      setStage(res.stages.length - 1, false);
     } catch (e) {
       $("empty").hidden = !!state.result;
       showError(e.message);
@@ -304,6 +306,10 @@
     const idx = state.atlas.index, cols = state.atlas.columns, img = state.atlasImg;
     state.tileCanvases = [];
     state.classCanvases = [];
+    state.changed_cells_mask_canvas_per_stage = r.stages.map((stage, stage_index) =>
+      build_changed_cells_mask_canvas(r, stage_index));
+    state.changed_cell_count_per_stage = r.stages.map((stage, stage_index) =>
+      count_changed_cells_since_previous_stage(r, stage_index));
     let prev = null, prevTiles = null;
     r.stages.forEach((st) => {
       const c = document.createElement("canvas");
@@ -346,6 +352,35 @@
       cg.putImageData(data, 0, 0);
       state.classCanvases.push(cc);
     });
+  }
+
+  function is_cell_changed_since_previous_stage(r, stage_index, cell_index) {
+    const is_first_stage = stage_index === 0;
+    if (is_first_stage) return false;
+    const is_cell_changed = r.stages[stage_index].tiles[cell_index] !== r.stages[stage_index - 1].tiles[cell_index];
+    return is_cell_changed;
+  }
+
+  function count_changed_cells_since_previous_stage(r, stage_index) {
+    let changed_cell_count = 0;
+    for (let cell_index = 0; cell_index < r.width * r.height; cell_index++) {
+      if (is_cell_changed_since_previous_stage(r, stage_index, cell_index)) changed_cell_count++;
+    }
+    return changed_cell_count;
+  }
+
+  function build_changed_cells_mask_canvas(r, stage_index) {
+    const mask_canvas = document.createElement("canvas");
+    mask_canvas.width = r.width;
+    mask_canvas.height = r.height;
+    const mask_context = mask_canvas.getContext("2d");
+    const mask_pixels = mask_context.createImageData(r.width, r.height);
+    for (let cell_index = 0; cell_index < r.width * r.height; cell_index++) {
+      if (!is_cell_changed_since_previous_stage(r, stage_index, cell_index)) continue;
+      mask_pixels.data.set([255, 222, 89, 255], cell_index * 4);
+    }
+    mask_context.putImageData(mask_pixels, 0, 0);
+    return mask_canvas;
   }
 
   // ------------------------------------------------------------ view
@@ -512,6 +547,7 @@
     ctx.drawImage(layer[state.stage], ox, oy, W, H);
     ctx.globalAlpha = 1;
     if (t < 1) draw();
+    draw_changed_cells_highlight(ox, oy, W, H);
 
     const s = CELL * zoom;
     if (state.ov.grid && s >= 8) drawGrid(r, ox, oy, s);
@@ -524,6 +560,19 @@
       ctx.lineWidth = 1;
       ctx.strokeRect(ox + state.hover.x * s + 0.5, oy + state.hover.y * s + 0.5, s - 1, s - 1);
     }
+  }
+
+  function draw_changed_cells_highlight(ox, oy, W, H) {
+    const elapsed_highlight_time_in_milliseconds = performance.now() - state.changed_cells_highlight_start_time;
+    const highlight_progress = elapsed_highlight_time_in_milliseconds / changed_cells_highlight_duration_in_milliseconds;
+    if (highlight_progress >= 1) return;
+    const mask_canvas = state.changed_cells_mask_canvas_per_stage[state.stage];
+    if (!mask_canvas) return;
+
+    ctx.globalAlpha = changed_cells_highlight_peak_opacity * (1 - highlight_progress);
+    ctx.drawImage(mask_canvas, ox, oy, W, H);
+    ctx.globalAlpha = 1;
+    draw();
   }
 
   function drawGrid(r, ox, oy, s) {
@@ -615,19 +664,40 @@
   // ------------------------------------------------------------ timeline
   function buildTimeline() {
     const r = state.result;
-    const scrub = $("scrub");
-    scrub.max = r.stages.length - 1;
     const ticks = $("ticks");
     ticks.innerHTML = "";
     r.stages.forEach((st, i) => {
       const li = document.createElement("li");
-      const b = document.createElement("button");
-      b.type = "button";
-      b.textContent = st.name;
-      b.title = st.name;
-      b.onclick = () => { stopPlay(); setStage(i, true); };
-      li.appendChild(b);
+      li.textContent = st.name;
+      li.title = `${i + 1}. ${st.name}`;
       ticks.appendChild(li);
+    });
+  }
+
+  function stage_index_under_pointer(pointer_event) {
+    const track_rectangle = $("ticks").getBoundingClientRect();
+    const stage_count = state.result.stages.length;
+    const pointer_fraction_along_track = (pointer_event.clientX - track_rectangle.left) / track_rectangle.width;
+    const stage_index = Math.max(0, Math.min(stage_count - 1, Math.floor(pointer_fraction_along_track * stage_count)));
+    return stage_index;
+  }
+
+  function scrub_to_stage_under_pointer(pointer_event) {
+    if (!state.result) return;
+    stopPlay();
+    const stage_index = stage_index_under_pointer(pointer_event);
+    if (stage_index === state.stage) return;
+    setStage(stage_index, true);
+  }
+
+  function init_stage_track_scrubbing() {
+    const track = $("ticks");
+    track.addEventListener("pointerdown", (pointer_event) => {
+      track.setPointerCapture(pointer_event.pointerId);
+      scrub_to_stage_under_pointer(pointer_event);
+    });
+    track.addEventListener("pointermove", (pointer_event) => {
+      if (track.hasPointerCapture(pointer_event.pointerId)) scrub_to_stage_under_pointer(pointer_event);
     });
   }
 
@@ -641,11 +711,13 @@
     } else {
       state.prevStage = null;
     }
+    const is_stage_stepped_to_by_viewer = fade && i !== state.stage;
+    if (is_stage_stepped_to_by_viewer) state.changed_cells_highlight_start_time = performance.now();
     state.stage = i;
-    $("scrub").value = i;
-    $("stageNo").textContent = `stage ${i + 1} of ${r.stages.length}`;
+    const changed_cell_count = state.changed_cell_count_per_stage[i] || 0;
+    $("stageNo").textContent = `stage ${i + 1} of ${r.stages.length}` + (i ? ` · ${changed_cell_count} cells changed` : "");
     $("stageName").textContent = r.stages[i].name;
-    [...$("ticks").querySelectorAll("button")].forEach((b, k) => {
+    [...$("ticks").children].forEach((b, k) => {
       b.classList.toggle("on", k === i);
       b.classList.toggle("past", k < i);
     });
@@ -890,13 +962,15 @@
     $("zoomOut").onclick = () => zoomBy(-1);
     $("zoomFit").onclick = fit;
     $("play").onclick = () => (state.playing ? stopPlay() : startPlay());
-    $("scrub").addEventListener("input", (ev) => { stopPlay(); setStage(parseInt(ev.target.value, 10), false); });
+    init_stage_track_scrubbing();
     $("download").onclick = download;
     document.addEventListener("keydown", (ev) => {
       if (ev.target.closest("input, select, textarea")) return;
       if (!state.result) return;
       if (ev.key === "ArrowRight") { stopPlay(); setStage(state.stage + 1, true); }
       else if (ev.key === "ArrowLeft") { stopPlay(); setStage(state.stage - 1, true); }
+      else if (ev.key === "Home") { stopPlay(); setStage(0, true); }
+      else if (ev.key === "End") { stopPlay(); setStage(state.result.stages.length - 1, true); }
       else if (ev.key === " ") { ev.preventDefault(); state.playing ? stopPlay() : startPlay(); }
       else if (ev.key === "+" || ev.key === "=") zoomBy(1);
       else if (ev.key === "-") zoomBy(-1);
