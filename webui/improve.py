@@ -145,6 +145,9 @@ Hard limits for this unattended run:
   never rewrite history (no reset --hard of commits you did not make, no force anything), never commit secrets.
 - Do not stop or restart the web UI server on port 8790; it is running this job.
 - Don't sign up for accounts or install global software.
+- Other agents may be working in the same tree. Run `git status` first and leave changes you did not make alone:
+  never stage, commit, revert, stash or check out them. Stage only your own files by path (`git add <paths>`),
+  never `git add -A`, `git add .` or `git commit -a`.
 - If the request is unsafe, impossible or would break these rules, make no commit and explain why in your last message.
 """
 
@@ -331,7 +334,13 @@ def _do_improve(job):
     job["base"] = before
     code, final = _run_agent(job)
     after = _head(target)
-    commits = _git(TARGETS[target]["repo"], "rev-list", "--reverse", f"{before}..{after}").split() if after != before else []
+    repo = TARGETS[target]["repo"]
+    commits = _git(repo, "rev-list", "--reverse", "--no-merges", f"{before}..{after}").split() if after != before else []
+    # other agents may commit in the same repo while the job runs: keep only the job's own "improve: " commit(s)
+    mine = [c for c in commits if _git(repo, "log", "-1", "--format=%s", c).startswith("improve: ")]
+    if len(mine) != len(commits):
+        _log(jid, f"[note] {len(commits) - len(mine)} other commit(s) landed meanwhile; not counted as this job's")
+    commits = mine
     job["commits"] = commits
     job["summary"] = final[-600:]
     if commits:
@@ -339,9 +348,7 @@ def _do_improve(job):
         job["subject"] = _git(TARGETS[target]["repo"], "log", "-1", "--format=%s", commits[-1])
         if len(commits) > 1:
             _log(jid, f"[warn] {len(commits)} commits instead of one; Undo reverts all of them")
-        if not job["subject"].startswith("improve: "):
-            _log(jid, "[warn] commit message does not start with 'improve: '")
-        changed = _git(TARGETS[target]["repo"], "diff", "--name-only", f"{before}..{after}").split()
+        changed = sorted({f for c in commits for f in _git(repo, "show", "--name-only", "--format=", c).split()})
         job["files"] = changed[:60]
         if target == "poke-routes" and any(f.startswith("webui/") and f.endswith(".py") for f in changed):
             job["restart_needed"] = True
@@ -364,9 +371,13 @@ def _do_undo(job):
     repo = t["repo"]
     if t["branch"] and _git(repo, "branch", "--show-current") != t["branch"]:
         raise RuntimeError(f"{repo} is not on {t['branch']}; not reverting")
-    if _git(repo, "status", "--porcelain", "--untracked-files=no"):
-        raise RuntimeError(f"{repo} has uncommitted changes to tracked files; not reverting")
     commits = src.get("commits") or [src["commit"]]
+    if _git(repo, "diff", "--cached", "--name-only"):
+        raise RuntimeError(f"{repo} has staged changes; not reverting")
+    touched = set(_git(repo, "diff", "--name-only", f"{commits[0]}~1", commits[-1]).split())
+    dirty = touched & set(_git(repo, "diff", "--name-only").split())
+    if dirty:
+        raise RuntimeError("uncommitted edits to files this improvement touched: " + ", ".join(sorted(dirty)))
     env = _git_env() if src["target"] == "poke-routes" else None
     try:
         for c in reversed(commits):
