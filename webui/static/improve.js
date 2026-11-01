@@ -43,7 +43,7 @@
             </select>
             <button type="button" class="btn primary" id="impSubmit">Submit</button>
           </div>
-          <p class="imp-note">Queued and run unattended by Claude Code in that repo; each job ends in one commit you can undo. Enter submits, Shift + Enter for a new line.</p>
+          <p class="imp-note">One commit per job, undoable. Shift+Enter for a new line.</p>
           <p class="imp-err" id="impErr"></p>
         </div>
       </section>
@@ -71,7 +71,7 @@
           </select>
           <button type="button" class="primary" id="impSubmit">Submit</button>
         </div>
-        <p class="imp-note">Runs Claude Code unattended in that repo and ends in one commit you can undo. Enter submits, Shift + Enter for a new line.</p>
+        <p class="imp-note">One commit per job, undoable. Shift+Enter for a new line.</p>
         <p class="imp-err" id="impErr"></p>
       </section>
       <section>
@@ -161,16 +161,16 @@
   function renderUsage(u) {
     const box = $("impUsage");
     box.innerHTML = "";
-    if (!u) { box.append(el("p", "imp-note", "No reading yet: it's taken from the next improve run.")); return; }
+    if (!u) { box.append(el("p", "imp-note", "No reading yet.")); return; }
     const reset = u.resets_at && u.resets_at < Date.now() / 1000;
     const left = Math.max(0, Math.round(100 - u.utilization * 100));
     box.append(el("p", "big", reset ? "window reset" : `${left}% left`));
     const bar = el("div", "bar");
     bar.append(Object.assign(el("span"), { style: `width:${reset ? 100 : left}%` }));
     box.append(bar);
-    if (u.resets_at) box.append(el("p", "imp-note", reset ? `reset at ${clock(u.resets_at)}; next run shows the new window`
-      : `5-hour window resets ${clock(u.resets_at)} (in ${until(u.resets_at)})`));
-    box.append(el("p", "imp-note", `as of ${clock(u.seen)} (${ago(u.seen)}), from the last improve run${u.status && u.status !== "allowed" ? ", status " + u.status : ""}`));
+    if (u.resets_at) box.append(el("p", "imp-note", reset ? `reset at ${clock(u.resets_at)}`
+      : `resets ${clock(u.resets_at)} (in ${until(u.resets_at)})`));
+    box.append(el("p", "imp-note", `as of ${ago(u.seen)}${u.status && u.status !== "allowed" ? ", status " + u.status : ""}`));
   }
 
   async function undo(j, b) {
