@@ -681,7 +681,6 @@
     const rows = !rep.size ? [["size", `${r.width} x ${r.height}`]] : [
       ["size", `${rep.size[0]} x ${rep.size[1]}`],
       ["walkable cells", rep.walkable_cells],
-      ["walkable", `${Math.round(rep.walkable_cells / (rep.size[0] * rep.size[1]) * 100)}%`],
       ["reachable", `${Math.round(rep.reachable_fraction * 100)}%`],
       ["branches", zc.branch || 0],
       ["loops", zc.loop || 0],
