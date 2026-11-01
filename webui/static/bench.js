@@ -24,8 +24,9 @@
   const sdel = (k) => { try { store.removeItem(k); } catch (e) { /* blocked storage */ } };
 
   // ------------------------------------------------------------ preferences
-  const PREF_DEFAULTS = { autogen: true, playOnGenerate: false, stageMs: 900, fade: true, ui: "12", fit: "resize", loop: false, tiler: "learned" };
+  const PREF_DEFAULTS = { autogen: true, playOnGenerate: false, stageMs: 900, fade: true, ui: "12", fit: "resize", loop: false, tiler: "ark" };
   const prefs = Object.assign({}, PREF_DEFAULTS, sget(PREFS_KEY) || {});
+  if (!prefs.tiler_picked_by_hand) prefs.tiler = PREF_DEFAULTS.tiler;
   function savePrefs() { sset(PREFS_KEY, prefs); }
   function applyPrefs() {
     document.documentElement.dataset.ui = prefs.ui === "13" ? "13" : "12";
@@ -1750,6 +1751,7 @@
     const info = (state.tilers || []).find((x) => x.id === t);
     if (info && !info.ok) { log("warn", `${info.label} isn't available here: ${info.error}`); return; }
     prefs.tiler = t;
+    prefs.tiler_picked_by_hand = true;
     savePrefs();
     applyPrefs();
     log("info", `Tiler: ${t === "ark" ? "Ark rule tiles" : "learned Emerald tiles"}`);
