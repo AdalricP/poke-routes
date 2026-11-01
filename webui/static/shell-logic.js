@@ -444,6 +444,25 @@
     }
     return out;
   }
+  // Cells on the straight line from a to b (inclusive), so a quick stroke leaves no gaps.
+  function lineCells(a, b) {
+    const out = [];
+    const n = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+    for (let k = 0; k <= n; k++) out.push({ x: Math.round(a.x + ((b.x - a.x) * k) / (n || 1)), y: Math.round(a.y + ((b.y - a.y) * k) / (n || 1)) });
+    return out;
+  }
+  // Painted cells are remembered per route name + size ({"x,y": class}) and put back
+  // after every regenerate; same storage format as the first bench paint mode.
+  const PAINT_KEY = "pokeroutes-paint-v1";
+  const paintKey = (r) => `${r.name}|${r.width}x${r.height}`;
+  function mergePaint(map, cells) {
+    const out = Object.assign({}, map || {});
+    for (const [x, y, k] of cells) out[`${x},${y}`] = k;
+    return out;
+  }
+  function paintList(map) {
+    return Object.entries(map || {}).map(([k, c]) => { const [x, y] = k.split(",").map(Number); return [x, y, c]; });
+  }
   function stampCells(name, x, y, W, H) {
     const s = STAMPS[name];
     if (!s) return [];
@@ -456,7 +475,7 @@
     LAYOUT_KEY, CHROME, BOTTOM_TABS, CENTER_TABS, defaultLayout, sanitizeLayout, loadLayout, saveLayout,
     computeRects, dragSize, MIN_CENTER, MIN_SIDE,
     History, RECENT_KEY, pushRecent, recentLabel, specToParams, paramsToSpecFile, safeFileName,
-    STAMPS, brushCells, stampCells,
+    STAMPS, brushCells, stampCells, lineCells, PAINT_KEY, paintKey, mergePaint, paintList,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.SL = api;

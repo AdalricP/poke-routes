@@ -39,6 +39,8 @@
         <select id="brushSize" aria-label="Brush size" title="Brush size">
           <option value="1">1 cell</option><option value="2">2 cells</option><option value="3">3 cells</option><option value="5">5 cells</option>
         </select>
+        <span class="tb-count" id="paintN"></span>
+        <button type="button" class="btn" id="paintClear" title="Forget every painted cell on this route and regenerate">Clear paint</button>
       </span>
       <span class="tb-opts" id="stampOpts" hidden>
         <select id="stampKind" aria-label="Stamp" title="Stamp"></select>
@@ -123,6 +125,7 @@
       <div class="view-ctrls" id="regionCtrls" hidden>
         <label class="tb-label">Seed <input id="regionSeed" type="number" min="0" value="1" class="num"></label>
         <button type="button" class="btn" id="regionLoad">Load</button>
+        <button type="button" class="btn" id="regionEdit" title="Open this region in the World map editor">Edit in World</button>
         <span class="muted" id="regionStatus"></span>
       </div>
     </header>

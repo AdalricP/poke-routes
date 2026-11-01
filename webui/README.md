@@ -11,9 +11,9 @@ The page is laid out like a small game-engine editor (Unity's dark theme was the
 - **Menu bar**: File (new route, open/save spec as JSON, open YAML specs too, recent routes, import, export: Porymap zip, scene.json, PNG of the current stage, region JSON, all region specs), Edit (undo/redo of spec edits and paint strokes, copy/paste spec, preferences), View (panels, zoom, frame selection, overlays, which stage to show), Generate (generate, new seed, region, tiler: learned or Ark rule tiles, stage stepping), Window (scene / region / world views, console, timeline, Improve, reset layout), Help (shortcuts, about). Menus show Cmd on macOS and Ctrl elsewhere.
 - **Shortcuts** are all in `SHORTCUTS` in `static/shell-logic.js`. Single keys (Space, arrows, V/H/B/S tools, F frame) only work when no text field or slider has focus. Generate is Cmd/Ctrl+G and never fires from a text field; the old Ctrl+Enter is gone.
 - **Layout**: Hierarchy on the left (exits, lanes, special areas, clearings and lakes, items and events, layers with visibility toggles; click selects, double-click frames). The centre has Scene / Region / World tabs. Inspector on the right, full height: the selected object, then the spec fields in foldouts, the route report and the encounter tables. The bottom dock has Console (log, warnings, generation report), Timeline (stage ruler with change keys, plus zones and items added per stage) and Improve. Panel sizes, open/closed docks, tabs and foldouts are kept in localStorage (`pokeroutes-shell-layout-v1`); Window > Reset layout clears them.
-- **Tools**: select/pan, paint (classes) and stamp (tree block, pond, grass patch...). Paint and stamp post to `/api/retile` (from the world-editor work); without that endpoint the Console says so. Ark-tiled routes can't be painted yet.
-- **World tab**: hosts `static/editor.html` in a frame when that file exists (the shell's File/Edit/Generate items drive its Save/Undo/Generate buttons). Until then the tab shows a placeholder.
-- **Region tab**: the old region page. Click a route box to see it in the Inspector; "Open in Scene" (or double-click) loads its spec plus its region block and generates it.
+- **Tools**: select/pan, paint (classes) and stamp (tree block, pond, grass patch...); see "Bench paint" below. Ark-tiled routes can't be painted yet.
+- **World tab**: hosts the region editor (`static/editor.html`) in a frame, so its stylesheet stays separate. File > Save, Edit > Undo/Redo, Generate > Generate region and File > Export > All region specs act on the editor while that tab is open (through its `window.editor` actions). Its "open in bench" lands in the Scene tab instead of a new browser tab.
+- **Region tab**: the old region page. Click a route box to see it in the Inspector; "Open in Scene" (or double-click) loads its spec plus its region block and generates it. "Edit in World" opens the same seed in the World tab.
 - Files: `static/shell.html`, `shell.css` (theme), `shell.js` (menus, docks, console, keys), `bench.js` (scene, inspector, hierarchy, timeline, region/world views, files), `shell-logic.js` (pure: shortcuts, layout maths, undo, recent list, spec conversion), `webui/shell_api.py` (entry page, redirects, Ark atlas, scene/spec exports, spec parsing).
 - Tests: `node webui/tests/shell-logic.test.js`.
 
@@ -34,7 +34,7 @@ API: `POST /api/improve {request, target}`, `GET /api/improve` (history), `GET /
 
 ## Region editor (rough)
 
-`/editor.html` (linked from the bench and `/region.html`): the world map that `pokeroutes.region` generates, drawn on a canvas so it can be fixed by hand. Open with `?seed=N` or `?load=NAME`.
+The World tab of the editor shell (or `/editor.html` on its own): the world map that `pokeroutes.region` generates, drawn on a canvas so it can be fixed by hand. Open with `?seed=N` or `?load=NAME`.
 
 - Layers: hillshaded height, biomes, water (sea, lakes, rivers), routes (role colours; dashed border = unpinned), labels. Wheel or `+ - 0` to zoom, space / right / middle drag to pan.
 - Tools (keys in brackets, `?` shows them all): select `V` (drag towns and landmarks, drag a selected route's edges or exits, double-click a route to open it in the bench), raise `R` / lower `L` / flatten `F` / smooth `S`, paint biome `B`, coast `W` (land / sea / lake), river `I` (draw / erase, Alt erases), add route `A` (drag from a town or route to a town, route or landmark). `[ ]` brush size.
@@ -49,6 +49,6 @@ API: `POST /api/editor/{generate,load,recompute,add-route,save,spec,render,expor
 
 ## Bench paint
 
-**Paint** in the bench toolbar (or `P`) switches to the finished stage and lets you paint semantic classes (tree, grass, path, tall grass, water, rock, ledges, waterfall) cell by cell. `POST /api/retile` re-tiles them with the same tiler, keeping every metatile whose 3x3 class neighbourhood didn't change, so the Porymap export zip carries the painted map. Paint is remembered per route name and size and put back after every regenerate (other seeds too) until you press clear.
+The **Paint** tool in the shell toolbar (`B`; **Stamp** is `S`) switches to the finished stage and lets you paint semantic classes (tree, grass, path, tall grass, water, rock, ledges, waterfall) with a 1-5 cell brush; quick strokes are filled in along the line. `POST /api/retile` re-tiles them with the same tiler, keeping every metatile whose 3x3 class neighbourhood didn't change, so the Porymap export zip carries the painted map. Paint is remembered per route name and size (localStorage `pokeroutes-paint-v1`) and put back after every regenerate (other seeds too) until you press Clear paint (toolbar, or Edit > Clear painted cells). Strokes are undoable with Cmd/Ctrl+Z.
 
-Tests: `node webui/tests/editor-logic.test.js` (pure editor logic: grids, brushes, undo/redo, route edits).
+Tests: `node webui/tests/editor-logic.test.js` (pure editor logic: grids, brushes, undo/redo, route edits) and `node webui/tests/shell-logic.test.js` (shell: shortcuts, layout, undo, paint memory).

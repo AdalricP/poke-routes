@@ -97,7 +97,9 @@ code, kbd { font-family: var(--mono); font-size: 11px; }
 .tb-group[aria-label="Scene tools"] .tb-btn + .tb-btn { margin-left: -1px; border-radius: 0; }
 .tb-group[aria-label="Scene tools"] .tb-btn:first-child { border-radius: 3px 0 0 3px; }
 .tb-group[aria-label="Scene tools"] .tb-btn[data-tool="stamp"] { border-radius: 0 3px 3px 0; }
-.tb-opts { display: inline-flex; gap: 4px; margin-left: 8px; }
+.tb-opts { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; }
+.tb-count { color: var(--text-3); padding: 0 4px; white-space: nowrap; }
+.tb-count:empty { display: none; }
 .tb-stage { min-width: 150px; max-width: 220px; padding: 0 8px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
 .tb-sep { width: 1px; height: 16px; background: #444; margin: 0 6px; }
 .tb-zoom { min-width: 40px; text-align: center; color: var(--text-2); font-variant-numeric: tabular-nums; }

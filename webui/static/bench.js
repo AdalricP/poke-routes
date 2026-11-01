@@ -293,7 +293,7 @@
       setParams(e[side]);
       sset(STORE_KEY, params());
     } else if (e.kind === "paint") {
-      await retile(side === "before" ? e.old : e.cells, true);
+      if (state.result && state.result.id === e.id && await retile(side === "before" ? e.old : e.cells, true)) storePaint(state.result, e[side]);
     }
   }
 
@@ -378,6 +378,8 @@
       state.generated = JSON.stringify(p);
       sset(SL.RECENT_KEY, SL.pushRecent(sget(SL.RECENT_KEY), p, 10, Date.now()));
       reportToConsole(res, (performance.now() - t0) / 1000);
+      updatePaintCount();
+      await reapplyPaint();
       if (prefs.autoplay && res.stages.length > 1) { setStage(0, false); startPlay(); }
       else setStage(res.stages.length - 1, false);
       updateTitle();
@@ -542,6 +544,7 @@
       drag = { mode: "paint" };
       if (state.stage !== state.result.stages.length - 1) { stopPlay(); setStage(state.result.stages.length - 1, false); }
       state.paint.cells = new Map();
+      state.paint.last = null;
       paintAt(sx, sy);
       return;
     }
@@ -884,10 +887,15 @@
   function paintAt(sx, sy) {
     const r = state.result;
     const c = cellOf(sx, sy);
-    if (!c) return;
-    const cells = state.tool === "stamp" ? SL.stampCells($("stampKind").value, c.x, c.y, r.width, r.height)
-      : SL.brushCells(c.x, c.y, +$("brushSize").value, $("paintClass").value, r.width, r.height);
-    for (const [x, y, k] of cells) state.paint.cells.set(`${x},${y}`, k);
+    if (!c) { state.paint.last = null; return; }
+    if (state.tool === "stamp") {
+      if (state.paint.last && state.paint.last.x === c.x && state.paint.last.y === c.y) return;
+      for (const [x, y, k] of SL.stampCells($("stampKind").value, c.x, c.y, r.width, r.height)) state.paint.cells.set(`${x},${y}`, k);
+    } else {
+      const pts = state.paint.last ? SL.lineCells(state.paint.last, c).slice(1) : [c];
+      for (const p of pts) for (const [x, y, k] of SL.brushCells(p.x, p.y, +$("brushSize").value, $("paintClass").value, r.width, r.height)) state.paint.cells.set(`${x},${y}`, k);
+    }
+    state.paint.last = c;
     draw();
   }
   async function commitPaint() {
@@ -902,14 +910,48 @@
       old.push([x, y, PAINT_CLASSES.includes(was) ? was : "g"]);
     }
     if (!cells.length) { state.paint.cells = new Map(); draw(); return; }
+    const before = savedPaint(r);
     const ok = await retile(cells);
-    if (ok) undoStack.push({ kind: "paint", id: r.id, cells, old });
+    if (!ok) return;
+    const after = SL.mergePaint(before, cells);
+    storePaint(r, after);
+    undoStack.push({ kind: "paint", id: r.id, cells, old, before, after });
+  }
+  // paint memory per route name + size (see SL.paintKey)
+  function savedPaint(r) { const all = sget(SL.PAINT_KEY) || {}; return (r && all[SL.paintKey(r)]) || {}; }
+  function storePaint(r, map) {
+    const all = sget(SL.PAINT_KEY) || {};
+    if (map && Object.keys(map).length) all[SL.paintKey(r)] = map; else delete all[SL.paintKey(r)];
+    sset(SL.PAINT_KEY, all);
+    updatePaintCount();
+  }
+  function updatePaintCount() {
+    const n = state.result ? Object.keys(savedPaint(state.result)).length : 0;
+    $("paintN").textContent = n ? `${n} painted` : "";
+    $("paintClear").disabled = !n;
+  }
+  function clearPaint() {
+    const r = state.result;
+    if (!r || !Object.keys(savedPaint(r)).length) return;
+    storePaint(r, {});
+    undoStack.filter((e) => e.kind !== "paint");
+    log("info", `Cleared the painted cells of ${r.name}; regenerating`);
+    generate();
+  }
+  // a new route with remembered paint: put it back
+  async function reapplyPaint() {
+    const r = state.result;
+    const cells = SL.paintList(savedPaint(r));
+    if (!cells.length) return;
+    if (r.tiler === "ark") { log("warn", `${cells.length} painted cells are remembered for ${r.name}, but Ark-tiled routes can't be painted; switch the tiler to Learned to see them`); return; }
+    if (await retile(cells, true)) log("info", `Put back ${cells.length} painted cells on ${r.name} (Edit > Clear painted cells drops them)`);
   }
   async function retile(cells, quiet) {
     const r = state.result;
     if (!r) return false;
     try {
       const res = await postJSON("/api/retile", { id: r.id, cells });
+      if (state.result !== r) return false; // a new route arrived meanwhile
       const last = r.stages.length - 1;
       r.stages[last].cls = res.cls;
       r.stages[last].tiles = res.tiles;
@@ -934,7 +976,7 @@
     $("paintOpts").hidden = t !== "paint";
     $("stampOpts").hidden = t !== "stamp";
     wrap.className = "view scene tool-" + t;
-    if (t === "paint" || t === "stamp") canPaint(true);
+    if (t === "paint" || t === "stamp") { canPaint(true); updatePaintCount(); }
     hideTip();
     draw();
   }
@@ -1539,6 +1581,7 @@
 
   // ------------------------------------------------------------ world view (editor.html)
   let worldFrame = null;
+  let worldSrc = "editor.html";
   async function showWorld() {
     if (worldFrame || $("worldSlot").dataset.state === "loading") return;
     const slot = $("worldSlot");
@@ -1554,43 +1597,63 @@
     slot.hidden = true;
     worldFrame = el("iframe");
     worldFrame.title = "World map editor";
-    worldFrame.src = "editor.html?embed=1";
+    worldFrame.src = worldSrc;
     worldFrame.addEventListener("load", onWorldLoad);
     $("viewWorld").append(worldFrame);
   }
+  // The editor (static/editor/app.js) runs in a frame so its stylesheet stays its own.
+  // Its "open in bench" calls window.open("/?region=..."); inside the shell that
+  // becomes: load the spec it left in localStorage and generate it in the Scene tab.
+  function openFromWorld(url) {
+    const u = new URL(String(url || "/"), location.href);
+    if (u.origin !== location.origin) return null;
+    if (u.pathname === "/region.html" || u.searchParams.get("view") === "region") { Shell.setCenter("region"); return null; }
+    const saved = sget(STORE_KEY);
+    if (saved) replaceParams(saved, "world route");
+    state.region = sget(REGION_KEY);
+    renderRegionLink();
+    Shell.setCenter("scene");
+    log("info", `Opened ${params().name} from the world map editor`);
+    generate();
+    return null;
+  }
   function onWorldLoad() {
-    let loc;
-    try { loc = worldFrame.contentWindow.location; } catch (e) { return; }
-    if (!/\/editor\.html$/.test(loc.pathname)) {
-      // the editor navigated to another page of this app: handle it here instead
-      const url = new URL(loc.href);
-      worldFrame.src = "editor.html?embed=1";
-      if (url.pathname === "/region.html" || url.searchParams.get("view") === "region") { Shell.setCenter("region"); return; }
-      const saved = sget(STORE_KEY);
-      if (saved) replaceParams(saved, "world route");
-      state.region = sget(REGION_KEY);
-      renderRegionLink();
-      Shell.setCenter("scene");
-      log("info", `Opened ${params().name} from the world map editor`);
-      generate();
+    let win;
+    try { win = worldFrame.contentWindow; void win.location.pathname; } catch (e) { return; }
+    if (!/\/editor\.html$/.test(win.location.pathname)) {
+      // the editor followed a link to another page of this app: handle it here instead
+      const href = win.location.href;
+      worldFrame.src = worldSrc;
+      openFromWorld(href);
       return;
     }
+    win.open = (url) => openFromWorld(url);
     try {
       const d = worldFrame.contentDocument;
       const st = d.createElement("style");
       st.textContent = ".ed-top .links { display: none !important; }";
       d.head.append(st);
-    } catch (e) { /* cross-origin can't happen here, but stay quiet */ }
+    } catch (e) { /* same origin, but stay quiet */ }
   }
-  // Drive the embedded editor's own buttons from the shell menus.
+  // Drive the embedded editor from the shell menus (PREditor actions on window.editor).
+  const WORLD_ACTIONS = { undoBtn: "undo", redoBtn: "redo", saveBtn: "save", genBtn: "generate", exportBtn: "exportSpecs" };
   function worldClick(id) {
     if (Shell.layout.center !== "world" || !worldFrame) return false;
     try {
-      const b = worldFrame.contentDocument.getElementById(id);
-      if (!b || b.disabled) return false;
-      b.click();
+      const ed = worldFrame.contentWindow.editor;
+      const fn = ed && ed[WORLD_ACTIONS[id]];
+      if (typeof fn !== "function") return false;
+      fn();
       return true;
-    } catch (e) { return false; }
+    } catch (e) { log("error", "World editor: " + e.message); return true; }
+  }
+  function editRegionInWorld() {
+    const s = Math.max(0, parseInt($("regionSeed").value, 10) || 0);
+    Shell.setCenter("world");
+    const ed = worldFrame && worldFrame.contentWindow && worldFrame.contentWindow.editor;
+    if (ed && typeof ed.generate === "function") { ed.generate(s); return; }
+    worldSrc = `editor.html?seed=${s}`;
+    if (worldFrame) worldFrame.src = worldSrc;
   }
 
   Shell.onCenter((tab) => {
@@ -1843,6 +1906,8 @@
       { id: "undo", label: "Undo", run: undo, enabled: () => undoStack.canUndo() || Shell.layout.center === "world" },
       { id: "redo", label: "Redo", run: redo, enabled: () => undoStack.canRedo() || Shell.layout.center === "world" },
       { sep: true },
+      { id: "clear-paint", label: "Clear painted cells", enabled: () => hasRoute() && Object.keys(savedPaint(state.result)).length > 0, run: clearPaint },
+      { sep: true },
       { id: "copy-spec", label: "Copy spec", run: copySpec },
       { id: "paste-spec", label: "Paste spec", run: pasteSpec },
       { sep: true },
@@ -1945,6 +2010,8 @@
     $("areaInput").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); addSpecial(); } });
     $("exitAdd").onclick = () => { if (state.exits.length < 4) { state.exits.push({ side: "west", at: 0.5, width: 3 }); renderExits(); edited("exits"); } };
     $("regionLoad").onclick = () => loadRegion();
+    $("regionEdit").onclick = editRegionInWorld;
+    $("paintClear").onclick = clearPaint;
     $("regionSeed").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); loadRegion(); } });
     const pc = $("paintClass");
     for (const k of PAINT_CLASSES) pc.append(Object.assign(el("option", "", PR.CLASS_NAMES[k] || k), { value: k }));

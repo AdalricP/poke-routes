@@ -347,4 +347,15 @@ test("brush and stamp cells clip to the map", () => {
   for (const s of Object.values(SL.STAMPS)) for (const [, , k] of s.cells) assert.ok("fgptwrsexa".includes(k));
 });
 
+test("stroke interpolation and paint memory", () => {
+  assert.deepStrictEqual(SL.lineCells({ x: 0, y: 0 }, { x: 3, y: 1 }).map((c) => [c.x, c.y]), [[0, 0], [1, 0], [2, 1], [3, 1]]);
+  assert.deepStrictEqual(SL.lineCells({ x: 2, y: 2 }, { x: 2, y: 2 }), [{ x: 2, y: 2 }]);
+  const m = SL.mergePaint({ "1,1": "g" }, [[1, 1, "w"], [2, 3, "f"]]);
+  assert.deepStrictEqual(m, { "1,1": "w", "2,3": "f" });
+  assert.deepStrictEqual(SL.paintList(m), [[1, 1, "w"], [2, 3, "f"]]);
+  assert.deepStrictEqual(SL.paintList(null), []);
+  assert.strictEqual(SL.paintKey({ name: "Testweg", width: 64, height: 72 }), "Testweg|64x72"); // same key as the first paint mode
+  assert.strictEqual(SL.PAINT_KEY, "pokeroutes-paint-v1");
+});
+
 console.log(`shell-logic: ${n} tests passed`);
