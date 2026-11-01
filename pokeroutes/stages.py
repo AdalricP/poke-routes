@@ -18,6 +18,7 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 import numpy as np
 
 from .generate import DIRS4, WALKABLE, Event, Route, Zone, exit_cells, inward
+from .braid import wspan
 from .noise import fbm
 
 Cell = Tuple[int, int]
@@ -652,6 +653,135 @@ def stage_road(route: Route) -> None:
                     if route.cls[y, x] == ground_class(route):
                         route.cls[y, x] = ss
     route.snap("road")
+
+
+# ------------------------------------------------------------------ verges
+
+shortest_treeline_step_in_tiles = 3
+longest_treeline_step_in_tiles = 7
+deepest_verge_beside_main_road_in_tiles = 3
+deepest_verge_beside_side_lane_in_tiles = 2
+trees_kept_between_a_verge_and_other_paths = 2
+verge_margin_from_map_edge_in_tiles = 3
+chance_a_deep_verge_is_tall_grass_per_unit_of_tall_grass_setting = 1.4
+
+
+def stage_verges(route: Route) -> None:
+    p = plan_of(route)
+    walkable_or_water_mask = np.isin(route.cls, list(WALKABLE) + ["w"])
+    special_area_cells = set(route.zone_cells("special", "hidden"))
+
+    for lane in p.lanes:
+        widen_single_lane_with_stepped_verges(route, p, lane, walkable_or_water_mask, special_area_cells)
+
+    route.snap("verges")
+
+
+def widen_single_lane_with_stepped_verges(route: Route, p, lane, walkable_or_water_mask, special_area_cells) -> None:
+    deepest_verge_in_tiles = deepest_verge_beside_main_road_in_tiles if lane.kind == "main" else deepest_verge_beside_side_lane_in_tiles
+    straight_runs_of_lane = list(zip(lane.pts, lane.pts[1:]))
+
+    for run_start_uv, run_end_uv in straight_runs_of_lane:
+        for side_sign in (1, -1):
+            treeline_steps = plan_treeline_steps_along_run(route.rng, run_start_uv, run_end_uv, deepest_verge_in_tiles)
+            for step_start_index, step_length_in_tiles, step_depth_in_tiles in treeline_steps:
+                carve_single_treeline_step(route, p, lane, run_start_uv, run_end_uv, side_sign, step_start_index,
+                                           step_length_in_tiles, step_depth_in_tiles, walkable_or_water_mask,
+                                           special_area_cells)
+
+
+def plan_treeline_steps_along_run(rng, run_start_uv: Tuple[int, int], run_end_uv: Tuple[int, int], deepest_verge_in_tiles: int) -> List[Tuple[int, int, int]]:
+    run_length_in_tiles = abs(run_end_uv[0] - run_start_uv[0]) + abs(run_end_uv[1] - run_start_uv[1])
+    treeline_steps: List[Tuple[int, int, int]] = []
+    step_start_index = 2
+    previous_depth_in_tiles = 0
+
+    while step_start_index + shortest_treeline_step_in_tiles <= run_length_in_tiles - 2:
+        step_length_in_tiles = int(rng.integers(shortest_treeline_step_in_tiles, longest_treeline_step_in_tiles + 1))
+        step_length_in_tiles = min(step_length_in_tiles, run_length_in_tiles - 2 - step_start_index)
+        step_depth_in_tiles = pick_next_treeline_depth(rng, previous_depth_in_tiles, deepest_verge_in_tiles)
+        treeline_steps.append((step_start_index, step_length_in_tiles, step_depth_in_tiles))
+        previous_depth_in_tiles = step_depth_in_tiles
+        step_start_index += step_length_in_tiles
+
+    return treeline_steps
+
+
+def pick_next_treeline_depth(rng, previous_depth_in_tiles: int, deepest_verge_in_tiles: int) -> int:
+    candidate_depths_in_tiles = [depth for depth in range(0, deepest_verge_in_tiles + 1) if depth != previous_depth_in_tiles]
+    next_depth_in_tiles = int(candidate_depths_in_tiles[int(rng.integers(0, len(candidate_depths_in_tiles)))])
+    return next_depth_in_tiles
+
+
+def carve_single_treeline_step(route: Route, p, lane, run_start_uv, run_end_uv, side_sign: int, step_start_index: int,
+                               step_length_in_tiles: int, step_depth_in_tiles: int, walkable_or_water_mask,
+                               special_area_cells) -> None:
+    if step_depth_in_tiles == 0:
+        return
+
+    deepest_fitting_cells = deepest_fitting_verge_cells(route, p, lane, run_start_uv, run_end_uv, side_sign,
+                                                        step_start_index, step_length_in_tiles, step_depth_in_tiles,
+                                                        walkable_or_water_mask, special_area_cells)
+    if not deepest_fitting_cells:
+        return
+
+    verge_surface_class = choose_verge_surface_class(route, len(deepest_fitting_cells) // step_length_in_tiles)
+    for verge_cell in deepest_fitting_cells:
+        route.cls[verge_cell] = verge_surface_class
+        route.protect[verge_cell] = True
+        walkable_or_water_mask[verge_cell] = True
+
+
+def deepest_fitting_verge_cells(route: Route, p, lane, run_start_uv, run_end_uv, side_sign: int, step_start_index: int,
+                                step_length_in_tiles: int, step_depth_in_tiles: int, walkable_or_water_mask,
+                                special_area_cells) -> List[Cell]:
+    for trial_depth_in_tiles in range(step_depth_in_tiles, 0, -1):
+        verge_cells = verge_cells_of_step(lane, run_start_uv, run_end_uv, side_sign, step_start_index,
+                                          step_length_in_tiles, trial_depth_in_tiles)
+        if all(verge_cell_keeps_its_distance(route, p, lane, verge_cell, verge_cells, walkable_or_water_mask, special_area_cells)
+               for verge_cell in verge_cells):
+            return verge_cells
+    return []
+
+
+def verge_cells_of_step(lane, run_start_uv, run_end_uv, side_sign: int, step_start_index: int,
+                        step_length_in_tiles: int, step_depth_in_tiles: int) -> List[Cell]:
+    along_unit_uv = (int(np.sign(run_end_uv[0] - run_start_uv[0])), int(np.sign(run_end_uv[1] - run_start_uv[1])))
+    across_unit_uv = (abs(along_unit_uv[1]) * side_sign, abs(along_unit_uv[0]) * side_sign)
+    lane_half_width_toward_side = wspan(lane.width)[1] if side_sign > 0 else -wspan(lane.width)[0]
+    verge_cells = [
+        lane.frame.yx(run_start_uv[0] + along_unit_uv[0] * along_index + across_unit_uv[0] * across_distance,
+                      run_start_uv[1] + along_unit_uv[1] * along_index + across_unit_uv[1] * across_distance)
+        for along_index in range(step_start_index, step_start_index + step_length_in_tiles)
+        for across_distance in range(lane_half_width_toward_side + 1, lane_half_width_toward_side + step_depth_in_tiles + 1)
+    ]
+    return verge_cells
+
+
+def verge_cell_keeps_its_distance(route: Route, p, lane, verge_cell: Cell, verge_cells: List[Cell],
+                                  walkable_or_water_mask, special_area_cells) -> bool:
+    cell_y, cell_x = verge_cell
+    if not route.inside(cell_y, cell_x, verge_margin_from_map_edge_in_tiles):
+        return False
+    if route.cls[cell_y, cell_x] != wall_class(route) or p.keep_any[cell_y, cell_x]:
+        return False
+
+    reach = trees_kept_between_a_verge_and_other_paths
+    own_cells = lane.cells | set(verge_cells)
+    neighbourhood_cells = [(cell_y + offset_y, cell_x + offset_x)
+                           for offset_y in range(-reach, reach + 1) for offset_x in range(-reach, reach + 1)]
+    is_clear_of_other_paths = not any(
+        neighbour in special_area_cells
+        or (route.inside(*neighbour) and walkable_or_water_mask[neighbour] and neighbour not in own_cells)
+        for neighbour in neighbourhood_cells)
+    return is_clear_of_other_paths
+
+
+def choose_verge_surface_class(route: Route, depth_in_tiles: int) -> str:
+    chance_of_tall_grass = chance_a_deep_verge_is_tall_grass_per_unit_of_tall_grass_setting * float(route.spec.tall_grass)
+    is_tall_grass_bay = depth_in_tiles >= 2 and route.rng.random() < chance_of_tall_grass
+    verge_surface_class = grass_class(route) if is_tall_grass_bay else ground_class(route)
+    return verge_surface_class
 
 
 # ------------------------------------------------------------------ grass
