@@ -123,8 +123,12 @@ def seal_edges(route: Route) -> int:
     Carved paths and clearings can run into the map edge. On the GBA the edge is a
     connection seam: an opening there that the neighbouring map doesn't line up with
     reads as a road into nothing and is a wall in-game. Walkable pockets that were only
-    reachable along the edge are filled with trees. Returns the number of cells changed."""
+    reachable along the edge are filled with trees (cliff on a desert / volcanic route,
+    whatever the biome walls its lanes with). Returns the number of cells changed."""
+    from .stages import wall_class
+
     h, w, d = route.h, route.w, SEAL_DEPTH
+    wall = wall_class(route)
     keep = np.zeros((h, w), dtype=bool)
     keep[d:-d, d:-d] = True
     for e, cells in route.exits:
@@ -134,10 +138,10 @@ def seal_edges(route: Route) -> int:
                 xx = x + k if e.side == "west" else x - k if e.side == "east" else x
                 keep[yy, xx] = True
     before = route.cls.copy()
-    route.cls[~keep & (route.cls != "f")] = "f"
+    route.cls[~keep & (route.cls != wall)] = wall
     seen = reachable(route.cls, route.exits[0][1])
     orphan = np.isin(route.cls, list("gpt")) & ~seen
-    route.cls[orphan] = "f"
+    route.cls[orphan] = wall
     return int((before != route.cls).sum())
 
 

@@ -15,7 +15,7 @@ BIOME_TILESET = {
     "beach": "general_slateport",  # Route 109
     "desert": "general_mauville",  # Route 111
     "mountain": "general_lavaridge",  # Route 112
-    "volcanic": "general_fallarbor",  # Route 113 (ash)
+    "volcanic": "general_lavaridge",  # Mt. Chimney / Jagged Pass rock (the Route 113 model draws cliff interiors as brick)
 }
 
 

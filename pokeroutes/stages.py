@@ -49,7 +49,7 @@ BIOME_CODES = {
     "beach": ("f", ("SAND", "p"), ("SAND", "p"), ("SAND", "p"), "t"),
     "desert": (("CLIFF", "r"), ("SAND", "p"), ("SAND", "p"), ("SAND", "p"), ("SAND", "p")),
     "mountain": (("CLIFF", "r"), ("ASH", "p"), ("ASH", "p"), ("ASH", "p"), "t"),
-    "volcanic": ("f", ("ASH", "p"), ("ASH", "p"), ("ASH", "p"), ("ASH_GRASS", "t")),
+    "volcanic": (("CLIFF", "r"), ("ASH", "p"), ("ASH", "p"), ("ASH", "p"), ("ASH_GRASS", "t")),
 }
 
 
@@ -338,7 +338,7 @@ def stage_lakes(route: Route) -> None:
         _rivers(route)
     if b == "beach":
         _sea(route)
-    if b == "desert":
+    if b in ("desert", "volcanic"):
         _open_desert(route)
     _ponds(route, route.spec.lakes if b != "riverland" else max(1, route.spec.lakes // 2))
     route.snap("water")
@@ -639,7 +639,8 @@ def _sec_len(p, s) -> int:
 
 
 def _open_desert(route: Route) -> None:
-    """Desert (think Route 111): one open sand field, not a cliff maze. The cliff
+    """Desert (think Route 111) and volcanic ash (Route 113): one open field, not a
+    cliff maze. The cliff
     between the lanes falls away except a ragged rim along the map edge and a few
     rock outcrops, so the lanes turn into tracks across the sand. Special areas keep
     their walls so they stay hidden. Only cliff turns to sand, so nothing gets cut off."""
@@ -961,7 +962,7 @@ def stage_ledges(route: Route) -> None:
     short connector with a ledge lets you drop from the upper lane to the lower one
     (sometimes with an item on the ledge top, visible from below). Where lanes run
     north-south, a ledge across a loop lane makes it a downhill-only shortcut."""
-    if route.spec.biome == "desert":  # an open sand field has no steps to drop off
+    if route.spec.biome in ("desert", "volcanic"):  # an open sand / ash field has no steps to drop off
         route.snap("ledges")
         return
     p, rng, spec = plan_of(route), route.rng, route.spec
