@@ -103,6 +103,50 @@
     log("info", "Layout reset to the default.");
   }
 
+  // tab strips: drag a tab left/right within its own strip to reorder it, remembered per layout
+  function orderTabs(which, order) {
+    const strip = docks[which].querySelector(".tabs");
+    if (!strip) return;
+    const attr = "data-" + which;
+    for (const key of order) {
+      const b = strip.querySelector(`[${attr}="${key}"]`);
+      if (b) strip.append(b);
+    }
+  }
+  function makeTabsReorderable(which, orderKey) {
+    const strip = docks[which].querySelector(".tabs");
+    if (!strip) return;
+    const attr = "data-" + which;
+    let dragging = null;
+    strip.querySelectorAll(`.dock-tab[${attr}]`).forEach((btn) => {
+      btn.draggable = true;
+      btn.addEventListener("pointerdown", (ev) => ev.stopPropagation()); // don't also start a window-drag
+      btn.addEventListener("dragstart", (ev) => {
+        dragging = btn;
+        btn.classList.add("tab-dragging");
+        ev.dataTransfer.effectAllowed = "move";
+        ev.dataTransfer.setData("text/plain", btn.getAttribute(attr));
+      });
+      btn.addEventListener("dragover", (ev) => {
+        if (!dragging || dragging === btn) return;
+        ev.preventDefault();
+        const r = btn.getBoundingClientRect();
+        const before = ev.clientX < r.left + r.width / 2;
+        strip.insertBefore(dragging, before ? btn : btn.nextSibling);
+      });
+      btn.addEventListener("dragend", () => {
+        if (dragging) dragging.classList.remove("tab-dragging");
+        dragging = null;
+        layout[orderKey] = [...strip.querySelectorAll(`.dock-tab[${attr}]`)].map((b) => b.getAttribute(attr));
+        saveLayout();
+      });
+    });
+  }
+  orderTabs("center", layout.centerOrder);
+  orderTabs("bottom", layout.bottomOrder);
+  makeTabsReorderable("center", "centerOrder");
+  makeTabsReorderable("bottom", "bottomOrder");
+
   // splitters
   for (const sp of [parts.splitLeft, parts.splitRight, parts.splitBottom]) {
     const which = sp.dataset.split;

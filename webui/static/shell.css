@@ -158,6 +158,7 @@ span.dock-tab.on { cursor: default; }
 .dock-tab .count { padding: 0 5px; border-radius: 7px; background: #5a4a1f; color: #f4dc9a; font-size: 10px; line-height: 14px; }
 .dock-tab .count.err { background: #6a2b28; color: #ffc9c4; }
 .dock-tab .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--focus); }
+.dock-tab.tab-dragging { opacity: .4; }
 .dock-collapse { margin-left: auto; width: 26px; border: 0; background: none; color: var(--text-3); cursor: default; position: relative; }
 .dock-collapse::before { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; border: solid currentColor;
   border-width: 0 1.5px 1.5px 0; transform: translate(-50%, -70%) rotate(45deg); }

@@ -210,17 +210,19 @@
   // ------------------------------------------------------------ dock layout
   const LAYOUT_KEY = "pokeroutes-shell-layout-v1";
   const CHROME = { menu: 26, toolbar: 34, status: 22, collapsed: 24, head: 26, splitter: 4 };
+  const BOTTOM_TABS = ["console", "timeline", "improve", "commits", "agent"];
+  const CENTER_TABS = ["scene", "geography", "region", "story", "gates"];
   const DEFAULT_LAYOUT = {
     v: 1,
     left: { size: 240, open: true, float: null },
     right: { size: 320, open: true, float: null },
     bottom: { size: 180, open: true, tab: "console", float: null },   // float: {x, y, w, h} when torn off
     center: "scene",
+    centerOrder: CENTER_TABS.slice(),   // tab buttons can be dragged to reorder; this is what's remembered
+    bottomOrder: BOTTOM_TABS.slice(),
     inspector: {},   // section id -> collapsed (true)
     pins: { left: null, right: null },   // a panel (e.g. an Improve section) parked beneath Hierarchy/Inspector
   };
-  const BOTTOM_TABS = ["console", "timeline", "improve", "commits", "agent"];
-  const CENTER_TABS = ["scene", "geography", "region", "story", "gates"];
 
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
@@ -239,6 +241,8 @@
     }
     if (x.bottom && BOTTOM_TABS.includes(x.bottom.tab)) d.bottom.tab = x.bottom.tab;
     if (CENTER_TABS.includes(x.center)) d.center = x.center;
+    d.centerOrder = sanitizeOrder(x.centerOrder, CENTER_TABS);
+    d.bottomOrder = sanitizeOrder(x.bottomOrder, BOTTOM_TABS);
     if (x.inspector && typeof x.inspector === "object") {
       for (const [k, v] of Object.entries(x.inspector)) if (typeof v === "boolean" && /^[\w-]{1,40}$/.test(k)) d.inspector[k] = v;
     }
@@ -249,6 +253,14 @@
       }
     }
     return d;
+  }
+
+  // A dragged-and-dropped tab order: keep it only if it's a reordering of the same set.
+  function sanitizeOrder(order, allowed) {
+    if (!Array.isArray(order) || order.length !== allowed.length) return allowed.slice();
+    const set = new Set(order);
+    if (set.size !== allowed.length || !allowed.every((t) => set.has(t))) return allowed.slice();
+    return order.slice();
   }
 
   function sanitizeFloat(f) {
