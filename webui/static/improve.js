@@ -500,10 +500,11 @@
   }
 
   async function submit() {
+    const b = $("impSubmit");
+    if (b.disabled) return;   // a request is already in flight (the Enter handler bypasses the button click)
     const text = $("impText").value.trim();
     $("impErr").textContent = "";
     if (!text) { $("impText").focus(); return; }
-    const b = $("impSubmit");
     b.disabled = true;
     try {
       // first image in the old "screenshot" field too, so a server not yet restarted still gets that one
