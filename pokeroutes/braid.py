@@ -890,6 +890,14 @@ class Planner:
             kv0, kv1 = min(corners), max(corners)
             opts = [kv0 - hv - pad - 1, kv1 + hv + pad + 1]
             opts = [o for o in opts if vlo + hv + 1 <= o <= vhi - hv - 1]
+            good = []
+            for o in opts:
+                ny, nx = f.yx(u, o)
+                box = self.keep_main[max(0, ny - n.hy - pad):ny + n.hy + pad + 1,
+                                      max(0, nx - n.hx - pad):nx + n.hx + pad + 1]
+                if not box.any():
+                    good.append(o)
+            opts = good
             if not opts:
                 return None
             nv = min(opts, key=lambda o: abs(o - v))
