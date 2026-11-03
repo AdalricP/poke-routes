@@ -503,6 +503,15 @@ class Jobs(Base):
         self.assertEqual((self.repo / "b.txt").read_text(), "bee\n")
         self.assertTrue(git(self.repo, "log", "-1", "--format=%s", "main").startswith("Revert \"improve: write b.txt"))
 
+    def test_undo_of_an_agent_job_keeps_mode_agent(self):
+        improve.try_acquire_lock(1)
+        improve._st["owner"] = True
+        src = {"id": "src", "kind": "improve", "request": "r", "target": "poke-routes", "mode": "agent",
+               "status": "done", "commit": "c1", "created": 1}
+        improve._jobs["src"] = src
+        u = improve.undo("src")
+        self.assertEqual(u["mode"], "agent")
+
     def test_no_commit_is_no_change(self):
         [j] = self.run_jobs(["just look around"], workers=1)
         self.assertEqual(j["status"], "no-change")

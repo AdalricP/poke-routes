@@ -1435,6 +1435,8 @@ def undo(jid: str) -> dict:
             uid = f"{jid}-undo{n}"
         job = {"id": uid, "kind": "undo", "undo_of": jid, "request": f"undo: {src['request'][:80]}",
                "target": src["target"], "status": "queued", "created": time.time(), "owner": _me}
+        if src.get("mode") == "agent":   # keep an agent-tab undo visible in the Agent tab (finding 21)
+            job["mode"] = "agent"
         _jobs[uid] = job
         _cv.notify_all()
     _save()
