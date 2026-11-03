@@ -445,21 +445,31 @@
 
   async function pollLog() {
     const id = current();
-    const log = $("impLog");
-    const scroller = dock ? $("impLogBox") : log;
     if (!id) { $("impCur").textContent = ""; return; }
-    if (state.logFor !== id) { state.logFor = id; state.logNext = 0; log.textContent = ""; }
-    let j;
-    try { j = await api(`/api/improve/${id}?since=${state.logNext}`); } catch (e) { return; }
-    if (state.logFor !== id) return;
-    $("impCur").textContent = `${j.status}${j.attempt > 1 ? " (re-run)" : ""}: ${j.request.slice(0, 90)}`;
-    const atBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 30;
-    for (const line of j.log || []) {
-      const cls = /^\[(error|timeout|warn|cancelled)\]|^ {2}!/.test(line) ? "e" : /^[>[]/.test(line) ? "" : "t";
-      log.append(Object.assign(el("span", cls, line), {}), "\n");
+    // showLog, refresh and the timer can all call this back to back; without a guard two
+    // in-flight requests for the same since= would both append the same log lines (finding 28)
+    if (state.pollLogBusy) { state.pollLogAgain = true; return; }
+    state.pollLogBusy = true;
+    try {
+      const log = $("impLog");
+      const scroller = dock ? $("impLogBox") : log;
+      if (state.logFor !== id) { state.logFor = id; state.logNext = 0; log.textContent = ""; }
+      const since = state.logNext;
+      let j;
+      try { j = await api(`/api/improve/${id}?since=${since}`); } catch (e) { return; }
+      if (state.logFor !== id || state.logNext !== since) return;   // switched jobs, or a chained call already advanced
+      $("impCur").textContent = `${j.status}${j.attempt > 1 ? " (re-run)" : ""}: ${j.request.slice(0, 90)}`;
+      const atBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 30;
+      for (const line of j.log || []) {
+        const cls = /^\[(error|timeout|warn|cancelled)\]|^ {2}!/.test(line) ? "e" : /^[>[]/.test(line) ? "" : "t";
+        log.append(Object.assign(el("span", cls, line), {}), "\n");
+      }
+      state.logNext = j.log_next;
+      if (atBottom) scroller.scrollTop = scroller.scrollHeight;
+    } finally {
+      state.pollLogBusy = false;
+      if (state.pollLogAgain) { state.pollLogAgain = false; pollLog(); }
     }
-    state.logNext = j.log_next;
-    if (atBottom) scroller.scrollTop = scroller.scrollHeight;
   }
 
   async function refresh() {
