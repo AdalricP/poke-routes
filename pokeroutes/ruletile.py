@@ -162,7 +162,8 @@ class ArkTiler:
                         blk[by][bx] = cells[0]
 
         def pres(bx, by, letter):
-            bx, by = min(max(bx, 0), BW - 1), min(max(by, 0), BH - 1)
+            if not (0 <= bx < BW and 0 <= by < BH):
+                return False
             return blk[by][bx] == letter
 
         orth = sum(1 << i for i, d in enumerate(self.bits) if d in ("N", "E", "S", "W"))
