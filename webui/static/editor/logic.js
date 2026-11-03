@@ -469,6 +469,7 @@
     const list = kind === "city" ? doc.cities : doc.landmarks;
     const o = list.find((p) => p.id === id);
     if (!o || o.name === newName) return false;
+    if (kind === "city" && (doc.routes.some((r) => r.name === newName) || doc.cities.some((c) => c.name === newName))) return false;
     const old = o.name;
     o.name = newName;
     if (kind === "city") for (const r of doc.routes) for (const e of r.exits) if (e.to === old) e.to = newName;

@@ -216,6 +216,13 @@ test("rename route or place carries story beats to the new name", () => {
   assert.strictEqual(d.story[1].at, "Möwenstraße");
 });
 
+test("city rename rejects a name already used by a route or city", () => {
+  const d = makeDoc();
+  assert.ok(!ED.renamePlace(d, "city", "a", "Bertsch"), "can't take another city's name");
+  assert.ok(!ED.renamePlace(d, "city", "a", "Eins"), "can't take a route's name");
+  assert.strictEqual(d.cities[0].name, "Ahlen");
+});
+
 test("move exit stays on the shared edge and drags the neighbour's exit", () => {
   const d = makeDoc();
   assert.ok(ED.moveExit(d, "Eins", 1, 14));
