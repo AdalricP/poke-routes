@@ -811,7 +811,9 @@ def lay_around(net: Network, link: dict, pins: List[int]) -> None:
     out.append(pins[-1])
     last = net.nodes[pins[-1]]
     if "goal" in link:
-        if not last.get("goal") and not _linked(net, pins[-1], [k for k in range(len(net.nodes)) if k not in pins]):
+        src_ks = {k for k, _ in link["src"]}
+        others = [k for k in range(len(net.nodes)) if k not in pins and k not in src_ks]
+        if not last.get("goal") and not _linked(net, pins[-1], others):
             piece([(pins[-1], 0.0)], goal=link["goal"])
     elif not _linked(net, pins[-1], [k for k, _ in link["dst"]]):
         piece([(pins[-1], 0.0)], dst=link["dst"])
