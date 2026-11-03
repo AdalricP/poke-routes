@@ -340,6 +340,8 @@ def stage_lakes(route: Route) -> None:
         _sea(route)
     if b in ("desert", "volcanic"):
         _open_desert(route)
+    if b == "mountain":
+        _terraces(route)
     _ponds(route, route.spec.lakes if b != "riverland" else max(1, route.spec.lakes // 2))
     route.snap("water")
 
@@ -657,6 +659,38 @@ def _open_desert(route: Route) -> None:
         special[c] = True
     keep |= binary_dilation(special, iterations=3)
     # rocks at least 2x2 so the cliff edges tile
+    rock = binary_opening(np.pad(cliff & keep, 2, constant_values=True), np.ones((2, 2)))[2:-2, 2:-2]
+    route.cls[cliff & ~rock] = ground_class(route)
+
+
+def _terraces(route: Route) -> None:
+    """Mountain (think Route 112 / Jagged Pass): open rock shelves at different
+    heights, not a corridor maze. The cliff between the lanes falls away except
+    where the height map steps a tier: there a cliff face runs the whole width of
+    the shelf, and the only ways through it are the lanes (stairs, or a one-way
+    ledge on a side lane, see _elevation). So a shelf can be one you only drop
+    onto from above. Map edge rim and special-area walls stay. Only cliff turns
+    to floor, so nothing gets cut off."""
+    from scipy.ndimage import binary_dilation, binary_opening
+
+    h, w = route.h, route.w
+    elev = _tiers(route)
+    cliff = route.cls == wall_class(route)
+    face = np.zeros(cliff.shape, dtype=bool)
+    dy = elev[:-1] != elev[1:]
+    face[:-1] |= dy
+    face[1:] |= dy  # two tall, so the face tiles
+    dx = elev[:, :-1] != elev[:, 1:]
+    face[:, :-1] |= dx
+    face[:, 1:] |= dx
+    n = fbm(h, w, 6.0, route.rng)
+    yy, xx = np.mgrid[:h, :w]
+    edge = np.minimum.reduce([yy, xx, h - 1 - yy, w - 1 - xx])
+    keep = face | (edge < 2 + 4 * n) | (n > np.quantile(n, 0.93))  # a few crags on the shelves
+    special = np.zeros(cliff.shape, dtype=bool)
+    for c in route.zone_cells("special"):
+        special[c] = True
+    keep |= binary_dilation(special, iterations=3)
     rock = binary_opening(np.pad(cliff & keep, 2, constant_values=True), np.ones((2, 2)))[2:-2, 2:-2]
     route.cls[cliff & ~rock] = ground_class(route)
 
@@ -1100,11 +1134,6 @@ def _elevation(route: Route, p) -> None:
     ok[1:-1] &= walk[:-2] & walk[2:]
     ok[[0, -1]] = False
     ok &= cls != code("BRIDGE", "q")
-    if mountain:
-        for y, x in zip(*np.nonzero((drop | rise) & ok)):
-            cls[y, x] = stairs
-        route.log.append(f"height: {falls} waterfall cells, stairs on the tier steps")
-        return
     starts = route.exits[0][1]
     exits = [c for _, cs in route.exits for c in cs]
     reach = reachable(cls, starts)
@@ -1132,7 +1161,38 @@ def _elevation(route: Route, p) -> None:
             ledges += len(run)
             route.zones.append(Zone("loop", [(y, xx) for xx in run], "height step",
                                     {"ledge": (y, run[0], run[-1]), "one_way": "south", "why": "height map"}))
-    route.log.append(f"height: {falls} waterfall cells, {ledges} ledge cells on the tier steps")
+    if mountain:  # every crossing the ledges left two-way climbs on stairs
+        for y, x in zip(*np.nonzero((drop | rise) & ok & np.isin(cls, list(WALKABLE)))):
+            if cls[y, x] != "s":
+                cls[y, x] = stairs
+        # a lane running along a step would be one long flight: keep three stairs in
+        # the middle; either side becomes a ledge (a drop) or a two-tall cliff face,
+        # where that cuts nothing off (the main road too: the flight keeps it two-way)
+        fixed = keep - set(route.critical_path)
+        wall = wall_class(route)
+        for y in range(1, route.h - 2):
+            xs = np.nonzero(cls[y] == stairs)[0]
+            for run in np.split(xs, np.nonzero(np.diff(xs) > 1)[0] + 1):
+                if len(run) < 6:
+                    continue
+                mid = len(run) // 2
+                for side in (run[:mid - 1], run[mid + 2:]):
+                    side = [int(x) for x in side if (y, x) not in fixed and (y + 1, x) not in fixed]
+                    if len(side) < 2:
+                        continue
+                    rows = [y] if all(drop[y, x] for x in side) else [y, y + 1]
+                    was = cls[np.ix_(rows, side)].copy()
+                    cls[np.ix_(rows, side)] = "s" if len(rows) == 1 else wall
+                    r2 = reachable(cls, starts)
+                    lost = reach & ~r2
+                    lost[np.ix_(rows, side)] = False
+                    if lost.any() or int((r2 & ~can_leave(cls, exits)).sum()) > stuck:
+                        cls[np.ix_(rows, side)] = was
+                        continue
+                    reach = r2
+                    ledges += len(side) if len(rows) == 1 else 0
+    route.log.append(f"height: {falls} waterfall cells, {ledges} ledge cells on the tier steps"
+                     + (", stairs on the rest" if mountain else ""))
 
 
 # ------------------------------------------------------------------ dressing
