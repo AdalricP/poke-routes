@@ -1467,27 +1467,23 @@
     };
   });
 
-  // ------------------------------------------------------------ geography / region editor (editor.html)
-  let region_editor_frame = null;
-  function region_editor() {
-    const editor_actions = region_editor_frame && region_editor_frame.contentWindow && region_editor_frame.contentWindow.editor;
-    return editor_actions || null;
-  }
+  // ------------------------------------------------------------ geography / region editor (editor/app.js)
+  // Docked straight into the shell: its map fills the centre view, its tools go in the toolbar,
+  // its places and layers in the Hierarchy, its panels in the Inspector, its messages in the Console.
+  let region_editor_actions = null;
+  function region_editor() { return region_editor_actions; }
   function show_region_editor_in_mode(mode_name) {
-    if (region_editor()) { region_editor().set_editor_mode(mode_name); return; }
-    if (region_editor_frame) return;
+    if (region_editor_actions) { region_editor_actions.set_editor_mode(mode_name); return; }
     const seed_of_last_region = sget("pokeroutes-shell-region-seed") || Math.floor(Math.random() * 100000);
-    region_editor_frame = el("iframe");
-    region_editor_frame.title = "Geography and region editor";
-    region_editor_frame.src = `editor.html?mode=${mode_name}&seed=${seed_of_last_region}`;
-    region_editor_frame.addEventListener("load", connect_region_editor_to_scene);
-    $("viewMap").append(region_editor_frame);
-  }
-  function connect_region_editor_to_scene() {
-    const editor_actions = region_editor();
-    if (!editor_actions) return;
-    editor_actions.set_route_opener(openInBench);
-    if (Shell.layout.center !== "scene") editor_actions.set_editor_mode(Shell.layout.center);
+    region_editor_actions = PREditor.init($("viewMap"), {
+      mode: mode_name, seed: seed_of_last_region, onOpenRoute: openInBench,
+      host: {
+        tools: $("tbMapTools"), side: $("mapInspector"), tree: $("mapTree"),
+        filter: () => $("hierFilter").value, icons: { eye: EYE, eye_off: EYE_OFF }, dice_icon: $("dice").innerHTML,
+        log: (text, is_error) => log(is_error ? "error" : "info", text),
+        onView: syncNonSceneToolbar,
+      },
+    });
   }
   function current_region_seed() {
     const editor_document = region_editor() && region_editor().getDoc();
@@ -1533,9 +1529,15 @@
     $("viewScene").hidden = tab !== "scene";
     $("viewMap").hidden = tab === "scene";
     if (tab !== "scene") show_region_editor_in_mode(tab);
-    // the toolbar is shared: scene-only groups (route tools, stage scrubber, tiler) hide
-    // outside Scene, while Generate and zoom stay and drive whichever view is showing
+    // the toolbar, hierarchy and inspector are shared: each shows the Scene's or the map editor's
+    // contents, while Generate and zoom stay and drive whichever view is showing
     $("tbSceneTools").hidden = tab !== "scene";
+    $("tbMapTools").hidden = tab === "scene";
+    $("tree").hidden = tab !== "scene";
+    $("mapTree").hidden = tab === "scene";
+    $("form").hidden = tab !== "scene";
+    $("mapInspector").hidden = tab === "scene";
+    if (tab === "scene") updateTitle();
     $("tbStageGroup").hidden = tab !== "scene";
     $("tbTilerGroup").hidden = tab !== "scene";
     $("tbGenerate").title = "Generate";
@@ -1545,23 +1547,23 @@
     if (isScene()) return;
     const ea = region_editor();
     const doc = ea && ea.getDoc();
-    if (doc) $("seed").value = doc.seed;
     $("tbZoom").textContent = ea ? `${ea.getZoomPct()}%` : "100%";
+    if (!doc) return;
+    $("docTitle").textContent = `${doc.name || "region"}${ea.isUnsaved() ? " •" : ""} · seed ${doc.seed}`;
+    if (sget("pokeroutes-shell-region-seed") !== doc.seed) sset("pokeroutes-shell-region-seed", doc.seed);
   }
   // Generate/Regenerate are shared between the toolbar and the Generate menu, and drive
   // whichever view (Scene or the geography/region/story/gates editor) is on screen.
   function doGenerate() {
     if (isScene()) { generate(); return; }
     const ea = region_editor();
-    if (ea) ea.generate(+$("seed").value || undefined);
+    if (ea) ea.generate();
   }
   function doRegenerate() {
     if (isScene()) { regenerate(); return; }
     const ea = region_editor();
     if (!ea) return;
-    const newSeed = Math.floor(Math.random() * 100000);
-    $("seed").value = newSeed;
-    ea.generate(newSeed);
+    ea.generate(Math.floor(Math.random() * 100000));
   }
   Shell.onCenter((tab) => {
     show_center_tab(tab);
@@ -1766,6 +1768,12 @@
   const isScene = () => Shell.layout.center === "scene";
   const hasRoute = () => !!state.result;
   const sceneRoute = () => !!state.result && isScene();
+  // outside Scene these go to the docked geography / route design / story editor
+  const mapView = () => !isScene() && !!region_editor();
+  const viewZoomable = () => sceneRoute() || mapView();
+  const zoomInView = () => { if (isScene()) zoomBy(1); else if (mapView()) region_editor().zoomIn(); };
+  const zoomOutView = () => { if (isScene()) zoomBy(-1); else if (mapView()) region_editor().zoomOut(); };
+  const fitView = () => { if (isScene()) fit(); else if (mapView()) region_editor().fit(); };
   function setTiler(t) {
     if (t === prefs.tiler) return;
     const info = (state.tilers || []).find((x) => x.id === t);
@@ -1788,8 +1796,16 @@
           .concat([{ sep: true }, { label: "Clear recent", run: () => { sdel(SL.RECENT_KEY); log("info", "Cleared recent routes"); } }]);
       } },
       { sep: true },
-      { id: "save", label: "Save spec", run: () => saveSpec(false) },
+      { id: "save", label: "Save spec", run: () => { if (mapView()) region_editor().save(); else saveSpec(false); } },
       { id: "saveas", label: "Save spec as…", run: () => saveSpec(true) },
+      { sep: true },
+      { id: "save-region", label: "Save region", enabled: mapView, run: () => region_editor().save() },
+      { id: "open-region", label: "Open saved region", items: () => {
+        if (!mapView()) return [{ label: "Open Geography first", enabled: false }];
+        const names = region_editor().saved_names();
+        if (!names.length) return [{ label: "No saved regions", enabled: false }];
+        return names.map((n) => ({ label: n, run: () => region_editor().load(n) }));
+      } },
       { sep: true },
       { id: "import", label: "Import", items: [
         { id: "imp-spec", label: "Spec file (JSON or YAML)…", run: openSpec },
@@ -1806,15 +1822,15 @@
       ] },
     ] },
     { label: "Edit", items: [
-      { id: "undo", label: "Undo", run: undo, enabled: () => undoStack.canUndo() },
-      { id: "redo", label: "Redo", run: redo, enabled: () => undoStack.canRedo() },
+      { id: "undo", label: "Undo", run: () => { if (mapView()) region_editor().undo(); else undo(); }, enabled: () => mapView() ? region_editor().can_undo() : undoStack.canUndo() },
+      { id: "redo", label: "Redo", run: () => { if (mapView()) region_editor().redo(); else redo(); }, enabled: () => mapView() ? region_editor().can_redo() : undoStack.canRedo() },
       { sep: true },
       { id: "clear-paint", label: "Clear painted cells", enabled: () => hasRoute() && Object.keys(savedPaint(state.result)).length > 0, run: clearPaint },
       { sep: true },
       { id: "copy-spec", label: "Copy spec", run: copySpec },
       { id: "paste-spec", label: "Paste spec", run: pasteSpec },
       { sep: true },
-      { id: "deselect", label: "Deselect", run: () => select(null), enabled: () => !!state.sel },
+      { id: "deselect", label: "Deselect", run: () => select(null), enabled: () => isScene() && !!state.sel },
       { sep: true },
       { id: "prefs", label: "Preferences…", run: openPrefs },
     ] },
@@ -1823,9 +1839,9 @@
       { id: "v-right", label: "Inspector", checked: () => Shell.layout.right.open, run: () => Shell.toggleDock("right") },
       { id: "v-bottom", label: "Bottom panel", checked: () => Shell.layout.bottom.open, run: () => Shell.toggleDock("bottom") },
       { sep: true },
-      { id: "zin", label: "Zoom in", enabled: sceneRoute, run: () => zoomBy(1) },
-      { id: "zout", label: "Zoom out", enabled: sceneRoute, run: () => zoomBy(-1) },
-      { id: "zfit", label: "Fit to view", enabled: sceneRoute, run: fit },
+      { id: "zin", label: "Zoom in", enabled: viewZoomable, run: zoomInView },
+      { id: "zout", label: "Zoom out", enabled: viewZoomable, run: zoomOutView },
+      { id: "zfit", label: "Fit to view", enabled: viewZoomable, run: fitView },
       { id: "z100", label: "Actual size (100%)", enabled: sceneRoute, run: () => zoomTo(1) },
       { id: "frame", label: "Frame selection", enabled: sceneRoute, run: focusSel },
       { sep: true },
@@ -1854,11 +1870,11 @@
         { id: "t-ark", label: "Ark rule tiles", radio: true, checked: () => prefs.tiler === "ark", enabled: () => !state.tilers || state.tilers.some((t) => t.id === "ark" && t.ok), run: () => setTiler("ark") },
       ] },
       { sep: true },
-      { id: "play", label: "Play / pause stages", enabled: hasRoute, run: (ev) => { if (ev && document.activeElement && document.activeElement.tagName === "BUTTON") document.activeElement.blur(); togglePlay(); } },
-      { id: "next", label: "Next stage", enabled: hasRoute, run: () => step(1) },
-      { id: "prev", label: "Previous stage", enabled: hasRoute, run: () => step(-1) },
-      { id: "first", label: "First stage", enabled: hasRoute, run: () => stageEnd(false) },
-      { id: "last", label: "Final stage", enabled: hasRoute, run: () => stageEnd(true) },
+      { id: "play", label: "Play / pause stages", enabled: sceneRoute, run: (ev) => { if (ev && document.activeElement && document.activeElement.tagName === "BUTTON") document.activeElement.blur(); togglePlay(); } },
+      { id: "next", label: "Next stage", enabled: sceneRoute, run: () => step(1) },
+      { id: "prev", label: "Previous stage", enabled: sceneRoute, run: () => step(-1) },
+      { id: "first", label: "First stage", enabled: sceneRoute, run: () => stageEnd(false) },
+      { id: "last", label: "Final stage", enabled: sceneRoute, run: () => stageEnd(true) },
     ] },
     { label: "Window", items: [
       { id: "w-scene", label: "Route bench (Scene)", radio: true, checked: () => Shell.layout.center === "scene", run: () => Shell.setCenter("scene") },
@@ -1881,13 +1897,14 @@
     ] },
   ];
 
-  const toolKey = (t, label) => ({ id: "tool-" + t, label, group: "Scene tools", run: () => setTool(t) });
+  // plain-letter keys belong to whichever view is open: outside Scene the map editor has its own (V R L F S B W A, ?)
+  const toolKey = (t, label) => ({ id: "tool-" + t, label, group: "Scene tools", enabled: isScene, run: () => setTool(t) });
   const extras = [
     toolKey("select", "Select tool"), toolKey("pan", "Pan tool"), toolKey("paint", "Paint tool"), toolKey("stamp", "Stamp tool"),
     { id: "x-zin", label: "Zoom in", group: "Scene view", enabled: sceneRoute, run: () => zoomBy(1) },
     { id: "x-zout", label: "Zoom out", group: "Scene view", enabled: sceneRoute, run: () => zoomBy(-1) },
     { id: "x-zfit", label: "Fit to view", group: "Scene view", enabled: sceneRoute, run: fit },
-    { id: "x-help", label: "Keyboard shortcuts", group: "Help", run: () => Shell.showShortcuts() },
+    { id: "x-help", label: "Keyboard shortcuts", group: "Help", enabled: isScene, run: () => Shell.showShortcuts() },
   ];
 
   // ------------------------------------------------------------ wiring
@@ -1903,15 +1920,16 @@
     $("tlPlay").onclick = togglePlay;
     $("tbGenerate").onclick = doGenerate;
     $("tbGenerate").title = "Generate";
-    $("tbZoomIn").onclick = () => { if (isScene()) zoomBy(1); else { region_editor() && region_editor().zoomIn(); syncNonSceneToolbar(); } };
-    $("tbZoomOut").onclick = () => { if (isScene()) zoomBy(-1); else { region_editor() && region_editor().zoomOut(); syncNonSceneToolbar(); } };
-    $("tbFit").onclick = () => { if (isScene()) fit(); else { region_editor() && region_editor().fit(); syncNonSceneToolbar(); } };
+    $("tbZoomIn").onclick = zoomInView;
+    $("tbZoomOut").onclick = zoomOutView;
+    $("tbFit").onclick = fitView;
     $("tbTiler").onchange = () => setTiler($("tbTiler").value);
     $("tlSpeed").onchange = () => { prefs.stageMs = +$("tlSpeed").value; savePrefs(); if (state.playing) startPlay(); };
     $("tlLoop").onchange = () => { prefs.loop = $("tlLoop").checked; savePrefs(); };
     $("dice").onclick = doRegenerate;
     $("name").addEventListener("change", () => edited("name"));
-    $("seed").addEventListener("change", () => { if (isScene()) edited("seed"); else sset("pokeroutes-shell-region-seed", +$("seed").value || 1); });
+    $("seed").addEventListener("change", () => edited("seed"));
+    $("hierFilter").addEventListener("input", () => { if (mapView()) region_editor().refresh_tree(); });
     $("areaAdd").onclick = addSpecial;
     $("areaInput").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); addSpecial(); } });
     $("exitAdd").onclick = () => { if (state.exits.length < 4) { state.exits.push({ side: "west", at: 0.5, width: 3 }); renderExits(); edited("exits"); } };

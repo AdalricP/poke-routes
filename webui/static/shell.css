@@ -234,8 +234,59 @@ body.resizing.h * { cursor: row-resize !important; }
 .tip .sp { color: var(--text-2); font-size: 11px; }
 .tip p { margin: 4px 0 0; color: var(--text-2); font-size: 11px; }
 
-.map-editor { background: var(--panel); }
-.map-editor iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--panel); }
+/* geography / route design A / story / route design B: editor/app.js docked into the shell.
+   Only its map lives in the centre view; its tools, places and panels use the shell's own styles. */
+.map-editor { background: var(--scene); }
+.map-editor .ed.docked, .map-editor .ed-map { position: absolute; inset: 0; overflow: hidden; touch-action: none; }
+.map-editor .ed-map canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.map-editor .ed-map.panning { cursor: grabbing; }
+.map-editor .status { position: absolute; left: 8px; bottom: 6px; color: var(--text-2); font-size: 11px; font-variant-numeric: tabular-nums;
+  pointer-events: none; text-shadow: 0 1px 2px #000; }
+.map-editor .help { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.4); z-index: 4; }
+.map-editor .help-box { width: min(440px, 92%); padding: 10px 14px; background: #2d2d2d; border: 1px solid #161616; box-shadow: 0 4px 14px rgba(0,0,0,.45); }
+.map-editor .help h2 { margin: 0 0 8px; font-size: var(--ui); }
+.map-editor .help dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 0 0 6px; }
+.map-editor .help dt { font-family: var(--mono); font-size: 11px; white-space: nowrap; }
+.map-editor .help dd { margin: 0; color: var(--text-2); }
+.tb-btn.tb-txt { width: auto; padding: 0 8px; text-transform: capitalize; }
+#mapInspector button:not(.btn):not(.rst) { height: var(--row); padding: 0 10px; background: #474747; border: 1px solid #222; border-radius: 3px; cursor: default; white-space: nowrap; }
+#mapInspector button:not(.btn):not(.rst):hover:not(:disabled) { background: #525252; }
+#mapInspector button:disabled { color: var(--text-3); background: #3c3c3c; }
+#mapInspector button.wide { width: 100%; margin: 2px 0 6px; }
+#mapInspector button.on { background: var(--sel); border-color: #1b3d5c; color: #fff; }
+#mapInspector h2 { margin: 8px 0 4px; font-size: var(--ui); font-weight: 600; color: var(--text-2); }
+#mapInspector h3 { margin: 2px 0 2px; font-size: var(--ui); font-weight: 600; }
+#mapInspector .sub, #mapInspector .story { color: var(--text-2); margin: 0 0 6px; }
+#mapInspector .row { display: flex; align-items: center; gap: 6px; min-height: calc(var(--row) + 2px); }
+#mapInspector .row > span:first-child { flex: none; width: 38%; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#mapInspector .row > input, #mapInspector .row > select { flex: 1 1 0; width: 0; }
+#mapInspector .row.ovr > span:first-child::after { content: " *"; color: var(--accent-2); }
+#mapInspector .row .rst { border: 0; background: none; color: var(--text-3); padding: 0 2px; }
+#mapInspector .row .rst:hover { color: #fff; }
+#mapInspector .slider label { display: flex; justify-content: space-between; color: var(--text-2); }
+#mapInspector .slider output { color: var(--text); font-variant-numeric: tabular-nums; }
+#mapInspector .slider input { width: 100%; }
+#mapInspector .opt { margin-bottom: 6px; }
+#mapInspector .btns, #mapInspector .segrow { display: flex; gap: 4px; margin: 6px 0; }
+#mapInspector .btns button, #mapInspector .segrow button { flex: 1; }
+#mapInspector .pal { display: grid; grid-template-columns: repeat(2, 1fr); gap: 3px; }
+#mapInspector .pal button { display: flex; align-items: center; gap: 6px; padding: 0 6px; text-align: left; }
+#mapInspector .pal button i { width: 10px; height: 10px; flex: none; border-radius: 2px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.35); }
+#mapInspector .stages { list-style: none; margin: 0 0 4px; padding: 0; }
+#mapInspector .stages li { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: calc(var(--row) + 4px); }
+#mapInspector .stages .st { margin-left: 6px; color: var(--text-3); }
+#mapInspector .stages li.stale .nm, #mapInspector .stages li.stale .st { color: var(--warn); }
+#mapInspector .exits2, #mapInspector .beats { margin: 4px 0 6px; padding: 0; }
+#mapInspector .exits2 { list-style: none; }
+#mapInspector .exits2 li { display: grid; grid-template-columns: 50px 1fr; gap: 6px; align-items: center; margin-bottom: 2px; }
+#mapInspector .exits2 .to { grid-column: 1 / -1; color: var(--text-3); margin-top: -3px; }
+#mapInspector .beats { padding-left: 18px; }
+#mapInspector .beats li { display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 3px; align-items: center; margin-bottom: 4px; }
+#mapInspector .beats li input { min-width: 0; }
+#mapInspector .beats li button { padding: 0 6px; }
+#mapInspector .beats .at { grid-column: 1 / -1; color: var(--text-3); }
+#mapInspector .warns { color: var(--warn); padding-left: 16px; margin: 6px 0; }
+#mapInspector textarea { width: 100%; min-height: 60px; }
 .slot { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-3); text-align: center; padding: 20px; }
 
 /* ------------------------------------------------------------ inspector */

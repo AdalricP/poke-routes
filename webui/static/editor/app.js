@@ -39,17 +39,17 @@
   </header>
 
   <nav class="rail" data-ed="rail" aria-label="Tools">
-    <button type="button" data-tool="select" class="on"><b>V</b>select</button>
+    <button type="button" data-edtool="select" class="on"><b>V</b>select</button>
     <hr data-modes="geography">
-    <button type="button" data-tool="raise"><b>R</b>raise</button>
-    <button type="button" data-tool="lower"><b>L</b>lower</button>
-    <button type="button" data-tool="flatten"><b>F</b>flatten</button>
-    <button type="button" data-tool="smooth"><b>S</b>smooth</button>
+    <button type="button" data-edtool="raise"><b>R</b>raise</button>
+    <button type="button" data-edtool="lower"><b>L</b>lower</button>
+    <button type="button" data-edtool="flatten"><b>F</b>flatten</button>
+    <button type="button" data-edtool="smooth"><b>S</b>smooth</button>
     <hr data-modes="geography">
-    <button type="button" data-tool="biome"><b>B</b>biome</button>
-    <button type="button" data-tool="water"><b>W</b>coast</button>
+    <button type="button" data-edtool="biome"><b>B</b>biome</button>
+    <button type="button" data-edtool="water"><b>W</b>coast</button>
     <hr data-modes="">
-    <button type="button" data-tool="route"><b>A</b>add route</button>
+    <button type="button" data-edtool="route"><b>A</b>add route</button>
   </nav>
 
   <main class="ed-map" data-ed="wrap">
@@ -130,7 +130,15 @@
   function init(root, opts) {
   opts = opts || {};
   root.innerHTML = MARKUP;
-  const $ = (id) => root.querySelector(`[data-ed="${id}"]`);
+  // Standalone, everything lives under root. Docked in a host (opts.host, the shell), only the map
+  // stays here; tools, layers/places and side panels move into the host's toolbar, hierarchy and
+  // inspector, and the rest of the chrome is kept detached so its wiring still works.
+  const host = opts.host || null;
+  const parts = [root];
+  const $ = (id) => { for (const p of parts) { const e = p.querySelector(`[data-ed="${id}"]`); if (e) return e; } return null; };
+  const $$ = (sel) => parts.flatMap((p) => [...p.querySelectorAll(sel)]);
+  const collapsed_tree_groups = new Set();
+  if (host) dock_into_host();
   const listeners = [];
   const on = (target, type, fn, o) => { target.addEventListener(type, fn, o); listeners.push([target, type, fn, o]); };
   const S = 5; // base raster pixels per region cell
@@ -203,6 +211,7 @@
   }
   let toastT = 0;
   function toast(msg, err) {
+    if (host) { host.log(msg, !!err); return; }
     const t = $("toast");
     t.textContent = msg;
     t.className = "toast" + (err ? " err" : "");
@@ -405,8 +414,9 @@
   function fit() {
     if (!st.doc) return;
     const b = wrap.getBoundingClientRect();
-    const z = Math.max(1, Math.min((b.width - 40) / st.doc.W, (b.height - 90) / st.doc.H));
-    st.view = { z, ox: (b.width - st.doc.W * z) / 2, oy: 44 + (b.height - 44 - st.doc.H * z) / 2 };
+    const top = host ? 0 : 44; // standalone, the layer bar floats over the top of the map
+    const z = Math.max(1, Math.min((b.width - 40) / st.doc.W, (b.height - 46 - top) / st.doc.H));
+    st.view = { z, ox: (b.width - st.doc.W * z) / 2, oy: top + (b.height - top - st.doc.H * z) / 2 };
     draw();
   }
   function zoomAt(f, sx, sy) {
@@ -429,6 +439,7 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, cv.width, cv.height);
     $("zLbl").textContent = `${(st.view.z / 6).toFixed(st.view.z < 6 ? 2 : 1)}x`;
+    if (host && host.onView) host.onView();
     const d = st.doc;
     if (!d) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -903,7 +914,8 @@
     refreshInspector();
     refreshHistory();
     refreshLog();
-    if (label) document.title = "* poke-routes region editor";
+    if (host) { /* the host owns the page title */ }
+    else if (label) document.title = "* poke-routes region editor";
     else if (!st.unsaved) document.title = "poke-routes region editor";
     draw();
   }
@@ -913,6 +925,7 @@
     $("histInfo").textContent = st.hist.undos.length ? `${st.hist.undos.length} steps` : "";
   }
   function refreshLog() {
+    if (host) return; // docked: toasts go to the host's console instead
     const ol = $("log");
     ol.innerHTML = "";
     for (const l of (st.doc ? st.doc.log : []).slice(-14).reverse()) {
@@ -943,12 +956,14 @@
   }
 
   function refreshTool() {
-    root.querySelectorAll("[data-tool]").forEach((b) => b.classList.toggle("on", b.dataset.tool === st.tool));
+    $$("[data-edtool]").forEach((b) => b.classList.toggle("on", b.dataset.edtool === st.tool));
     $("toolTitle").textContent = TOOLS[st.tool];
     const box = $("toolBody");
     box.innerHTML = "";
     const add = (html) => { const d = document.createElement("div"); d.className = "opt"; d.innerHTML = html; box.appendChild(d); return d; };
     if (st.tool === "select") {
+      const hint = select_tool_hint_for_each_mode[st.mode] || "";
+      if (host && hint) { add(`<p class="hint">${hint.replace("in the Routes list", "in the Hierarchy").replace("in the bench", "in Scene")}</p>`); return; }
       add(`<p class="hint">${select_tool_hint_for_each_mode[st.mode] || "Click to select. Drag towns and landmarks. On a selected route, drag an edge or an exit. Double-click a route to open it in the bench."}</p>`);
       return;
     }
@@ -1018,6 +1033,7 @@
   function refreshInspector() {
     refresh_route_list();
     refresh_story();
+    refresh_tree();
     const box = $("insp");
     box.innerHTML = "";
     const o = findSel(st.sel);
@@ -1288,24 +1304,151 @@
   }
   function is_rail_element_shown_in_current_mode(rail_element) {
     if (!st.mode) return true;
-    if (rail_element.dataset.tool) return is_tool_available_in_current_mode(rail_element.dataset.tool);
+    if (rail_element.dataset.edtool) return is_tool_available_in_current_mode(rail_element.dataset.edtool);
     const is_rail_element_shown = (rail_element.dataset.modes || "").split(" ").includes(st.mode);
     return is_rail_element_shown;
   }
   function set_editor_mode(mode_name) {
     st.mode = tools_shown_in_each_editor_mode[mode_name] ? mode_name : null;
-    for (const rail_element of root.querySelectorAll(".rail > *")) rail_element.hidden = !is_rail_element_shown_in_current_mode(rail_element);
+    for (const rail_element of $$(".rail > *, .ed-tools > *")) rail_element.hidden = !is_rail_element_shown_in_current_mode(rail_element);
     $("title").textContent = editor_title_for_each_mode[st.mode] || "region editor";
     $("routeListSection").hidden = st.mode !== "region" && st.mode !== "gates";
-    root.querySelector('[data-layer="routes"]').hidden = st.mode === "geography";
+    $$('[data-layer="routes"]')[0].hidden = st.mode === "geography";
     st.layers.routes = st.mode !== "geography";
-    root.querySelectorAll("[data-layer]").forEach((b) => b.classList.toggle("on", st.layers[b.dataset.layer]));
+    $$("[data-layer]").forEach((b) => b.classList.toggle("on", st.layers[b.dataset.layer]));
     if (!is_tool_available_in_current_mode(st.tool)) st.tool = "select";
     if (st.sel && !is_place_kind_selectable_in_current_mode(st.sel.kind)) st.sel = null;
     st.hover = null;
     refreshTool();
     refreshInspector();
     draw();
+  }
+
+  // ------------------------------------------------------------ docked in a host shell
+  // Runs before the rest of init: only uses root, parts, host and el.
+  function dock_into_host() {
+    const top = root.querySelector(".ed-top"), rail = root.querySelector(".rail");
+    const side = root.querySelector(".ed-side"), layer_bar = root.querySelector(".ed-map > .toolbar");
+    for (const n of [top, rail, side, layer_bar]) n.remove();
+    root.querySelector(".ed").classList.add("docked");
+    root.querySelector(".busy .bar").className = "spin";
+    parts.push(host.tools, host.side, top, side, layer_bar);
+
+    // tools: the shell toolbar's tool group, same button look as the Scene tools
+    host.tools.innerHTML = "";
+    host.tools.classList.add("ed-tools");
+    for (const b of [...rail.children]) {
+      if (b.tagName === "HR") { host.tools.append(el("span", { class: "tb-sep", "data-modes": b.dataset.modes || "" })); continue; }
+      const key = b.querySelector("b").textContent, name = b.lastChild.textContent;
+      host.tools.append(el("button", { type: "button", class: "tb-btn tb-txt", "data-edtool": b.dataset.edtool, title: `${name[0].toUpperCase() + name.slice(1)} (${key})` }, name));
+    }
+
+    // side panel: the shell inspector's foldouts. Region (name, seed) first, then selection, tool, story, stages.
+    host.side.innerHTML = "";
+    const fold = (title, nodes, ed_id, title_ed_id) => {
+      const d = el("details", { class: "fold", open: "" });
+      if (ed_id) d.dataset.ed = ed_id;
+      const summary = el("summary", {}, title);
+      if (title_ed_id) summary.dataset.ed = title_ed_id;
+      const body = el("div", { class: "fold-body" });
+      body.append(...nodes);
+      d.append(summary, body);
+      return d;
+    };
+    const prop = (label_text, ...controls) => {
+      const p = el("div", { class: "prop" });
+      const inline = el("span", { class: "inline" });
+      inline.append(...controls);
+      p.append(el("label", {}, label_text), inline);
+      return p;
+    };
+    const name_input = $("docName"), seed_input = $("seed"), dice = $("diceBtn");
+    name_input.className = "grow";
+    seed_input.className = "num grow";
+    dice.className = "btn icon";
+    if (host.dice_icon) dice.innerHTML = host.dice_icon;
+    host.side.append(fold("Region", [prop("Name", name_input), prop("Seed", seed_input, dice)]));
+    const section_of = (id) => side.querySelector(`[data-ed="${id}"]`).closest("section");
+    const as_fold = (section) => {
+      const h = section.querySelector("h2");
+      const d = fold(h.textContent, [], section.dataset.ed, h.dataset.ed);
+      h.remove();
+      d.hidden = section.hidden;
+      d.lastChild.append(...section.childNodes);
+      return d;
+    };
+    for (const id of ["insp", "toolBody", "storyBody", "stages"]) host.side.append(as_fold(section_of(id)));
+  }
+
+  // Hierarchy (docked only): the places this mode can select, then the layers with eye toggles.
+  function refresh_tree() {
+    if (!host || !host.tree) return;
+    const ul = host.tree;
+    const scroll = ul.parentElement ? ul.parentElement.scrollTop : 0;
+    ul.innerHTML = "";
+    if (!st.doc) { ul.append(el("li", { class: "empty" }, "Generating...")); return; }
+    const q = (host.filter ? host.filter() : "").trim().toLowerCase();
+    const row = (depth, label, meta) => {
+      const r = el("div", { class: "row" });
+      r.style.paddingLeft = 4 + depth * 12 + "px";
+      r.append(el("span", { class: "tw" }, ""), el("span", { class: "lb" }, label));
+      if (meta != null) r.append(el("span", { class: "meta" }, String(meta)));
+      return r;
+    };
+    const group = (key, label, items) => {
+      const shown = items.filter((it) => !q || it.label.toLowerCase().includes(q));
+      if (q && !shown.length) return;
+      const open = !!q || !collapsed_tree_groups.has(key);
+      const li = el("li", { class: "node" + (open ? "" : " collapsed") });
+      const r = row(0, label, items.length);
+      r.querySelector(".lb").style.fontWeight = "500";
+      const tw = r.querySelector(".tw");
+      tw.textContent = items.length ? "▶" : "";
+      if (open) tw.classList.add("open");
+      r.onclick = () => { if (collapsed_tree_groups.has(key)) collapsed_tree_groups.delete(key); else collapsed_tree_groups.add(key); refresh_tree(); };
+      li.append(r);
+      const sub = el("ul");
+      for (const it of shown) {
+        const c = el("li", { class: "node" + (it.on ? " sel" : "") });
+        const cr = row(1, it.label, it.meta);
+        if (it.color) {
+          const ic = el("span", { class: "ic" + (it.icon_class ? " " + it.icon_class : "") });
+          ic.style.background = it.color;
+          cr.insertBefore(ic, cr.querySelector(".lb"));
+        }
+        if (it.eye) {
+          const b = el("button", { type: "button", class: "eye" + (it.eye.on ? " on" : ""), "aria-label": (it.eye.on ? "Hide " : "Show ") + it.label });
+          b.innerHTML = it.eye.on ? host.icons.eye : host.icons.eye_off;
+          b.onclick = (ev) => { ev.stopPropagation(); it.eye.toggle(); };
+          cr.append(b);
+        }
+        cr.onclick = it.run;
+        if (it.frame) cr.ondblclick = it.frame;
+        c.append(cr);
+        sub.append(c);
+      }
+      li.append(sub);
+      ul.append(li);
+    };
+    const pick = (kind, id) => () => { st.sel = { kind, id }; refreshInspector(); draw(); };
+    const frame = (rect) => () => frame_cell_rect_in_view(rect);
+    const is_on = (kind, id) => !!st.sel && st.sel.kind === kind && st.sel.id === id;
+    if (is_place_kind_selectable_in_current_mode("landmark")) {
+      group("landmarks", "Landmarks", st.doc.landmarks.map((l) => {
+        const rect = l.footprint || [l.x - 3, l.y - 3, l.x + 4, l.y + 4];
+        return { label: l.name, meta: l.kind, color: LM_RGB[l.kind] || "#fff", icon_class: "dot", on: is_on("landmark", l.id), run: pick("landmark", l.id), frame: frame(rect) };
+      }));
+    }
+    if (is_place_kind_selectable_in_current_mode("city")) {
+      group("cities", "Towns", st.doc.cities.map((c) => ({ label: c.name, meta: c.size, color: "#c45c46", on: is_on("city", c.id), run: pick("city", c.id), frame: frame(c.rect) })));
+    }
+    if (is_place_kind_selectable_in_current_mode("route")) {
+      group("routes", "Routes", st.doc.routes.map((r) => ({ label: r.name, meta: r.role ? r.role.replace(/_/g, " ") : "", color: "#e8d27a", icon_class: "line", on: is_on("route", r.name), run: pick("route", r.name), frame: () => fly_to_route(r) })));
+    }
+    const layer_names = { height: "Height", biome: "Biome", water: "Water", routes: "Routes", labels: "Labels" };
+    group("layers", "Layers", Object.keys(layer_names).filter((k) => k !== "routes" || st.mode !== "geography").map((k) => (
+      { label: layer_names[k], eye: { on: st.layers[k], toggle: () => toggleLayer(k) }, run: () => toggleLayer(k) })));
+    if (ul.parentElement) ul.parentElement.scrollTop = scroll;
   }
 
   // ------------------------------------------------------------ toolbar + keys
@@ -1317,11 +1460,12 @@
   }
   function toggleLayer(k) {
     st.layers[k] = !st.layers[k];
-    root.querySelectorAll("[data-layer]").forEach((b) => b.classList.toggle("on", st.layers[b.dataset.layer]));
+    $$("[data-layer]").forEach((b) => b.classList.toggle("on", st.layers[b.dataset.layer]));
     if (["height", "biome", "water"].includes(k)) rebuildBase(); else draw();
+    refresh_tree();
   }
-  root.querySelectorAll("[data-tool]").forEach((b) => { b.onclick = () => setTool(b.dataset.tool); });
-  root.querySelectorAll("[data-layer]").forEach((b) => { b.onclick = () => toggleLayer(b.dataset.layer); });
+  $$("[data-edtool]").forEach((b) => { b.onclick = () => setTool(b.dataset.edtool); });
+  $$("[data-layer]").forEach((b) => { b.onclick = () => toggleLayer(b.dataset.layer); });
   $("zIn").onclick = () => { const b = wrap.getBoundingClientRect(); zoomAt(1.25, b.width / 2, b.height / 2); };
   $("zOut").onclick = () => { const b = wrap.getBoundingClientRect(); zoomAt(0.8, b.width / 2, b.height / 2); };
   $("zFit").onclick = fit;
@@ -1341,7 +1485,9 @@
   const KEY_TOOLS = { v: "select", r: "raise", l: "lower", f: "flatten", s: "smooth", b: "biome", w: "water", a: "route" };
   on(document, "keydown", (ev) => {
     if (opts.keys === false || !root.isConnected || root.closest("[hidden]")) return; // a host can hide or park the editor
+    if (ev.defaultPrevented) return; // the host's own shortcut took it
     const mod = ev.ctrlKey || ev.metaKey;
+    if (host && mod) return; // docked: save / undo / redo come through the host's menus
     if (mod && ev.key.toLowerCase() === "s") { ev.preventDefault(); save(); return; }
     if (ev.target && ev.target.closest && ev.target.closest("input, select, textarea")) return;
     if (mod && ev.key.toLowerCase() === "z") { ev.preventDefault(); ev.shiftKey ? redo() : undo(); return; }
@@ -1383,7 +1529,9 @@
     deleteSelected, help: () => { $("help").hidden = !$("help").hidden; },
     tools: Object.keys(TOOLS), layers: () => Object.assign({}, st.layers),
     zoomIn: () => $("zIn").onclick(), zoomOut: () => $("zOut").onclick(), getZoomPct: () => Math.round(st.view.z / 6 * 100),
-    getDoc: () => st.doc, isUnsaved: () => st.unsaved, select: (sel) => { st.sel = sel; refreshInspector(); draw(); },
+    getDoc: () => st.doc, isUnsaved: () => st.unsaved,
+    can_undo: () => st.hist.undos.length > 0, can_redo: () => st.hist.redos.length > 0,
+    saved_names: () => [...$("loadSel").options].map((o) => o.value).filter(Boolean), refresh_tree, select: (sel) => { st.sel = sel; refreshInspector(); draw(); },
     destroy() {
       ro.disconnect();
       for (const [t, type, fn, o] of listeners) t.removeEventListener(type, fn, o);

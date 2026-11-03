@@ -64,6 +64,9 @@
       </span>
     </div>
 
+    <!-- geography / route design / story tools: filled in by editor/app.js when one of those views is open -->
+    <div class="tb-group" id="tbMapTools" role="group" aria-label="Map tools" hidden></div>
+
     <div class="tb-group tb-center" role="group" aria-label="Stages">
       <span id="tbStageGroup">
         <button type="button" class="tb-btn" id="tbFirst" title="First stage (Home)" aria-label="First stage">
@@ -120,6 +123,7 @@
     <div class="dock-body">
       <div class="search"><input id="hierFilter" type="search" placeholder="Search" aria-label="Filter hierarchy"></div>
       <ul class="tree" id="tree" role="tree" aria-label="Route parts"></ul>
+      <ul class="tree" id="mapTree" role="tree" aria-label="Places and layers" hidden></ul>
     </div>
     <div class="dock-extra imp-docked" id="dockLeftExtra" hidden></div>
   </section>
@@ -213,6 +217,7 @@
           </div>
         </details>
       </form>
+      <div id="mapInspector" hidden></div>
     </div>
     <div class="dock-extra imp-docked" id="dockRightExtra" hidden></div>
   </section>
@@ -308,6 +313,8 @@
 <script src="logic.js"></script>
 <script src="shell-logic.js"></script>
 <script src="shell.js"></script>
+<script src="editor/logic.js"></script>
+<script src="editor/app.js"></script>
 <script src="bench.js"></script>
 <script src="improve.js"></script>
 <script src="commits.js"></script>

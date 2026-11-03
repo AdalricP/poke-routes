@@ -98,11 +98,6 @@
 }
 
 .ed [hidden] { display: none !important; }
-/* embedded in the shell: its toolbar already has Generate, seed and zoom, so hide the editor's own copies */
-.ed.embedded .ed-top .links { display: none; }
-.ed.embedded .ed-top h1 { display: none; }
-.ed.embedded .ed-top .grp-generate { display: none; }
-.ed.embedded .ed-map .toolbar .seg-zoom { display: none; }
 .route-list { display: flex; flex-wrap: wrap; gap: 4px; }
 .route-list button.on { border-color: var(--accent); color: var(--ink); }
 /* story beats (Story tab) */
