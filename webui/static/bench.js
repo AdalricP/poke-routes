@@ -82,6 +82,7 @@
   const controls = {};
   let schema = FALLBACK_SCHEMA;
   let fid = 0;
+  let pendingGenerate = false;
 
   const SHORT_LABELS = { road: "Dirt road" }; // the server's hint text is a sentence; the Inspector wants a name
   function labelOf(f) {
@@ -360,7 +361,7 @@
 
   // ------------------------------------------------------------ generate
   async function generate(opts) {
-    if (state.busy) return;
+    if (state.busy) { pendingGenerate = true; return; }
     const p = params();
     sset(STORE_KEY, p);
     const body = Object.assign({}, p, { tiler: prefs.tiler });
@@ -403,6 +404,7 @@
       log("error", "Generate failed: " + e.message);
     } finally {
       setBusy(false);
+      if (pendingGenerate) { pendingGenerate = false; generate(); }
     }
   }
 
