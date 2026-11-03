@@ -339,6 +339,7 @@ def stage_lakes(route: Route) -> None:
         _bend_obstacles(route)
     if b == "riverland":
         _rivers(route)
+        _streams(route, 3)
     if b == "beach":
         _sea(route)
     if b in ("desert", "volcanic"):
@@ -612,6 +613,62 @@ def _rivers(route: Route) -> None:
             for (y, x) in [(n.y + n.hy - 1, n.x - n.hx + 1), (n.y + n.hy - 1, n.x - n.hx + 2), (n.y + n.hy - 2, n.x - n.hx + 1)]:
                 if route.cls[y, x] in WALKABLE and (y, x) not in set(route.critical_path):
                     route.cls[y, x] = "w"
+
+
+def _streams(route: Route, count: int) -> None:
+    """Streams run downhill (south, the way the world tilts) through the woods
+    between lanes, two wide, so every tier step of the height map they cross
+    becomes a waterfall (``_elevation``). Only trees are turned to water: no lane
+    is touched, nothing gets cut off. The column crossing most steps wins."""
+    elev, cls = _tiers(route), route.cls
+    h, w = route.h, route.w
+    free = (cls == "f") & ~route.protect
+    # a step both columns of the stream drop on in the same row (same tier block)
+    drop = np.zeros((h, w), dtype=bool)
+    drop[:-1] = elev[:-1] > elev[1:]
+    cands = []
+    for x in range(3, w - 4):
+        ok = free[:, x - 1] & free[:, x] & free[:, x + 1] & free[:, x + 2]  # a tree each side
+        y = 2
+        while y < h - 2:
+            if not ok[y]:
+                y += 1
+                continue
+            y0 = y
+            while y < h - 2 and ok[y]:
+                y += 1
+            y1 = y  # rows y0 .. y1-1
+            # a fall needs water above and below it: trim the ends one row in
+            falls = int((drop[y0 + 1:y1 - 2, x] & drop[y0 + 1:y1 - 2, x + 1]).sum())
+            if y1 - y0 >= 12 and falls:
+                cands.append((falls, y1 - y0, x, y0, y1))
+    cands.sort(key=lambda c: (-c[0], -c[1], route.rng.random()))
+    used: List[int] = []
+    for falls, _, x, y0, y1 in cands:
+        if len(used) >= count:
+            break
+        if any(abs(x - u) < 8 for u in used):
+            continue
+        # run on into a river or pond a few rows off (across its tree bank), not stop short
+        for ends, step in ((range(y1, min(h, y1 + 4)), 1), (range(y0 - 1, max(-1, y0 - 5), -1), -1)):
+            gap = []
+            for y in ends:
+                row = cls[y, x:x + 2]
+                if (row == "w").all():
+                    if step > 0:
+                        y1 += len(gap)
+                    else:
+                        y0 -= len(gap)
+                    break
+                if not (row == "f").all() or route.protect[y, x:x + 2].any():
+                    break
+                gap.append(y)
+        cells = [(y, xx) for y in range(y0, y1) for xx in (x, x + 1)]
+        for c in cells:
+            cls[c] = "w"
+        used.append(x)
+        route.zones.append(Zone("lake", cells, f"stream {len(used)}", {"river": True, "stream": True}))
+        route.log.append(f"stream at x={x}, rows {y0}-{y1 - 1}: crosses {falls} height step(s)")
 
 
 def _strands(route: Route, was: np.ndarray) -> bool:
@@ -1150,28 +1207,42 @@ def _elevation(route: Route, p) -> None:
     reach = reachable(cls, starts)
     stuck = int((reach & ~can_leave(cls, exits)).sum())
     ledges = 0
+    crit = set(route.critical_path)
+    fixed = keep - crit
+
+    def two_way(c) -> bool:  # every exit can still walk back to the first one
+        return all(reachable(c, cs)[starts[0]] for _, cs in route.exits[1:])
+
     for y in range(1, route.h - 1):
         x = 0
         while x < route.w:
             run = []
-            while x < route.w and drop[y, x] and ok[y, x] and (y, x) not in keep:
+            while x < route.w and drop[y, x] and ok[y, x] and (y, x) not in fixed:
                 run.append(x)
                 x += 1
             x += 1
             if len(run) < 2:
                 continue
-            was = cls[y, run].copy()
-            cls[y, run] = "s"
-            r2 = reachable(cls, starts)
-            lost = reach & ~r2
-            lost[y, run] = False
-            if lost.any() or int((r2 & ~can_leave(cls, exits)).sum()) > stuck:
-                cls[y, run] = was  # it would cut something off: no ledge here
-                continue
-            reach = r2
-            ledges += len(run)
-            route.zones.append(Zone("loop", [(y, xx) for xx in run], "height step",
-                                    {"ledge": (y, run[0], run[-1]), "one_way": "south", "why": "height map"}))
+            on_main = any((y, xx) in crit for xx in run)
+            # the whole step as a ledge, else a ledge with a one-cell gap at an end
+            # (the classic way round), so the step shows on the main road too
+            tries = [run] if not on_main else []
+            if len(run) >= 3:
+                tries += [run[:-1], run[1:]]
+            for part in tries:
+                was = cls[y, part].copy()
+                cls[y, part] = "s"
+                r2 = reachable(cls, starts)
+                lost = reach & ~r2
+                lost[y, part] = False
+                if lost.any() or int((r2 & ~can_leave(cls, exits)).sum()) > stuck or (on_main and not two_way(cls)):
+                    cls[y, part] = was  # it would cut something off: no ledge here
+                    continue
+                reach = r2
+                ledges += len(part)
+                route.zones.append(Zone("loop", [(y, xx) for xx in part], "height step",
+                                        {"ledge": (y, part[0], part[-1]), "one_way": "south", "why": "height map"}))
+                break
     if mountain:  # every crossing the ledges left two-way climbs on stairs
         for y, x in zip(*np.nonzero((drop | rise) & ok & np.isin(cls, list(WALKABLE)))):
             if cls[y, x] != "s":
