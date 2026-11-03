@@ -39,7 +39,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 [hidden] { display: none !important; }
 .muted { color: var(--text-3); }
 .hint { color: var(--text-3); margin: 0 0 6px; }
-.warn { color: var(--warn); margin: 4px 0 0; }
+.warn { color: var(--warn); }
+p.warn { margin: 4px 0 0; }
 .grow { flex: 1 1 auto; }
 code, kbd { font-family: var(--mono); font-size: 11px; }
 :focus-visible { outline: 1px solid var(--focus); outline-offset: 0; }
