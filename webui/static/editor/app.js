@@ -295,11 +295,13 @@
     refreshAll(label);
   }
   function undo() {
+    if (st.busy) return;
     const l = st.hist.undo(st.doc);
     if (l == null) return;
     afterHistory("undid " + l);
   }
   function redo() {
+    if (st.busy) return;
     const l = st.hist.redo(st.doc);
     if (l == null) return;
     afterHistory("redid " + l);
@@ -1007,6 +1009,7 @@
   }
   // one undo step per inspector change
   function edit(label, fn, cause) {
+    if (st.busy) return;
     st.hist.begin(st.doc, label);
     if (fn() === false) { st.hist.cancel(); refreshInspector(); return; }
     commit(label, cause);
