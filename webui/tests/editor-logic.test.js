@@ -207,6 +207,15 @@ test("city rename follows into exits", () => {
   assert.strictEqual(d.routes[0].exits[0].to, "Altstadt");
 });
 
+test("rename route or place carries story beats to the new name", () => {
+  const d = makeDoc();
+  d.story = [{ name: "start", at: "Ahlen", unlocks: "" }, { name: "road", at: "Eins", unlocks: "" }];
+  ED.renamePlace(d, "city", "a", "Altstadt");
+  assert.strictEqual(d.story[0].at, "Altstadt");
+  ED.renameRoute(d, "Eins", "Möwenstraße");
+  assert.strictEqual(d.story[1].at, "Möwenstraße");
+});
+
 test("move exit stays on the shared edge and drags the neighbour's exit", () => {
   const d = makeDoc();
   assert.ok(ED.moveExit(d, "Eins", 1, 14));
@@ -240,6 +249,14 @@ test("delete route drops its link and pins what's left of it", () => {
   assert.ok(d.links[0].dropped);
   assert.ok(d.routes[0].pinned);
   assert.ok(!d.routes[0].exits.some((e) => e.to === "Eins"));
+});
+
+test("delete route clears beats pinned to it", () => {
+  const d = makeDoc();
+  d.story = [{ name: "start", at: "Ahlen", unlocks: "" }, { name: "road", at: "Eins", unlocks: "" }];
+  ED.deleteRoute(d, "Eins");
+  assert.strictEqual(d.story[1].at, "");
+  assert.strictEqual(d.story[0].at, "Ahlen");
 });
 
 test("landmark move carries the pillar and the gate", () => {

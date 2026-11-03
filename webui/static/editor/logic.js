@@ -460,6 +460,7 @@
     r.pinned = true;
     for (const o of doc.routes) for (const e of o.exits) if (e.to === oldName) { e.to = newName; e.to_map = r.map; }
     for (const l of doc.links) l.routes = (l.routes || []).map((n) => (n === oldName ? newName : n));
+    for (const b of doc.story || []) if (b.at === oldName) b.at = newName;
     return true;
   }
   function renamePlace(doc, kind, id, newName) {
@@ -471,6 +472,7 @@
     const old = o.name;
     o.name = newName;
     if (kind === "city") for (const r of doc.routes) for (const e of r.exits) if (e.to === old) e.to = newName;
+    for (const b of doc.story || []) if (b.at === old) b.at = newName;
     return true;
   }
 
@@ -582,6 +584,7 @@
       // the rest of that link stays as it is, so the gap doesn't fill itself back in
       for (const o of doc.routes) if (o.link === r.link) o.pinned = true;
     }
+    for (const b of doc.story || []) if (b.at === name) b.at = "";
     return true;
   }
   // problems a hand edit can leave behind
