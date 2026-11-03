@@ -203,6 +203,17 @@
     saveLayout();
   }
   let floatZ = 20;
+  const FLOAT_Z_MAX = 49; // the menu layer sits at z-index 50 (shell.css); stay under it
+  function raiseFloat(which) {
+    if (floatZ >= FLOAT_Z_MAX) {
+      // renormalize: keep relative front-to-back order of the floating docks, reset the counter
+      const floating = ["left", "right", "bottom"].filter((w) => layout[w].float);
+      floating.sort((a, b) => (parseInt(docks[a].style.zIndex, 10) || 20) - (parseInt(docks[b].style.zIndex, 10) || 20));
+      floatZ = 20;
+      for (const w of floating) docks[w].style.zIndex = ++floatZ;
+    }
+    docks[which].style.zIndex = ++floatZ;
+  }
   const dropHint = el("div", "dock-drop");
   dropHint.hidden = true;
   $("shell").append(dropHint);
@@ -217,7 +228,7 @@
       if (ev.button !== 0 || ev.target.closest(".dock-collapse, input, select")) return;
       const x0 = ev.clientX, y0 = ev.clientY;
       let grab = null;
-      dock.style.zIndex = ++floatZ; // the window you grab comes to the front
+      if (layout[which].float) raiseFloat(which); // the floating window you grab comes to the front
       const move = (e) => {
         if (!grab) {
           if (Math.hypot(e.clientX - x0, e.clientY - y0) < 6) return;
@@ -226,6 +237,7 @@
           const w = layout[which].float ? r.w : Math.min(size.w, 560), h = layout[which].float ? r.h : Math.min(size.h, 420);
           grab = { dx: Math.min(x0 - r.x, w - 40), dy: y0 - r.y, w, h };
           document.body.classList.add("moving");
+          if (!layout[which].float) raiseFloat(which); // tearing off a docked panel: bring it to front
         }
         layout[which].open = true;
         layout[which].float = { x: e.clientX - grab.dx, y: e.clientY - grab.dy, w: grab.w, h: grab.h };
