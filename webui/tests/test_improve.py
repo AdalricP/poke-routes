@@ -467,5 +467,38 @@ class Jobs(Base):
         self.assertEqual(git(self.repo, "branch", "--list", "improve/*"), "")
 
 
+class RomUndo(Base):
+    """_do_undo_rom with git and the rebuild faked out, so no real ROM checkout is touched."""
+
+    def test_failed_rebuild_still_marks_source_undone(self):
+        I = improve
+
+        def fake_git(repo, *args, **kwargs):
+            if args[:2] == ("branch", "--show-current"):
+                return I.ROM_BRANCH
+            if args[0] == "rev-parse":
+                return "deadbeef0123"
+            return ""   # diff / revert / commit: nothing staged, nothing conflicts
+
+        real_git, real_run, real_copy = I._git, I.subprocess.run, I.shutil.copy2
+        I._git = fake_git
+        I.subprocess.run = lambda *a, **k: type("R", (), {"returncode": 1, "stdout": "", "stderr": "make: *** [x] Error 1"})()
+        I.shutil.copy2 = lambda *a, **k: self.fail("rebuild failed; the release ROM must not be touched")
+        try:
+            src = {"id": "src", "kind": "improve", "request": "r", "target": "rom",
+                   "status": "done", "commit": "c1", "commits": ["c1"], "created": 1}
+            job = {"id": "u1", "kind": "undo", "undo_of": "src", "target": "rom", "status": "running", "created": 2}
+            I._jobs["src"] = src
+            I._jobs["u1"] = job
+            with self.assertRaises(RuntimeError):
+                I._do_undo_rom(job)
+            self.assertEqual(src["status"], "undone")           # the revert commit landed
+            self.assertEqual(src["undone_by"], "u1")
+            self.assertEqual(job.get("commit"), "deadbeef0123")  # revert commit recorded
+            self.assertNotEqual(job.get("status"), "done")        # the build failure itself is reported
+        finally:
+            I._git, I.subprocess.run, I.shutil.copy2 = real_git, real_run, real_copy
+
+
 if __name__ == "__main__":
     unittest.main()

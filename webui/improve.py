@@ -939,6 +939,10 @@ def _do_undo_rom(job):
     job["commit"] = _git(repo, "rev-parse", "HEAD")
     job["commits"] = [job["commit"]]
     _log(jid, f"[revert] {job['commit'][:10]}")
+    # the revert commit is on the branch now, whatever happens to the rebuild below: mark the
+    # source undone right away so a build failure can't leave it offering Undo again (finding 5)
+    with _lock:
+        set_status(src, "undone", undone_by=jid)
     _log(jid, "> make -j10 (rebuilding the ROM after the revert)")
     env = dict(os.environ, PATH=f"{TOOLCHAIN}:{os.environ.get('PATH', '')}")
     r = subprocess.run(["make", "-j10"], cwd=str(repo), env=env, capture_output=True, text=True, timeout=TIMEOUT)
@@ -949,7 +953,6 @@ def _do_undo_rom(job):
     shutil.copy2(repo / "pokeemerald.gba", RELEASE_ROM)
     _log(jid, f"[copy] {RELEASE_ROM}")
     with _lock:
-        set_status(src, "undone", undone_by=jid)
         set_status(job, "done")
 
 
