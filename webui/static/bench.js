@@ -49,7 +49,7 @@
     hover: null, hoverArea: null, sel: null,
     playing: false, timer: null, busy: false,
     specials: [], exits: [], tab: "dex",
-    tool: "select", paint: { cells: new Map() },
+    tool: "select", paint: { cells: new Map(), busy: false },
     region: sget(REGION_KEY),      // {name, region, endings} or null
     file: { handle: null, name: "" },
     saved: "", generated: "",
@@ -563,7 +563,7 @@
     const panBtn = ev.button === 1 || ev.button === 2 || spaceDown || state.tool === "pan";
     wrap.setPointerCapture(ev.pointerId);
     if (!panBtn && (state.tool === "paint" || state.tool === "stamp") && ev.button === 0) {
-      if (!canPaint(true)) { drag = null; return; }
+      if (!canPaint(true) || state.paint.busy) { drag = null; return; }
       drag = { mode: "paint" };
       if (state.stage !== state.result.stages.length - 1) { stopPlay(); setStage(state.result.stages.length - 1, false); }
       state.paint.cells = new Map();
@@ -920,11 +920,16 @@
     }
     if (!cells.length) { state.paint.cells = new Map(); draw(); return; }
     const before = savedPaint(r);
-    const ok = await retile(cells);
-    if (!ok) return;
-    const after = SL.mergePaint(before, cells);
-    storePaint(r, after);
-    undoStack.push({ kind: "paint", id: r.id, cells, old, before, after });
+    state.paint.busy = true;
+    try {
+      const ok = await retile(cells);
+      if (!ok) return;
+      const after = SL.mergePaint(before, cells);
+      storePaint(r, after);
+      undoStack.push({ kind: "paint", id: r.id, cells, old, before, after });
+    } finally {
+      state.paint.busy = false;
+    }
   }
   // paint memory per route name + size (see SL.paintKey)
   function savedPaint(r) { const all = sget(SL.PAINT_KEY) || {}; return (r && all[SL.paintKey(r)]) || {}; }
