@@ -519,6 +519,7 @@ def name_routes(w: World, net: Network) -> None:
         if n["kind"] != "route":
             continue
         if n.get("pinned"):
+            n["biome_code"] = (n.get("keep") or {}).get("biome_code") or dominant_biome_code_under_route(w, n)
             continue
         n["biome_code"] = dominant_biome_code_under_route(w, n)
         while f"Route {route_number}" in used:
