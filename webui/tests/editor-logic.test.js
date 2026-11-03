@@ -156,6 +156,17 @@ test("undo / redo with copy-on-write grids, 120 steps, limit honoured", () => {
   assert.strictEqual(h.redos.length, 0);
 });
 
+test("cancel of a no-op edit does not wipe the redo stack", () => {
+  const d = makeDoc(), h = new ED.History();
+  h.begin(d, "move city"); ED.moveCity(d, "a", 1, 0);
+  h.undo(d);
+  assert.strictEqual(h.redos.length, 1);
+  h.begin(d, "no-op rename");
+  h.cancel(); // the rename turned out to be a no-op, so it's discarded
+  assert.strictEqual(h.redos.length, 1, "the redo entry from before survives a cancelled edit");
+  assert.strictEqual(h.redo(d), "move city");
+});
+
 test("undo restores object edits (rename, move, delete)", () => {
   const d = makeDoc(), h = new ED.History();
   h.begin(d); ED.renameRoute(d, "Eins", "Möwenstraße");

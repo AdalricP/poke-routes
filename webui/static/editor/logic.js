@@ -105,11 +105,18 @@
     begin(doc, label) {
       this.undos.push(Object.assign(snapshot(doc), { label: label || "edit" }));
       if (this.undos.length > this.limit) this.undos.shift();
+      this._cancelledRedos = this.redos;
       this.redos = [];
       return { cloned: new Set() };
     }
     // drop the last begin() (an edit that turned out to change nothing)
-    cancel() { this.undos.pop(); }
+    cancel() {
+      this.undos.pop();
+      if (this._cancelledRedos !== undefined) {
+        this.redos = this._cancelledRedos;
+        this._cancelledRedos = undefined;
+      }
+    }
     undo(doc) {
       if (!this.undos.length) return null;
       const s = this.undos.pop();
