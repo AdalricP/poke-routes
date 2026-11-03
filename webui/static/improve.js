@@ -168,7 +168,7 @@
     window.addEventListener("dragend", () => sections.forEach((s) => s.classList.remove("drag-over")));
   }
 
-  const state = { jobs: [], running: [], shown: null, logNext: 0, logFor: null, timer: null, prev: {}, h: null, screenshots: [], histTab: "all" };
+  const state = { jobs: [], running: [], shown: null, logNext: 0, logFor: null, timer: null, prev: {}, h: null, screenshots: [], histTab: "all", reloadShown: false };
   const ACTIVE = ["queued", "running", "merging"];
   const BAD = ["failed", "timeout", "conflict"];
   const RETRYABLE = ["failed", "timeout", "conflict", "cancelled"];
@@ -438,6 +438,7 @@
   function showLog(id) {
     state.shown = id;
     state.logFor = null;
+    state.reloadShown = false;   // the owner is looking at a log on purpose; let it show again
     pollLog();
     renderHist();
     if (state.h) renderSlots(state.h);
@@ -458,7 +459,8 @@
       let j;
       try { j = await api(`/api/improve/${id}?since=${since}`); } catch (e) { return; }
       if (state.logFor !== id || state.logNext !== since) return;   // switched jobs, or a chained call already advanced
-      $("impCur").textContent = `${j.status}${j.attempt > 1 ? " (re-run)" : ""}: ${j.request.slice(0, 90)}`;
+      // don't stomp the "reload the page" notice refresh() just posted (finding 29)
+      if (!state.reloadShown) $("impCur").textContent = `${j.status}${j.attempt > 1 ? " (re-run)" : ""}: ${j.request.slice(0, 90)}`;
       const atBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 30;
       for (const line of j.log || []) {
         const cls = /^\[(error|timeout|warn|cancelled)\]|^ {2}!/.test(line) ? "e" : /^[>[]/.test(line) ? "" : "t";
@@ -484,6 +486,7 @@
           [j.subject, j.commit && "commit " + j.commit.slice(0, 10), j.error, j.summary].filter(Boolean).join("\n"));
       }
       if (was && was !== j.status && j.status === "done" && j.target === "poke-routes") {
+        state.reloadShown = true;
         $("impCur").textContent = "Done. Reload the page to see the change.";
         if (!document.querySelector(".imp-reload")) {
           const r = el("button", dock ? "btn imp-reload" : "small imp-reload", "Reload page");
