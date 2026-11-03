@@ -6,7 +6,10 @@
    and returns its actions (undo, redo, save, load, generate, exportSpecs,
    recompute, setTool, toggleLayer, fit, openInBench, set_editor_mode, set_route_opener,
    getDoc, destroy), so a host page or shell can drive it from its own menus.
-   opts: {seed, load, keys: true, mode: "geography" | "region" (default: every tool), onOpenRoute}. */
+   opts: {seed, load, keys: true, mode: "geography" | "region" | "story" | "gates" (default: every tool), onOpenRoute}.
+   The modes are the steps of laying out a game: geography -> route design A (region: towns and
+   routes on the terrain) -> story (beats by hand: what happens where, which field move it gives)
+   -> route design B (gates: what each route needs, and where you can go at each beat). */
 (function (global) {
   "use strict";
   const ED = global.ED;
@@ -82,6 +85,10 @@
       <h2 data-ed="toolTitle">Select</h2>
       <div data-ed="toolBody"></div>
     </section>
+    <section data-ed="storySection" hidden>
+      <h2 data-ed="storyTitle">Story</h2>
+      <div data-ed="storyBody"></div>
+    </section>
     <section data-ed="routeListSection" hidden>
       <h2>Routes</h2>
       <div class="route-list" data-ed="routeList"></div>
@@ -149,13 +156,19 @@
   const tools_shown_in_each_editor_mode = {
     geography: ["select", "raise", "lower", "flatten", "smooth", "biome", "water", "river"],
     region: ["select", "route"],
+    story: ["select"],
+    gates: ["select"],
   };
-  const place_kinds_selectable_in_each_editor_mode = { geography: ["landmark"], region: ["city", "route"] };
-  const editor_title_for_each_mode = { geography: "geography editor", region: "region editor" };
+  const place_kinds_selectable_in_each_editor_mode = { geography: ["landmark"], region: ["city", "route"], story: ["city", "route"], gates: ["city", "route"] };
+  const editor_title_for_each_mode = { geography: "geography editor", region: "route design A", story: "story", gates: "route design B" };
+  const modes_that_move_places = new Set([null, "geography", "region"]);
   const select_tool_hint_for_each_mode = {
     geography: "Click a landmark (legendary spot) to select it, drag it to move it. Towns and routes live in the region editor.",
     region: "Click to select. Drag towns. On a selected route, drag an edge or an exit. Pick a route in the Routes list to fly to it. Double-click a route to open it in the bench.",
+    story: "Click a town or route, then add a beat there. Beats are played in order; the first one is where the game starts.",
+    gates: "Click a route to set what it needs. Drag the story step to see where you can go at that point.",
   };
+  const HM_LABEL = { "": "nothing", cut: "Cut", surf: "Surf", strength: "Strength", rock_smash: "Rock Smash", waterfall: "Waterfall", dive: "Dive" };
   const margin_around_framed_route_in_cells = 6;
   let open_route_spec_in_host = opts.onOpenRoute || null;
 
@@ -164,6 +177,7 @@
     mode: null, tool: "select", brush: 4, strength: 0.03, biome: "f", water: "sea", riverErase: false,
     layers: { height: true, biome: true, water: true, routes: true, labels: true },
     sel: null, hover: null, drag: null, space: false, busy: false, unsaved: false, cursor: null,
+    step: -1, // route design B: beats done so far (-1 = new game)
   };
   const cv = $("cv"), ctx = cv.getContext("2d"), wrap = $("wrap");
   const base = document.createElement("canvas"), bctx = base.getContext("2d");
@@ -438,15 +452,48 @@
     drawLandmarks(d, X, Y, z);
     drawCities(d, X, Y, z);
     if (st.layers.labels) drawLabels(d, X, Y, z);
+    if (st.mode === "story" || st.mode === "gates") drawBeats(d, X, Y, z);
     drawToolOverlay(d, X, Y, z);
+  }
+
+  function place_rect_by_name(d, name) {
+    const c = d.cities.find((o) => o.name === name);
+    if (c) return c.rect;
+    const r = ED.routeByName(d, name);
+    return r ? r.rect : null;
+  }
+  // numbered story beats on their places; in route design B the ones not done yet are dimmed
+  function drawBeats(d, X, Y, z) {
+    const fs = Math.round(Math.max(10, Math.min(16, z * 1.5)));
+    const stacked = {};
+    (d.story || []).forEach((b, i) => {
+      const rect = place_rect_by_name(d, b.at);
+      if (!rect) return;
+      const k = stacked[b.at] = (stacked[b.at] || 0) + 1;
+      const cx = X(rect[0]) + fs * (1.1 * k), cy = Y(rect[1]) + fs * 0.2;
+      const done = st.mode !== "gates" || i <= st.step;
+      ctx.fillStyle = done ? "#ffd65c" : "rgba(120,120,120,0.9)";
+      ctx.strokeStyle = "#141414";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(cx, cy, fs * 0.62, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.font = `600 ${fs * 0.8}px "Pixelify Sans", ui-monospace, monospace`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "#141414";
+      ctx.fillText(String(i + 1), cx, cy + 0.5);
+    });
   }
 
   function drawRoutes(d, X, Y, z) {
     const selR = st.sel && st.sel.kind === "route" ? st.sel.id : null;
     const hovR = st.hover && st.hover.kind === "route" ? st.hover.id : null;
+    const reach = st.mode === "gates" ? ED.reachableAt(d, st.step) : null;
     for (const r of d.routes) {
       const [x0, y0, x1, y1] = r.rect;
-      const c = ED.ROLE_RGB[r.role] || [255, 255, 255];
+      const c = reach ? (reach.has(r.name) ? [110, 230, 120] : [230, 80, 70]) : ED.ROLE_RGB[r.role] || [255, 255, 255];
       const on = r.name === selR, hov = r.name === hovR;
       ctx.fillStyle = rgb(c, on ? 0.24 : hov ? 0.18 : 0.12);
       ctx.fillRect(X(x0), Y(y0), (x1 - x0) * z, (y1 - y0) * z);
@@ -569,7 +616,13 @@
         const [x0, y0, x1, y1] = r.rect;
         const cx = X((x0 + x1) / 2), cy = Y((y0 + y1) / 2);
         label(r.name, cx, cy - fs * 0.55, fs);
-        label(r.role.replace(/_/g, " ") + (r.pinned ? " · pinned" : ""), cx, cy + fs * 0.55, Math.round(fs * 0.78), rgb(ED.ROLE_RGB[r.role] || [255, 255, 255]));
+        if (st.mode === "gates") {
+          const n = ED.routeNeeds(r), after = (r.gate || {}).after;
+          const why = [n ? "needs " + HM_LABEL[n] : "", after != null ? "after beat " + (after + 1) : ""].filter(Boolean).join(" · ") || "open";
+          label(why, cx, cy + fs * 0.55, Math.round(fs * 0.78), why === "open" ? "#b4f0b4" : "#ffb0a0");
+        } else {
+          label(r.role.replace(/_/g, " ") + (r.pinned ? " · pinned" : ""), cx, cy + fs * 0.55, Math.round(fs * 0.78), rgb(ED.ROLE_RGB[r.role] || [255, 255, 255]));
+        }
       }
     }
     for (const l of d.landmarks) {
@@ -626,7 +679,7 @@
     const d = st.doc;
     const { fx, fy } = toCell(sx, sy);
     const z = st.view.z;
-    const r = st.sel && st.sel.kind === "route" && st.layers.routes ? ED.routeByName(d, st.sel.id) : null;
+    const r = st.sel && st.sel.kind === "route" && st.layers.routes && modes_that_move_places.has(st.mode) ? ED.routeByName(d, st.sel.id) : null;
     if (r) {
       for (let k = 0; k < r.exits.length; k++) {
         const [ex, ey] = r.exits[k].cell;
@@ -687,7 +740,7 @@
     }
     st.sel = { kind: h.kind, id: h.id };
     refreshInspector();
-    if (h.kind === "city" || h.kind === "landmark") {
+    if ((h.kind === "city" || h.kind === "landmark") && modes_that_move_places.has(st.mode)) {
       st.drag = { kind: "move", sel: st.sel, cx: Math.floor(c.fx), cy: Math.floor(c.fy), s: null };
     }
     draw();
@@ -755,7 +808,7 @@
     if (key(h) !== key(st.hover) || BRUSH_TOOLS.has(st.tool) || st.tool === "route") { st.hover = h; draw(); }
     wrap.style.cursor = st.space ? "grab" : BRUSH_TOOLS.has(st.tool) ? "crosshair" :
       h && h.kind === "edge" ? (h.edge[0] === "x" ? "ew-resize" : "ns-resize") :
-      h && (h.kind === "exit" || h.kind === "city" || h.kind === "landmark") ? "move" : h ? "pointer" : "default";
+      h && (h.kind === "exit" || (h.kind === "city" || h.kind === "landmark") && modes_that_move_places.has(st.mode)) ? "move" : h ? "pointer" : "default";
     status(c);
   });
 
@@ -975,10 +1028,13 @@
 
   function refreshInspector() {
     refresh_route_list();
+    refresh_story();
     const box = $("insp");
     box.innerHTML = "";
     const o = findSel(st.sel);
     if (!o) { box.innerHTML = '<p class="muted">Click a route, town or landmark.</p>'; return; }
+    if (st.mode === "story") return inspect_place_for_story(box, o);
+    if (st.sel.kind === "route" && st.mode === "gates") return inspect_route_gate(box, o);
     if (st.sel.kind === "route") return inspectRoute(box, o);
     const isCity = st.sel.kind === "city";
     box.append(el("h3", {}, o.name));
@@ -1079,8 +1135,123 @@
     if (spec.error) box.append(el("p", { class: "warns" }, "spec: " + spec.error));
   }
 
+  // ------------------------------------------------------------ story + route design B
+  function hm_select(value, with_derived) {
+    const s = el("select");
+    if (with_derived) s.append(el("option", { value: "derived" }, "derived"));
+    for (const k of [""].concat(ED.HMS)) {
+      const op = el("option", { value: k }, HM_LABEL[k]);
+      if (k === value) op.selected = true;
+      s.append(op);
+    }
+    return s;
+  }
+  function beat_select(value, none_label) {
+    const s = el("select");
+    s.append(el("option", { value: "" }, none_label));
+    (st.doc.story || []).forEach((b, i) => {
+      const op = el("option", { value: String(i) }, `${i + 1} ${b.name}`);
+      if (i === value) op.selected = true;
+      s.append(op);
+    });
+    return s;
+  }
+  function inspect_place_for_story(box, o) {
+    box.append(el("h3", {}, o.name));
+    const here = (st.doc.story || []).map((b, i) => [b, i]).filter(([b]) => b.at === o.name);
+    box.append(el("p", { class: "sub" }, here.length ? "beats here: " + here.map(([b, i]) => `${i + 1} ${b.name}`).join(", ") : "no beats here yet"));
+    const nm = el("input", { type: "text", maxlength: "40", placeholder: "e.g. Badge 1, rival fight" });
+    const hm = hm_select("");
+    box.append(row("Beat", nm), row("Gives", hm));
+    const add = el("button", { type: "button", class: "small" }, "Add beat here");
+    add.onclick = () => edit("add beat", () => {
+      st.doc.story = (st.doc.story || []).concat([{ name: nm.value.trim() || `Beat ${(st.doc.story || []).length + 1}`, at: o.name, unlocks: hm.value }]);
+    });
+    const btns = el("div", { class: "btns" });
+    btns.append(add);
+    box.append(btns);
+  }
+  function refresh_story() {
+    const section = $("storySection");
+    section.hidden = !(st.mode === "story" || st.mode === "gates") || !st.doc;
+    if (section.hidden) return;
+    const box = $("storyBody");
+    box.innerHTML = "";
+    const story = st.doc.story || [];
+    st.step = Math.max(-1, Math.min(story.length - 1, st.step));
+    if (st.mode === "gates") {
+      $("storyTitle").textContent = "Where can you go";
+      const now = st.step < 0 ? "new game" : `after ${st.step + 1} ${story[st.step].name}`;
+      const d = el("div", { class: "slider" });
+      d.innerHTML = `<label for="ed-step"><span>Story step</span><output></output></label><input type="range" id="ed-step" min="-1" step="1">`;
+      d.querySelector("output").textContent = now;
+      const inp = d.querySelector("input");
+      inp.max = String(story.length - 1);
+      inp.value = String(st.step);
+      inp.oninput = () => { st.step = +inp.value; refresh_story(); draw(); };
+      box.append(d);
+      const reach = ED.reachableAt(st.doc, st.step);
+      const open = st.doc.routes.filter((r) => reach.has(r.name)).length;
+      box.append(el("p", { class: "sub" }, `${open} of ${st.doc.routes.length} routes reachable (green); red ones are gated or cut off behind a gate`));
+      if (!story.length) box.append(el("p", { class: "hint" }, "No story yet: everything counts from the first town. Write beats in the Story tab."));
+      return;
+    }
+    $("storyTitle").textContent = "Story beats";
+    if (!story.length) box.append(el("p", { class: "hint" }, "No beats yet. Pick a town or route on the map and add one. Beat 1 is where the game starts."));
+    const ol = el("ol", { class: "beats" });
+    story.forEach((b, i) => {
+      const li = el("li");
+      const nm = el("input", { type: "text", maxlength: "40", value: b.name, "aria-label": `beat ${i + 1} name` });
+      nm.onchange = () => edit("rename beat", () => { b.name = nm.value.trim() || b.name; });
+      const hm = hm_select(b.unlocks || "");
+      hm.title = "field move this beat gives";
+      hm.onchange = () => edit("set beat move", () => { b.unlocks = hm.value; });
+      const mv = (dk) => () => edit("move beat", () => {
+        const j = i + dk;
+        if (j < 0 || j >= story.length) return false;
+        [story[i], story[j]] = [story[j], story[i]];
+      });
+      const up = el("button", { type: "button", class: "small", title: "earlier" }, "↑");
+      up.onclick = mv(-1);
+      const dn = el("button", { type: "button", class: "small", title: "later" }, "↓");
+      dn.onclick = mv(1);
+      const rm = el("button", { type: "button", class: "small", title: "remove" }, "×");
+      rm.onclick = () => edit("remove beat", () => { story.splice(i, 1); });
+      const at = el("span", { class: "at" }, "at " + b.at);
+      li.append(nm, hm, up, dn, rm, at);
+      ol.append(li);
+    });
+    box.append(ol);
+    const warns = ED.storyWarnings(st.doc);
+    if (warns.length) {
+      const wl = el("ul", { class: "warns" });
+      for (const w of warns) wl.append(el("li", {}, w));
+      box.append(wl);
+    }
+  }
+  function inspect_route_gate(box, r) {
+    box.append(el("h3", {}, r.name));
+    box.append(el("p", { class: "sub" }, `${r.mode} · ${r.role.replace(/_/g, " ")} · link ${r.link || "-"}`));
+    const g = r.gate || {};
+    const hm = hm_select(g.needs != null ? g.needs : "derived", true);
+    hm.querySelector('option[value="derived"]').textContent = "derived (" + HM_LABEL[r.mode === "sea" ? "surf" : ""] + ")";
+    hm.onchange = () => edit("set route gate", () => set_gate(r, "needs", hm.value === "derived" ? undefined : hm.value));
+    box.append(row("Needs", hm, g.needs != null, () => edit("reset gate", () => set_gate(r, "needs", undefined))));
+    const after = beat_select(g.after != null ? g.after : -1, "from the start");
+    after.onchange = () => edit("set route opens", () => set_gate(r, "after", after.value === "" ? undefined : +after.value));
+    box.append(row("Opens after", after, g.after != null, () => edit("reset gate", () => set_gate(r, "after", undefined))));
+    box.append(el("p", { class: "hint" }, "Needs: the field move to get onto the route at all. Opens after: a story block (someone in the way until that beat). Setting either pins the route."));
+    box.append(el("p", { class: "sub" }, ED.reachableAt(st.doc, st.step).has(r.name) ? "reachable at this story step" : "not reachable at this story step"));
+  }
+  function set_gate(r, k, v) {
+    r.gate = Object.assign({}, r.gate);
+    if (v === undefined) delete r.gate[k]; else r.gate[k] = v;
+    if (!Object.keys(r.gate).length) delete r.gate;
+    r.pinned = true;
+  }
+
   function deleteSelected() {
-    if (!st.sel || st.sel.kind !== "route") return;
+    if (!st.sel || st.sel.kind !== "route" || !modes_that_move_places.has(st.mode)) return;
     const name = st.sel.id;
     edit("delete route", () => ED.deleteRoute(st.doc, name), "places");
     st.sel = null;
@@ -1092,7 +1263,7 @@
   function refresh_route_list() {
     const route_list_box = $("routeList");
     route_list_box.innerHTML = "";
-    if (st.mode !== "region" || !st.doc) return;
+    if ((st.mode !== "region" && st.mode !== "gates") || !st.doc) return;
     for (const route of st.doc.routes) route_list_box.append(make_route_list_button(route));
   }
   function make_route_list_button(route) {
@@ -1140,7 +1311,7 @@
     st.mode = tools_shown_in_each_editor_mode[mode_name] ? mode_name : null;
     for (const rail_element of root.querySelectorAll(".rail > *")) rail_element.hidden = !is_rail_element_shown_in_current_mode(rail_element);
     $("title").textContent = editor_title_for_each_mode[st.mode] || "region editor";
-    $("routeListSection").hidden = st.mode !== "region";
+    $("routeListSection").hidden = st.mode !== "region" && st.mode !== "gates";
     root.querySelector('[data-layer="routes"]').hidden = st.mode === "geography";
     st.layers.routes = st.mode !== "geography";
     root.querySelectorAll("[data-layer]").forEach((b) => b.classList.toggle("on", st.layers[b.dataset.layer]));

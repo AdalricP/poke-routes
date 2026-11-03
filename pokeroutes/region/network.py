@@ -715,7 +715,7 @@ def route_json(w: World, net: Network, n: dict) -> dict:
              goal=n.get("goal"), goal_landmark=n.get("goal_landmark"), biome_code=n.get("biome_code"),
              kind_link=n.get("kind_link"))
     old = n.get("keep") or {}
-    for k in ("pinned", "manual", "spec_overrides"):  # editor state rides along
+    for k in ("pinned", "manual", "spec_overrides", "gate"):  # editor state rides along
         if old.get(k):
             d[k] = old[k]
     return d

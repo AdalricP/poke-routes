@@ -101,3 +101,10 @@
 .ed.embedded .ed-top .links { display: none; }
 .route-list { display: flex; flex-wrap: wrap; gap: 4px; }
 .route-list button.on { border-color: var(--accent); color: var(--ink); }
+/* story beats (Story tab) */
+.ed-side .beats { list-style: decimal; padding-left: 20px; margin: 4px 0 8px; }
+.ed-side .beats li { display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 4px; align-items: center; margin-bottom: 6px; font-size: 12.5px; }
+.ed-side .beats li input { min-width: 0; }
+.ed-side .beats .at { grid-column: 1 / -1; color: var(--ink-3); margin-top: -2px; }
+.ed-side .warns { color: var(--warn); font-size: 12.5px; padding-left: 16px; margin: 6px 0; }
+.ed-side .sub { color: var(--ink-3); font-size: 12.5px; }

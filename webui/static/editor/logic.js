@@ -88,7 +88,7 @@
   // ------------------------------------------------------------ history (undo / redo)
   // Snapshots share grid arrays; an edit copies a grid the first time it touches it
   // (copy on write), so 100 steps cost only the grids that actually changed.
-  const DATA_KEYS = ["cities", "landmarks", "links", "routes", "stale", "meta", "name", "user_note"];
+  const DATA_KEYS = ["cities", "landmarks", "links", "routes", "stale", "meta", "name", "user_note", "story"];
   function snapshot(doc) {
     const data = {};
     for (const k of DATA_KEYS) if (doc[k] !== undefined) data[k] = JSON.parse(JSON.stringify(doc[k]));
@@ -615,6 +615,56 @@
     r.pinned = true;
   }
 
+  // ------------------------------------------------------------ story + route design B
+  // Story (by hand, per game): doc.story = [{name, at, unlocks}], in play order; `at` is
+  // a town or route name, `unlocks` the field move it hands out ("" = none).
+  // Route design B: r.gate = {needs, after}: the move you need to get onto the route
+  // (sea routes need surf unless set) and the beat after which it opens (an NPC moves...).
+  const HMS = ["cut", "surf", "strength", "rock_smash", "waterfall", "dive"];
+  function routeNeeds(r) {
+    const g = r.gate || {};
+    return g.needs != null ? g.needs : r.mode === "sea" ? "surf" : "";
+  }
+  function routeOpenAt(r, have, step) {
+    const n = routeNeeds(r), after = (r.gate || {}).after;
+    return (!n || have.has(n)) && !(after != null && after > step);
+  }
+  // town and route names you can walk to once beats 0..step are done (step -1 = new game)
+  function reachableAt(doc, step) {
+    const story = doc.story || [];
+    const have = new Set(story.slice(0, step + 1).map((b) => b.unlocks).filter(Boolean));
+    const open = new Map(doc.routes.map((r) => [r.name, routeOpenAt(r, have, step)]));
+    const adj = new Map();
+    const link = (a, b) => {
+      if (!adj.has(a)) adj.set(a, []);
+      if (!adj.has(b)) adj.set(b, []);
+      adj.get(a).push(b); adj.get(b).push(a);
+    };
+    for (const r of doc.routes) for (const e of r.exits) if (e.to) link(r.name, e.to);
+    const start = story.length ? story[0].at : (doc.cities[0] || {}).name;
+    const seen = new Set();
+    if (!start || open.get(start) === false) return seen;
+    const todo = [start];
+    seen.add(start);
+    while (todo.length) {
+      for (const n of adj.get(todo.pop()) || []) {
+        if (seen.has(n) || open.get(n) === false) continue;
+        seen.add(n);
+        todo.push(n);
+      }
+    }
+    return seen;
+  }
+  // beats whose place you can't reach with what the beats before them gave you
+  function storyWarnings(doc) {
+    const out = [];
+    (doc.story || []).forEach((b, i) => {
+      if (!b.at) out.push(`beat ${i + 1} (${b.name || "?"}) has no place`);
+      else if (i > 0 && !reachableAt(doc, i - 1).has(b.at)) out.push(`beat ${i + 1} (${b.name || "?"}): ${b.at} can't be reached yet`);
+    });
+    return out;
+  }
+
   // the bench's saved-params blob for a full route spec (what region.js does)
   function benchParams(spec) {
     const p = {
@@ -641,7 +691,7 @@
     shadeGrid, cellColor, renderBase,
     asciiId, routeByName, nodeRect, placeAt, refOf, renameRoute, renamePlace, moveCity, moveLandmark,
     exitAlong, sideRange, edgeCell, mirrorExit, moveExit, sizeOk, resizeRoute, deleteRoute, routeWarnings,
-    setSpecField, benchParams,
+    setSpecField, benchParams, HMS, routeNeeds, reachableAt, storyWarnings,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.ED = api;

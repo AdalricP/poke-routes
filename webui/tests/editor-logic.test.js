@@ -288,6 +288,22 @@ test("renderBase fills every pixel of the rect, sea darker than land", () => {
   assert.ok(px(1, 1) < px(20, 12));
 });
 
+test("story: a gated route opens once a beat hands out the move", () => {
+  const d = makeDoc();
+  d.routes[1].gate = { needs: "cut" };
+  assert.deepStrictEqual([...ED.reachableAt(d, -1)].sort(), ["Ahlen", "Eins"]);
+  d.story = [{ name: "starter", at: "Ahlen", unlocks: "" }, { name: "badge 1", at: "Bertsch", unlocks: "" }];
+  assert.strictEqual(ED.storyWarnings(d).length, 1);
+  d.story[0].unlocks = "cut";
+  assert.ok(ED.reachableAt(d, 0).has("Bertsch"));
+  assert.strictEqual(ED.storyWarnings(d).length, 0);
+  d.routes[0].gate = { after: 1 };
+  assert.ok(!ED.reachableAt(d, 0).has("Eins"));
+  assert.ok(ED.reachableAt(d, 1).has("Eins"));
+  assert.strictEqual(ED.routeNeeds({ mode: "sea" }), "surf");
+  assert.strictEqual(ED.routeNeeds({ mode: "sea", gate: { needs: "" } }), "");
+});
+
 if (process.env.REGION_DOC) {
   test("real region document: decode, edit, encode", () => {
     const wire = JSON.parse(fs.readFileSync(process.env.REGION_DOC, "utf8"));

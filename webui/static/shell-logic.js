@@ -219,7 +219,7 @@
     inspector: {},   // section id -> collapsed (true)
   };
   const BOTTOM_TABS = ["console", "timeline", "improve", "agent"];
-  const CENTER_TABS = ["scene", "geography", "region"];
+  const CENTER_TABS = ["scene", "geography", "region", "story", "gates"];
 
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 

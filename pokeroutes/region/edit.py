@@ -238,7 +238,7 @@ def finish(w: World, doc: dict, stale: List[str]) -> dict:
     out = world_to_doc(w)
     out["stale"] = stale
     out["routes"] = with_specs(w)
-    for k in ("name",):
+    for k in ("name", "story"):  # story beats are written by hand and ride along
         if k in doc:
             out[k] = doc[k]
     return out
