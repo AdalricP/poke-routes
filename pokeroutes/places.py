@@ -584,7 +584,7 @@ def place_hidden(route: Route) -> None:
     n_lore = min(1, int(getattr(spec, "lore_spots", 2)))  # one lore nook at most: fewer, meaningful
     kinds = ["grave", "ruin", "shrine", "old_sign", "hut_plot", "berry_patch"]
     for i in range(n_lore):
-        walk = np.isin(route.cls, list(WALKABLE) + ["w", "s"])
+        walk = np.isin(route.cls, list(WALKABLE) + ["w", "s", "b"])  # b: open sea is no tree mass
         d = distance_transform_cdt(~walk, metric="chessboard").astype(float)
         d[:5, :] = d[-5:, :] = 0
         d[:, :5] = d[:, -5:] = 0

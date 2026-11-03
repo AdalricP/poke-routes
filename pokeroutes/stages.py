@@ -663,24 +663,64 @@ def _open_desert(route: Route) -> None:
 def _sea(route: Route) -> None:
     """Beach: the planner kept the lanes off one lateral third of the map; that side
     is open sea (touching the map edge), with a sand shore between it and the land,
-    sea rocks offshore and a few tide pools on the beach."""
+    sea rocks offshore and a few tide pools on the beach. The waterline and the
+    beach's width drift slowly along the route (coves and sand bars, not a ruler
+    line), and the beach starts where the woods end, so it is part of the route."""
     p, rng = plan_of(route), route.rng
     sea, sand, rock, shoal = code("SEA", "w"), code("SAND", "p"), code("BOULDER", "r"), code("SHALLOW", "w")
     f = p.legs[0][0]
     vlo, vhi = p.vrange(f)
-    shore = vhi + 2
+    us = [f.uv(y, x)[0] for y in (0, route.h - 1) for x in (0, route.w - 1)]
+    u0, n = min(us), max(us) - min(us) + 1
+    wave = fbm(2, n, 16.0, rng, octaves=2)  # row 0: waterline, row 1: beach width
+    wave = (wave - wave.min(1, keepdims=True)) / np.ptp(wave, 1, keepdims=True).clip(1e-6)
+    shore = [vhi + 2 + int(round(6 * wave[0, i])) for i in range(n)]
+    width = [4 + int(round(5 * wave[1, i])) for i in range(n)]
+    # lanes and clearings stay on land: no sand spits or islands cut off by an inlet
+    far = np.full(n, -10 ** 6)
+    for y, x in zip(*np.nonzero(route.protect)):
+        if route.cls[y, x] != "f":
+            u, v = f.uv(y, x)
+            far[u - u0] = max(far[u - u0], v)
+    for i in range(n):
+        reach = far[max(0, i - 3):i + 4].max() + 3
+        if shore[i] < reach:
+            width[i] += reach - shore[i]
+            shore[i] = reach
     for y in range(route.h):
         for x in range(route.w):
             u, v = f.uv(y, x)
             if route.protect[y, x]:
                 continue
-            if v >= shore + 2:
+            s = shore[u - u0]
+            if v >= s:
                 route.cls[y, x] = sea
-            elif v >= shore - 1:
+            elif v >= s - width[u - u0]:
                 route.cls[y, x] = sand
+    # one straight path from the road down to the beach if no lane reaches it yet
+    walk = WALKABLE | {sand}
+    H, W = route.h, route.w
+
+    def on_beach(y, x):
+        return any(0 <= y + dy < H and 0 <= x + dx < W and route.cls[y + dy, x + dx] == sand
+                   and not route.protect[y + dy, x + dx] for dy, dx in DIRS4)
+
+    if not any(route.cls[c] in walk and route.protect[c] and on_beach(*c) for c in zip(*np.nonzero(route.protect))):
+        crit = [c for c in route.critical_path if route.inside(*c, 4)]
+        if crit:
+            u, v = f.uv(*max(crit, key=lambda c: f.uv(*c)[1]))
+            for k in range(1, 40):
+                cells = [f.yx(u + du, v + k) for du in (-1, 0, 1)]
+                cells = [c for c in cells if route.inside(*c, 1)]
+                if not cells or all(route.cls[c] in (sand, sea) for c in cells):
+                    break
+                for c in cells:
+                    if not route.protect[c]:
+                        route.cls[c] = sand
     for _ in range(int(route.h * route.w / 250)):
         y, x = int(rng.integers(3, route.h - 3)), int(rng.integers(3, route.w - 3))
-        if route.cls[y, x] == sea and f.uv(y, x)[1] >= shore + 4:
+        u, v = f.uv(y, x)
+        if route.cls[y, x] == sea and v >= shore[u - u0] + 2:
             route.cls[y, x] = rock
     for z in route.zones:
         if z.kind == "clearing" and rng.random() < 0.4 and len(z.cells) >= 16:
