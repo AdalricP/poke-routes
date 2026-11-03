@@ -1311,9 +1311,10 @@
     tracks.setPointerCapture(ev.pointerId);
     setStage(stageFromX(ev.clientX), true);
     const move = (e) => { const i = stageFromX(e.clientX); if (i !== state.stage) setStage(i, true); };
-    const up = () => { tracks.removeEventListener("pointermove", move); tracks.removeEventListener("pointerup", up); };
+    const up = () => { tracks.removeEventListener("pointermove", move); tracks.removeEventListener("pointerup", up); tracks.removeEventListener("pointercancel", up); };
     tracks.addEventListener("pointermove", move);
     tracks.addEventListener("pointerup", up);
+    tracks.addEventListener("pointercancel", up);
   });
 
   function setStage(i, fade) {
