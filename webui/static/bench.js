@@ -1538,7 +1538,7 @@
     $("tbSceneTools").hidden = tab !== "scene";
     $("tbStageGroup").hidden = tab !== "scene";
     $("tbTilerGroup").hidden = tab !== "scene";
-    $("tbGenerate").title = tab === "scene" ? `Generate (${Shell.fmt("Mod+g")})` : "Generate";
+    $("tbGenerate").title = "Generate";
     syncNonSceneToolbar();
   }
   function syncNonSceneToolbar() {
@@ -1902,7 +1902,7 @@
     $("tbPlay").onclick = togglePlay;
     $("tlPlay").onclick = togglePlay;
     $("tbGenerate").onclick = doGenerate;
-    $("tbGenerate").title = `Generate (${Shell.fmt("Mod+g")})`;
+    $("tbGenerate").title = "Generate";
     $("tbZoomIn").onclick = () => { if (isScene()) zoomBy(1); else { region_editor() && region_editor().zoomIn(); syncNonSceneToolbar(); } };
     $("tbZoomOut").onclick = () => { if (isScene()) zoomBy(-1); else { region_editor() && region_editor().zoomOut(); syncNonSceneToolbar(); } };
     $("tbFit").onclick = () => { if (isScene()) fit(); else { region_editor() && region_editor().fit(); syncNonSceneToolbar(); } };
