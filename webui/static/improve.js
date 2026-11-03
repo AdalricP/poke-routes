@@ -168,7 +168,7 @@
     window.addEventListener("dragend", () => sections.forEach((s) => s.classList.remove("drag-over")));
   }
 
-  const state = { jobs: [], running: [], shown: null, logNext: 0, logFor: null, timer: null, prev: {}, h: null, screenshots: [], histTab: "all", reloadShown: false, fixOpenFor: null };
+  const state = { jobs: [], running: [], shown: null, logNext: 0, logFor: null, timer: null, prev: {}, h: null, screenshots: [], histTab: "all", reloadShown: false, fixOpenFor: null, steerOpenFor: null };
   const ACTIVE = ["queued", "running", "merging"];
   const BAD = ["failed", "timeout", "conflict"];
   const RETRYABLE = ["failed", "timeout", "conflict", "cancelled"];
@@ -297,6 +297,13 @@
         r.onclick = () => showLog(j.id);
         li.append(r);
         if (!j.held_by) {
+          if (j.status === "running") {
+            const st = el("button", "undo", "Steer");
+            st.type = "button";
+            st.title = "Send extra instructions to this running agent";
+            st.onclick = () => toggleSteerForm(j, li);
+            li.append(st);
+          }
           const c = el("button", "undo", "Cancel");
           c.type = "button";
           c.onclick = () => api(`/api/improve/${j.id}/cancel`, {}).then(refresh).catch((e) => ($("impErr").textContent = e.message));
@@ -446,9 +453,52 @@
     state.logFor = null;
     state.reloadShown = false;   // the owner is looking at a log on purpose; let it show again
     state.fixOpenFor = null;     // navigating away closes any open fix form
+    state.steerOpenFor = null;   // ...and any open steer form
     pollLog();
     renderHist();
     if (state.h) renderSlots(state.h);
+  }
+
+  // click Steer on a running worker's row: first click opens a textarea (smooth height anim),
+  // second click (while open, with text typed) sends it straight to that job's live agent.
+  // renderSlots is skipped by refresh() while state.steerOpenFor is set, so periodic polling
+  // doesn't wipe this box or what's typed into it (same trick as the fix form, finding 10).
+  function toggleSteerForm(j, li) {
+    const next = li.nextElementSibling;
+    const existing = next && next.classList.contains("imp-steer-form") ? next : null;
+    if (existing) {
+      const ta = existing.querySelector("textarea");
+      const text = ta.value.trim();
+      if (!text) { ta.focus(); return; }
+      const send = existing.querySelector("button");
+      const err = existing.querySelector(".imp-err");
+      send.disabled = true;
+      api(`/api/improve/${j.id}/steer`, { text }).then(() => {
+        existing.remove();
+        state.steerOpenFor = null;
+        refresh();
+      }).catch((e) => { err.textContent = e.message; send.disabled = false; });
+      return;
+    }
+    state.steerOpenFor = j.id;
+    const form = el("li", "imp-steer-form");
+    const ta = document.createElement("textarea");
+    ta.placeholder = "Extra instructions for this running agent...";
+    ta.rows = 2;
+    const row = el("div", "imp-row");
+    const send = el("button", "primary", "Steer");
+    send.type = "button";
+    const err = el("p", "imp-err");
+    send.onclick = () => toggleSteerForm(j, li);
+    ta.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send.click(); }
+    });
+    row.append(send);
+    form.append(ta, row, err);
+    li.after(form);
+    requestAnimationFrame(() => form.classList.add("open"));   // smooth open: see .imp-steer-form in improve.css
+    ta.focus();
   }
 
   async function pollLog() {
@@ -509,7 +559,8 @@
     state.h = h;
     dot.hidden = !state.running.length && !h.queued;
     if (isOpen()) {
-      renderSlots(h); renderHistTabs();
+      if (!state.steerOpenFor) renderSlots(h);   // don't wipe an open steer form and its typed text
+      renderHistTabs();
       if (!state.fixOpenFor) renderHist();   // don't wipe an open fix form and its typed text (finding 10)
       pollLog(); pollUsage();
     } else renderUsage(h.usage);

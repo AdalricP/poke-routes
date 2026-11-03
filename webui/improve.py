@@ -128,6 +128,7 @@ _merge_lock = threading.Lock()    # one merge onto main at a time
 _jobs: dict = {}                  # id -> job dict (persisted)
 _logs: dict = {}                  # id -> list[str] (live, this process)
 _procs: dict = {}                 # id -> Popen of its agent
+_stdin_locks: dict = {}            # id -> Lock guarding that agent's stdin pipe (steer() writes to it)
 _slots: dict = {}                 # slot -> job id or None
 _threads: dict = {}               # slot -> worker thread
 _me = os.getpid()
@@ -619,11 +620,12 @@ def route_model(job):
         return MODELS["sonnet"], f"router failed ({type(e).__name__}), default"
 
 
-def claude_cmd(prompt, cwd_target, wt=None, model=None):
+def claude_cmd(cwd_target, wt=None, model=None):
     # the job's worktree is the cwd; the log dir holds an attached screenshot
+    # stdin stays open (stream-json in/out) so a running job can be steered with extra instructions
     add = [str(ARK / "rom-wt"), str(DOCS), str(RELEASE_ROM.parent), str(ARK / "tools"), str(LOGDIR)] \
         if cwd_target == "rom" else [str(LOGDIR)]
-    cmd = [_claude(), "-p", prompt, "--output-format", "stream-json", "--verbose",
+    cmd = [_claude(), "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
            "--permission-mode", "bypassPermissions", "--strict-mcp-config", "--no-chrome",
            "--model", model or os.environ.get("IMPROVE_MODEL", MODELS["sonnet"])]
     tools = Path(wt or REPO) / "webui" / "route_tools.py"
@@ -703,6 +705,20 @@ def _usage():
         return None
 
 
+def _send_stdin(proc, lock, text) -> bool:
+    """Write one more user turn into a running agent's stdin (its initial prompt, or a steer)."""
+    msg = json.dumps({"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": text}]}})
+    with lock:
+        if proc.poll() is not None:
+            return False
+        try:
+            proc.stdin.write(msg + "\n")
+            proc.stdin.flush()
+        except (BrokenPipeError, OSError, ValueError):
+            return False
+    return True
+
+
 def _run_agent(job, cwd, wt=None, port=None):
     jid, target = job["id"], job["target"]
     if job.get("killed"):   # cancelled before the agent process existed to kill (finding 15)
@@ -716,15 +732,17 @@ def _run_agent(job, cwd, wt=None, port=None):
     _log(jid, f"[router] {job['model']} ({job.get('model_reason', '')})")
     if job.get("killed"):   # cancelled while routing the model, still before any process exists
         return -1, ""
-    cmd = claude_cmd(prompt, target, wt, model=job["model"])
-    _log(jid, f"[run] {Path(cmd[0]).name} -p <prompt> " + " ".join(a for a in cmd[3:] if "\n" not in a)
-         + f"  (cwd {cwd})")
+    cmd = claude_cmd(target, wt, model=job["model"])
+    _log(jid, f"[run] {Path(cmd[0]).name} " + " ".join(cmd[1:]) + f"  (cwd {cwd})")
     proc = subprocess.Popen(cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            stdin=subprocess.DEVNULL, text=True, env=_child_env(target), start_new_session=True)
+                            stdin=subprocess.PIPE, text=True, env=_child_env(target), start_new_session=True)
+    lock = threading.Lock()
     with _lock:
         _procs[jid] = proc
+        _stdin_locks[jid] = lock
         job["agent_pid"] = proc.pid
     _save()
+    _send_stdin(proc, lock, prompt)
     timer = threading.Timer(TIMEOUT, lambda: _kill(proc, jid, "timeout"))
     timer.start()
     final = ""
@@ -749,8 +767,33 @@ def _run_agent(job, cwd, wt=None, port=None):
         timer.cancel()
         with _lock:
             _procs.pop(jid, None)
+            _stdin_locks.pop(jid, None)
             job.pop("agent_pid", None)
+        try:
+            proc.stdin.close()
+        except (OSError, ValueError):
+            pass
     return proc.returncode, final
+
+
+def steer(jid: str, text: str) -> dict:
+    """Send extra instructions straight into a running job's live agent (same session, no new job)."""
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("text is empty")
+    if len(text) > 4000:
+        raise ValueError("text is longer than 4000 characters")
+    with _lock:
+        job = _jobs.get(jid)
+        if not job:
+            raise KeyError(jid)
+        if job.get("status") != "running" or job.get("killed"):
+            raise ValueError(f"job isn't running (status {job.get('status')})")
+        proc, lock = _procs.get(jid), _stdin_locks.get(jid)
+    if not proc or not lock or not _send_stdin(proc, lock, text):
+        raise ValueError("couldn't reach the running agent (it may have just finished)")
+    _log(jid, f"[steer] {text}")
+    return public(job)
 
 
 def _kill(proc, jid, why):
@@ -1669,6 +1712,8 @@ def handle(h, method: str, u) -> None:
             return h._json(retry(parts[0]), 202)
         if len(parts) == 2 and parts[1] == "cancel":
             return h._json(cancel(parts[0]))
+        if len(parts) == 2 and parts[1] == "steer":
+            return h._json(steer(parts[0], str(body.get("text", ""))))
         return h._json({"error": "not found"}, 404)
     except KeyError:
         return h._json({"error": "unknown job"}, 404)
