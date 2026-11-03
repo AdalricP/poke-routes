@@ -1444,7 +1444,9 @@ def plan(route, areas: List[dict]) -> Planner:
     # a hidden site only counts if the road can keep out of sight of it; re-plan a few
     # times (same seed stream, so still deterministic) before giving the area up
     p = None
+    p_log_start = None
     for attempt in range(12):
+        mark = len(route.log)
         q = Planner(route, areas, exits[:2])
         q.build_spine()
         q.place_nodes()
@@ -1453,7 +1455,16 @@ def plan(route, areas: List[dict]) -> Planner:
         q.plan_sections()
         q.check_sites()
         if p is None or len(q.sites) > len(p.sites):
+            # this attempt is now the kept plan; drop the previous kept attempt's
+            # log lines (if any) rather than this one's
+            if p_log_start is not None:
+                del route.log[p_log_start:mark]
+            else:
+                p_log_start = mark
             p = q
+        else:
+            # discarded attempt: its log lines don't describe the final plan
+            del route.log[mark:]
         if len(p.sites) >= len(areas):
             break
     if attempt:
