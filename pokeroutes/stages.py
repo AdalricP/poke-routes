@@ -342,11 +342,14 @@ def stage_lakes(route: Route) -> None:
         _streams(route, 3)
     if b == "beach":
         _sea(route)
-    if b in ("desert", "volcanic"):
+    if b == "desert":
+        _desert(route)
+    if b == "volcanic":
         _open_desert(route)
     if b == "mountain":
         _terraces(route)
-    _ponds(route, route.spec.lakes if b != "riverland" else max(1, route.spec.lakes // 2))
+    if b != "desert":  # no ponds in the sand
+        _ponds(route, route.spec.lakes if b != "riverland" else max(1, route.spec.lakes // 2))
     route.snap("water")
 
 
@@ -698,6 +701,65 @@ def _sec_len(p, s) -> int:
     f, _ = p.legs[s.leg]
     A, B = p.node(s.a), p.node(s.b)
     return f.uv(B.y, B.x)[0] - f.uv(A.y, A.x)[0]
+
+
+def _desert(route: Route) -> None:
+    """Desert, after Route 111 (and Desert Resort): wide open sand between rock
+    mountains, dotted with boulders and little pointed rocks; not a cliff maze and
+    not an empty box. The wall between the lanes shrinks back to its core (rounded,
+    clear of every lane), so the lanes become wide tracks of sand that still run
+    between outcrops; a ragged rim holds the map edge; special areas keep their
+    walls. Like Route 111, a mountain is a cliff rim round a rock-mass top (all
+    cliff tiles as stacked faces, i.e. stripes). Boulders and 2x2 rock cones sit in
+    drifts on the open sand, never on the main road, with sand all round so they
+    can't cut anything off. Stray water from the clearings goes."""
+    from scipy.ndimage import binary_dilation, binary_opening, distance_transform_cdt
+
+    h, w, rng = route.h, route.w, route.rng
+    cliff, sand = wall_class(route), ground_class(route)
+    route.cls[route.cls == "w"] = sand
+    wall = route.cls == cliff
+    far = distance_transform_cdt(wall, metric="chessboard") >= 4
+    n = fbm(h, w, 5.0, rng)
+    yy, xx = np.mgrid[:h, :w]
+    edge = np.minimum.reduce([yy, xx, h - 1 - yy, w - 1 - xx])
+    keep = (edge < 2 + 4 * n) | binary_dilation(far & (n > 0.35), iterations=1)
+    special = np.zeros(wall.shape, dtype=bool)
+    for c in route.zone_cells("special"):
+        special[c] = True
+    disc = np.array([[0, 1, 1, 0], [1, 1, 1, 1], [1, 1, 1, 1], [0, 1, 1, 0]], dtype=bool)
+    keep = binary_opening(np.pad(wall & keep, 4, constant_values=True), disc)[4:-4, 4:-4]  # round, no slivers
+    keep |= wall & binary_dilation(special, iterations=3)
+    route.cls[wall & ~keep] = sand
+    # sand nobody can walk to (old water boxed in by the wall) goes back to rock
+    from .generate import reachable
+
+    hid = np.zeros(wall.shape, dtype=bool)
+    for c in route.zone_cells("special", "hidden"):
+        hid[c] = True
+    lost = (route.cls == sand) & ~reachable(route.cls, route.exits[0][1]) & ~hid
+    route.cls[lost] = cliff
+    keep |= lost
+    top = distance_transform_cdt(np.pad(keep, 1, constant_values=True), metric="chessboard")[1:-1, 1:-1] >= 2
+    route.cls[top] = "r"  # rock-mass top inside the cliff rim
+    # boulders and rock cones in loose drifts (high noise), as on Route 111
+    busy = np.zeros(wall.shape, dtype=bool)
+    for c in route.critical_path + [(e.y, e.x) for e in route.events] + [c for _, cs in route.exits for c in cs]:
+        busy[c] = True
+    free = (route.cls == sand) & ~binary_dilation(busy, iterations=2) & (edge >= 4)
+    m = fbm(h, w, 8.0, rng)
+    boulder = code("BOULDER", "u")
+    cones = rocks = 0
+    for y, x in zip(*np.nonzero(free & (m > 0.5))):
+        if rng.random() < 0.06 and free[y - 1:y + 3, x - 1:x + 3].all():
+            route.cls[y:y + 2, x:x + 2] = [["r", "r"], [cliff, boulder]]  # a pointed rock, 2x2
+            free[y - 1:y + 3, x - 1:x + 3] = False
+            cones += 1
+        elif rng.random() < 0.15 and free[y - 1:y + 2, x - 1:x + 2].all():
+            route.cls[y, x] = boulder
+            free[y - 1:y + 2, x - 1:x + 2] = False
+            rocks += 1
+    route.log.append(f"desert: {int(keep.sum())} cells of mountain, {cones} rock cones, {rocks} boulders")
 
 
 def _open_desert(route: Route) -> None:
