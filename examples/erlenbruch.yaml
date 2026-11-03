@@ -2,6 +2,7 @@ name: Erlenbruch
 size: [56, 60]
 seed: 23
 biome: riverland
+world: [48, -5]  # where it sits on the shared height map: east of Bernsteinweg, exits lined up
 exits:
   - {side: west, at: 0.5, to: MAP_BERNSTEINWEG}
   - {side: east, at: 0.4, to: MAP_KIEFERNHEIDE}

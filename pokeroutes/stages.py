@@ -484,16 +484,17 @@ def _ponds(route: Route, count: int) -> None:
 
 
 def _rivers(route: Route) -> None:
-    """Riverland: a real river crosses the route from edge to edge. Every lane that
+    """Riverland: rivers (2-3) cross the route from edge to edge. Every lane that
     meets it crosses on a bridge (or a ford until the bridge class lands), the
     banks are short walkable strips by the crossings, with reeds; the river widens
     once into a pool around a wooded island."""
     p, rng = plan_of(route), route.rng
     bridge = code("BRIDGE", "p")
-    n_rivers = 1 if (route.h * route.w) < 3600 else 2
+    n_rivers = 2 if (route.h * route.w) < 3600 else 3
+    elev = _tiers(route)
     secs = sorted(p.sections, key=lambda s: -_sec_len(p, s))
-    made = 0
-    for s in secs:
+    made, used = 0, []
+    for s in secs + secs:  # a long section can hold two rivers
         if made >= n_rivers:
             break
         f, U = p.legs[s.leg]
@@ -513,15 +514,24 @@ def _rivers(route: Route) -> None:
         for u in range(int(ua + 3), int(ub - 3)):
             if any(abs(u - q) <= 3 for q in mus[1:-1]):
                 continue  # main lane must cross on a straight run
-            if any(abs(u - nu) <= hu + 6 for nu, hu in node_us):
+            if any(abs(u - nu) <= hu + 3 for nu, hu in node_us):
                 continue  # keep the river off clearings and exits
-            if rng.random() < 0.3 and any(a[0] == b2[0] and abs(u - a[0]) <= 2 for l in lanes[1:] for a, b2 in zip(l.pts, l.pts[1:])):
-                continue
             cands.append(u)
         if not cands:
             route.log.append(f"river: no straight crossing in section {s.id}")
             continue
-        u_r = cands[int(rng.integers(0, len(cands)))]
+        # rivers run downhill: prefer a line that crosses tier steps (waterfalls)
+        def steps(u):
+            line = [f.yx(u, v) for v in range(-200, 200)]
+            line = [elev[c] for c in line if 0 <= c[0] < route.h and 0 <= c[1] < route.w]
+            return sum(a != b for a, b in zip(line, line[1:]))
+        # not along a lane, where it would turn into one long bridge, nor beside another river
+        cands = [u for u in cands if not _along_lane(route, f, u, p) and all(abs(u - q) > 12 for lg, q in used if lg == s.leg)]
+        if not cands:
+            continue
+        cands.sort(key=lambda u: -steps(u))
+        u_r = cands[int(rng.integers(0, max(1, len(cands) // 3)))]
+        used.append((s.leg, u_r))
         width = int(rng.integers(3, 5))
         vlo, vhi = -200, 200
         lane_cells: Set[Cell] = set()
@@ -534,6 +544,8 @@ def _rivers(route: Route) -> None:
         # sweep across the whole map at u_r (with one orthogonal dogleg for character)
         jog_at = int(rng.integers(-10, 10))
         jog = int(rng.integers(-3, 4))
+        if _along_lane(route, f, u_r + jog, p):
+            jog = 0
         vr = p.vrange(f)
         free_v = [v for v in range(vr[0] + 4, vr[1] - 4)
                   if not any(f.yx(u_r + k, v + dv) in lane_cells for k in range(-6, 7) for dv in range(-6, 7))]
@@ -551,6 +563,7 @@ def _rivers(route: Route) -> None:
                 (crossings if c in lane_cells else water).append(c)
         if not water:
             continue
+        before = (route.cls.copy(), route.protect.copy(), len(route.props))
         for (y, x) in water:
             route.cls[y, x] = "w"
         for (y, x) in crossings:
@@ -579,6 +592,11 @@ def _rivers(route: Route) -> None:
             route.cls[y, x] = "g"
             if rng.random() < 0.5:
                 route.props.append({"kind": "reeds", "y": int(y), "x": int(x)})
+        if _strands(route, before[0]):  # a lane ends in it, or a bank is cut off: try elsewhere
+            route.cls, route.protect = before[0], before[1]
+            del route.props[before[2]:]
+            route.log.append(f"river: crossing at {u_r} would cut a lane off")
+            continue
         route.zones.append(Zone("lake", water, f"river {made + 1}", {"river": True, "crossings": len(crossings)}))
         made += 1
     # marsh pools: small pools in plain clearings
@@ -587,6 +605,29 @@ def _rivers(route: Route) -> None:
             for (y, x) in [(n.y + n.hy - 1, n.x - n.hx + 1), (n.y + n.hy - 1, n.x - n.hx + 2), (n.y + n.hy - 2, n.x - n.hx + 1)]:
                 if route.cls[y, x] in WALKABLE and (y, x) not in set(route.critical_path):
                     route.cls[y, x] = "w"
+
+
+def _strands(route: Route, was: np.ndarray) -> bool:
+    """Did the last change leave more walkable cells unreachable than before?"""
+    from .generate import reachable
+
+    def cut_off(c):
+        return int((np.isin(c, list(WALKABLE)) & ~reachable(c, route.exits[0][1])).sum())
+    return cut_off(route.cls) > cut_off(was)
+
+
+def _along_lane(route: Route, f, u: int, p) -> bool:
+    """Would a river at ``u`` run along a lane (a crossing longer than a lane is wide)?"""
+    lane_cells = set().union(*(l.cells for l in p.lanes))
+    run = 0
+    for v in range(-200, 200):
+        cells = [f.yx(u + k, v) for k in range(-2, 2)]  # the river is u-2 .. u+1
+        if not any(0 <= y < route.h and 0 <= x < route.w for y, x in cells):
+            continue
+        run = run + 1 if any(c in lane_cells for c in cells) else 0
+        if run > 8:
+            return True
+    return False
 
 
 def _sec_len(p, s) -> int:
@@ -928,58 +969,102 @@ def stage_ledges(route: Route) -> None:
     route.snap("ledges")
 
 
-def _elevation(route: Route, p) -> None:
-    """Height tiers: each section of the spine sits one tier above the previous one
-    (or region data overrides it). On the mountain the tier lines are drawn: a cliff
-    face 2 rows deep across the map with stairs (2 wide) where lanes climb it."""
+def _tiers(route: Route) -> np.ndarray:
+    """Height tier per cell: the region's tiers when the route came from a region,
+    else the world height map (``height.py``). Computed once, kept on the route."""
+    if route.elevation is not None:
+        return route.elevation
+    from . import height
+
+    elev = height.tiers(route.spec, route.h, route.w)
     reg = route.spec.region if isinstance(getattr(route.spec, "region", None), dict) else {}
     tiers = (reg.get("elevation") or {}).get("tiers") if reg else None
-    elev = np.zeros(route.cls.shape, dtype=np.int8)
-    lines = []
-    for s in p.sections[1:]:
-        f, _ = p.legs[s.leg]
-        A = p.node(s.a)
-        ua, _ = f.uv(A.y, A.x)
-        hua, _ = A.half_uv(f)
-        lines.append((s.id, f, ua - hua - 4 if (A.hy or A.hx) else ua - 3))
-    for y in range(route.h):
-        for x in range(route.w):
-            t = 0
-            for sid, f, ul in lines:
-                if f.uv(y, x)[0] >= ul:
-                    t = sid
-            elev[y, x] = t
     if tiers:
         try:  # coarse region grid (one digit per region cell), upsampled to metatiles
             cz = int(reg.get("cell", 4) or 4)
             g = np.array([[int(ch) for ch in row] for row in tiers], dtype=np.int8)
-            up = np.kron(g, np.ones((cz, cz), dtype=np.int8))
-            hh, ww = min(up.shape[0], route.h), min(up.shape[1], route.w)
-            elev[:hh, :ww] = up[:hh, :ww]
+            up = np.kron(g, np.ones((cz, cz), dtype=np.int8))[:route.h, :route.w]
+            elev = np.pad(up, ((0, route.h - up.shape[0]), (0, route.w - up.shape[1])), mode="edge")
         except Exception as e:
             route.log.append(f"region tiers ignored ({type(e).__name__})")
     route.elevation = elev
-    if route.spec.biome != "mountain":
+    return elev
+
+
+def _elevation(route: Route, p) -> None:
+    """Draw the height map's steps where the ground drops one tier to the south:
+    a river falls (waterfall), a side lane or clearing gets a one-way ledge (only
+    where nothing gets cut off; the main path stays two-way), and on the mountain
+    every lane climbs it on stairs."""
+    from .generate import can_leave, reachable
+
+    elev = _tiers(route)
+    cls = route.cls
+    fall, stairs = code("WATERFALL", "a"), code("STAIRS", "p")
+    mountain = route.spec.biome == "mountain"
+    river = {c for z in route.zones if z.meta.get("river") for c in z.cells}
+    keep = set(route.critical_path) | {(e.y, e.x) for e in route.events} \
+        | {(int(q["y"]), int(q["x"])) for q in route.props if "y" in q} \
+        | {c for z in route.zones if z.kind == "special" for c in z.cells}
+    drop = np.zeros(cls.shape, dtype=bool)
+    drop[:-1] = elev[:-1] > elev[1:]
+    rise = np.zeros(cls.shape, dtype=bool)
+    rise[:-1] = elev[:-1] < elev[1:]
+    wet = np.zeros(cls.shape, dtype=bool)
+    for c in river:
+        wet[c] = cls[c] == "w"
+    lip = drop & wet
+    q = np.pad(cls == code("BRIDGE", "q"), 3)
+    for dy in range(-3, 4):  # keep falls off the crossings: a fall cuts the river
+        for dx in range(-2, 3):
+            lip &= ~q[3 + dy:3 + dy + route.h, 3 + dx:3 + dx + route.w]
+    lip[:-1] &= wet[1:]
+    lip[1:-1, 1:-1] &= lip[1:-1, :-2] | lip[1:-1, 2:]  # at least two wide
+    falls = 0
+    for y, x in zip(*np.nonzero(lip[1:-1, 1:-1])):
+        y, x = y + 1, x + 1
+        cls[y, x] = fall
+        if wet[y - 1, x]:
+            cls[y - 1, x] = fall  # two rows tall, so it reads as a fall
+        falls += 1
+    walk = np.isin(cls, list(WALKABLE))
+    ok = walk.copy()
+    ok[1:-1] &= walk[:-2] & walk[2:]
+    ok[[0, -1]] = False
+    ok &= cls != code("BRIDGE", "q")
+    if mountain:
+        for y, x in zip(*np.nonzero((drop | rise) & ok)):
+            cls[y, x] = stairs
+        route.log.append(f"height: {falls} waterfall cells, stairs on the tier steps")
         return
-    cliff, stairs, rock = code("CLIFF", "r"), code("STAIRS", "p"), "r"
-    walk = np.isin(route.cls, list(WALKABLE))
-    for sid, f, ul in lines:
-        for v in range(-200, 200):
-            band = [f.yx(ul + k, v) for k in (-1, 0)]
-            if not all(0 <= y < route.h and 0 <= x < route.w for y, x in band):
+    starts = route.exits[0][1]
+    exits = [c for _, cs in route.exits for c in cs]
+    reach = reachable(cls, starts)
+    stuck = int((reach & ~can_leave(cls, exits)).sum())
+    ledges = 0
+    for y in range(1, route.h - 1):
+        x = 0
+        while x < route.w:
+            run = []
+            while x < route.w and drop[y, x] and ok[y, x] and (y, x) not in keep:
+                run.append(x)
+                x += 1
+            x += 1
+            if len(run) < 2:
                 continue
-            if any(walk[c] for c in band):
-                for c in band:
-                    if walk[c]:
-                        route.cls[c] = stairs
-            else:
-                for c in band:
-                    route.cls[c] = cliff
-        # mass behind the cliff top reads as rock, not more cliff
-        for v in range(-200, 200):
-            y, x = f.yx(ul + 1, v)
-            if 0 <= y < route.h and 0 <= x < route.w and route.cls[y, x] == cliff:
-                route.cls[y, x] = rock
+            was = cls[y, run].copy()
+            cls[y, run] = "s"
+            r2 = reachable(cls, starts)
+            lost = reach & ~r2
+            lost[y, run] = False
+            if lost.any() or int((r2 & ~can_leave(cls, exits)).sum()) > stuck:
+                cls[y, run] = was  # it would cut something off: no ledge here
+                continue
+            reach = r2
+            ledges += len(run)
+            route.zones.append(Zone("loop", [(y, xx) for xx in run], "height step",
+                                    {"ledge": (y, run[0], run[-1]), "one_way": "south", "why": "height map"}))
+    route.log.append(f"height: {falls} waterfall cells, {ledges} ledge cells on the tier steps")
 
 
 # ------------------------------------------------------------------ dressing

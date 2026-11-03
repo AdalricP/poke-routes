@@ -222,9 +222,9 @@ def stage_cleanup(route: Route) -> None:
 def _thin_water(route: Route) -> int:
     """Water no 2x2 block of water covers (1-wide strips, L-shaped puddles) has no
     bank tiles in either tileset and comes out as broken edges: make it grass.
-    Bridges count as water here so the river under a crossing stays."""
+    Bridges and waterfalls count as water here so the river around them stays."""
     cls = route.cls
-    wet = np.isin(cls, ["w", "q"])
+    wet = np.isin(cls, ["w", "q", "a"])
     blk = wet[:-1, :-1] & wet[1:, :-1] & wet[:-1, 1:] & wet[1:, 1:]
     cover = np.zeros_like(wet)
     for dy in (0, 1):

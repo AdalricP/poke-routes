@@ -70,6 +70,7 @@ class RouteSpec:
     max_walkable: float = 0.40  # density budget: share of the map you can walk on
     lore_spots: int = 2  # hidden little clearings with a sign / grave / ruin for writers
     role: str = ""  # region role: connector | turn | crossroads | dead_end | ... ("" = from the exits)
+    world: List[int] = field(default_factory=list)  # [x, y] of the NW corner on the shared height map (pokeroutes.height)
     region: dict = field(default_factory=dict)  # region-generator block (role, goal, elevation, water, ...)
     extra: dict = field(default_factory=dict)  # unknown spec keys (e.g. a `region` block), kept, not used
 

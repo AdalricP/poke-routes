@@ -2,6 +2,7 @@ name: Bernsteinweg
 size: [48, 72]
 seed: 7
 biome: forest
+world: [0, 0]  # where it sits on the shared height map (Erlenbruch and Kiefernheide continue east)
 # Littleroot Town's north opening and Route 101's south opening are 2 wide, so those
 # exits are too; the ROM installer lines them up (computes the connection offsets).
 exits:

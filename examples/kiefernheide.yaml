@@ -2,6 +2,7 @@ name: Kiefernheide
 size: [64, 48]
 seed: 41
 biome: meadow
+world: [104, -7]  # where it sits on the shared height map: east of Erlenbruch
 exits:
   - {side: west, at: 0.55, to: MAP_ERLENBRUCH}
   - {side: north, at: 0.78}  # towards Huettenau, not built yet: no connection
