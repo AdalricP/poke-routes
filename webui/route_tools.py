@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import dataclasses
+import hashlib
 import io
 import json
 import subprocess
@@ -103,7 +104,8 @@ def generate_route(a):
     route = generate(spec)
     seal_edges(route)
     tiler = "ark" if a.get("tiler") == "ark" else "learned"
-    rid = f"{spec.id}-{spec.seed}" + ("-ark" if tiler == "ark" else "")
+    ov_hash = hashlib.sha1(json.dumps(a.get("overrides") or {}, sort_keys=True, default=str).encode()).hexdigest()[:8]
+    rid = f"{spec.id}-{spec.seed}-{ov_hash}" + ("-ark" if tiler == "ark" else "")
     _routes[rid] = (spec, route, tiler)
     return _write(rid, spec, route, tiler)
 
