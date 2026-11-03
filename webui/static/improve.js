@@ -172,6 +172,7 @@
   const ACTIVE = ["queued", "running", "merging"];
   const BAD = ["failed", "timeout", "conflict"];
   const RETRYABLE = ["failed", "timeout", "conflict", "cancelled"];
+  const DELETABLE = ["done", "failed", "timeout", "conflict", "cancelled", "no-change"];
   const maximum_screenshot_width_in_pixels = 1920;
   const maximum_screenshots_per_request = 6;     // same cap as improve.py
   const red_pen_colour = "#e3201b";
@@ -260,6 +261,13 @@
         rt.title = "Queue a fresh job with the same request";
         rt.onclick = () => { rt.disabled = true; api(`/api/improve/${j.id}/retry`, {}).then(refresh).catch((e) => { rt.disabled = false; $("impErr").textContent = e.message; }); };
         meta.append(rt);
+      }
+      if (DELETABLE.includes(j.status) && !(state.h && state.h.readonly && !state.h.owner.port)) {
+        const del = el("button", "undo", "Delete");
+        del.type = "button";
+        del.title = "Remove this job from the list";
+        del.onclick = () => { del.disabled = true; api(`/api/improve/${j.id}/delete`, {}).then(refresh).catch((e) => { del.disabled = false; $("impErr").textContent = e.message; }); };
+        meta.append(del);
       }
       li.append(req, meta);
       if (j.error) li.append(el("p", "sum", j.error));

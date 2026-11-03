@@ -10,8 +10,10 @@ and a headless Claude Code run implements it as exactly one git commit.
     POST /api/improve/<id>/undo    queue a git revert of that job's commit
     POST /api/improve/<id>/fix     {"request": "..."}  queue a follow-up job on top of a done one,
                                     for when the agent got it wrong or incomplete
-    POST /api/improve/<id>/retry   queue a fresh job with the same request, for a failed/timeout/conflict/cancelled one
+    POST /api/improve/<id>/retry   queue a fresh job with the same request and drop the old one,
+                                    for a failed/timeout/conflict/cancelled job
     POST /api/improve/<id>/cancel  cancel a queued or running job
+    POST /api/improve/<id>/delete  drop a finished job (not queued/running/merging) from the list
     POST /api/improve/workers      {"workers": n}  how many jobs run at once (1-6)
 
 "agent" jobs come from the shell's Agent tab: a task done *for* the owner in the tool
@@ -1518,7 +1520,7 @@ def fix(jid: str, request: str) -> dict:
 
 def retry(jid: str) -> dict:
     """A one-click do-over for a failed/timeout/conflict/cancelled job: a new job with the same
-    request, target, mode and screenshots. The old job is left alone, same as fix()."""
+    request, target, mode and screenshots, replacing the old job in the list."""
     with _cv:
         src = _jobs.get(jid)
         if not src or src["kind"] != "improve":
@@ -1538,9 +1540,23 @@ def retry(jid: str) -> dict:
             job["screenshots"] = src["screenshots"]
             job["screenshot"] = src.get("screenshot", "")
         _jobs[rid] = job
+        del _jobs[jid]
         _cv.notify_all()
     _save()
     return public(job)
+
+
+def delete(jid: str) -> dict:
+    """Drop a finished job (done/failed/timeout/conflict/cancelled/no-change) from the list."""
+    with _lock:
+        job = _jobs.get(jid)
+        if not job or job["kind"] != "improve":
+            raise KeyError(jid)
+        if job["status"] == "queued" or job["status"] in ACTIVE:
+            raise ValueError(f"can't delete a job that's still {job['status']}; cancel it first")
+        del _jobs[jid]
+    _save()
+    return {"ok": True}
 
 
 def cancel(jid: str) -> dict:
@@ -1712,6 +1728,8 @@ def handle(h, method: str, u) -> None:
             return h._json(retry(parts[0]), 202)
         if len(parts) == 2 and parts[1] == "cancel":
             return h._json(cancel(parts[0]))
+        if len(parts) == 2 and parts[1] == "delete":
+            return h._json(delete(parts[0]))
         if len(parts) == 2 and parts[1] == "steer":
             return h._json(steer(parts[0], str(body.get("text", ""))))
         return h._json({"error": "not found"}, 404)
