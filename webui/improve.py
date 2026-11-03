@@ -506,6 +506,7 @@ def claude_cmd(prompt, cwd_target):
         if cwd_target == "rom" else [str(LOGDIR)]
     cmd = [_claude(), "-p", prompt, "--output-format", "stream-json", "--verbose",
            "--permission-mode", "bypassPermissions", "--strict-mcp-config", "--no-chrome",
+           "--model", os.environ.get("IMPROVE_MODEL", "claude-sonnet-5"),
            "--disallowedTools", *DENY]
     for d in add:
         cmd += ["--add-dir", d]
