@@ -636,10 +636,25 @@ class Planner:
             self._lead_pad = 6 if plan else 0
             spacing = self.min_run + 2 * omax + 2
             mid = Lane(-1, "main", f, [], MAIN_W, s.id)
+            # a live hidden site's camera window may overlap this section's u-range; if both
+            # ends already sit clear of it on the same side, keep every random jog on that
+            # side too instead of letting it wander into the window by chance (owner rule:
+            # the main road never comes within sight of a special area)
+            forb = self._forbidden_v(f, min(ua, ub), max(ua, ub))
+            safe_band = band
+            if forb is not None:
+                fv0, fv1 = forb
+                margin = 2
+                if va <= fv0 and vb <= fv0:
+                    safe_band = (band[0], min(band[1], fv0 - margin))
+                elif va >= fv1 and vb >= fv1:
+                    safe_band = (max(band[0], fv1 + margin), band[1])
+                if safe_band[0] > safe_band[1]:
+                    safe_band = band
             ok = False
             for attempt in range(40):
                 scale = 1.0 if attempt < 15 else (0.5 if attempt < 30 else 0.0)
-                prof = self.main_profile(f, A, B, band, spacing, scale, snake=not plan)
+                prof = self.main_profile(f, A, B, safe_band, spacing, scale, snake=not plan)
                 pts = self.prof_pts(prof, ua, ub)
                 cells = raster(f, pts, MAIN_W)
                 ja = self.junction_out(f, pts, A, False)
@@ -648,6 +663,20 @@ class Planner:
                         and not (self._mask(cells) & self.keep_main).any():
                     ok = True
                     break
+            if not ok and safe_band != band:
+                # the clamp above was too strict for this attempt (plan/side-lane room):
+                # fall back to the full band rather than forcing the road through the site
+                for attempt in range(40):
+                    scale = 1.0 if attempt < 15 else (0.5 if attempt < 30 else 0.0)
+                    prof = self.main_profile(f, A, B, band, spacing, scale, snake=not plan)
+                    pts = self.prof_pts(prof, ua, ub)
+                    cells = raster(f, pts, MAIN_W)
+                    ja = self.junction_out(f, pts, A, False)
+                    jb = self.junction_out(f, pts, B, True)
+                    if self.runs_ok(f, pts, [A, B]) and self.fits(cells, [ja, jb], [A.id, B.id]) \
+                            and not (self._mask(cells) & self.keep_main).any():
+                        ok = True
+                        break
             if not ok:
                 self.r.log.append(f"section {s.id}: main lane forced")
             s.prof = prof
@@ -822,6 +851,8 @@ class Planner:
                     moves = self._site_moves(y0, x0, h, w)
                     if moves is None:
                         continue
+                    if not self._site_routable(y0, x0, h, w):
+                        continue
                     # deep: far from the exits, and towards the middle of the route
                     cy, cx = y0 + h / 2, x0 + w / 2
                     mid = abs(cy - H / 2) / H + abs(cx - W / 2) / W
@@ -909,6 +940,51 @@ class Planner:
         if (own >= 0).any() and not set(np.unique(own[own >= 0])) <= set(moves):
             return None
         return moves
+
+    def _site_routable(self, y0: int, x0: int, h: int, w: int) -> bool:
+        """``_site_moves`` only catches nodes that physically overlap the camera
+        window; a main lane that merely *passes between* two nodes on opposite
+        sides of the window can still be forced through it, because the lane's
+        own jog can't happen until it clears the junction lead distance, and
+        that lead can itself eat the only room there was to dodge. Reject such
+        sites here instead of discovering it later in ``check_sites`` (after a
+        whole plan attempt was spent on it): for every node that sits within a
+        conservative lead distance of the window along its leg, its v must
+        already be clear of the window, so the lane never has to jog inside
+        that lead."""
+        ky0, ky1, kx0, kx1 = y0 - CAM_Y, y0 + h - 1 + CAM_Y, x0 - CAM_X, x0 + w - 1 + CAM_X
+        lead = self.min_run + 2 + 6  # worst case: a side-lane section's lead_pad
+        for li, (f, U) in enumerate(self.legs):
+            corners = [f.uv(yy, xx) for yy in (ky0, ky1) for xx in (kx0, kx1)]
+            wu0, wu1 = min(u for u, v in corners), max(u for u, v in corners)
+            wv0, wv1 = min(v for u, v in corners), max(v for u, v in corners)
+            if wu1 < 0 or wu0 > U:
+                continue  # this leg doesn't reach the window at all
+            for n in self.nodes:
+                if self._leg_of_node(n) != li:
+                    continue
+                u, v = f.uv(n.y, n.x)
+                if wu0 - lead <= u <= wu1 + lead and wv0 <= v <= wv1:
+                    return False
+        return True
+
+    def _forbidden_v(self, f: Frame, u_lo: int, u_hi: int) -> Optional[Tuple[int, int]]:
+        """Live hidden-site camera windows whose u-range (on this leg) overlaps
+        [u_lo, u_hi], combined into one (lo, hi) v-interval the main lane should
+        stay out of for this stretch. None if no site's window reaches here."""
+        lo = hi = None
+        for st in self.sites:
+            y0, x0, h, w = st["box"]
+            ky0, ky1 = y0 - CAM_Y, y0 + h - 1 + CAM_Y
+            kx0, kx1 = x0 - CAM_X, x0 + w - 1 + CAM_X
+            corners = [f.uv(yy, xx) for yy in (ky0, ky1) for xx in (kx0, kx1)]
+            wu0, wu1 = min(u for u, v in corners), max(u for u, v in corners)
+            if wu1 < u_lo or wu0 > u_hi:
+                continue
+            wv0, wv1 = min(v for u, v in corners), max(v for u, v in corners)
+            lo = wv0 if lo is None else min(lo, wv0)
+            hi = wv1 if hi is None else max(hi, wv1)
+        return None if lo is None else (lo, hi)
 
     def _leg_of_node(self, n: Node) -> int:
         for li, (f, U) in enumerate(self.legs):
