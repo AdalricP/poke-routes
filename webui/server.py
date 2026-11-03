@@ -457,10 +457,6 @@ def generate(params: dict) -> dict:
 
     use = "ark" if params.get("tiler") == "ark" else "learned"
     ts = route_tileset(spec)
-    if use == "ark" and ts != TILESET:
-        # the Ark tiles are woodland only (sand would be drawn as dirt road, sea as pond)
-        warnings.append(f"the Ark tiles have no {spec.biome} art yet; used Emerald's learned {ts} tiles")
-        use = "learned"
     final = tiles = None
     t_final = 0.0
     if use == "ark":
