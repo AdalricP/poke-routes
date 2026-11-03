@@ -3,6 +3,7 @@ and a headless Claude Code run implements it as exactly one git commit.
 
     POST /api/improve              {"request": "...", "target": "poke-routes" | "rom",
                                     "screenshot": optional "data:image/png;base64,...",
+                                    "screenshots": optional list of those (up to 6),
                                     "mode": "improve" (default) | "agent"}
     GET  /api/improve              history (newest first), worker slots, owner, targets, usage
     GET  /api/improve/<id>?since=N status and log lines from N on
@@ -82,6 +83,8 @@ META = STATE.with_name(STATE.stem + ".meta.json")
 WT_ROOT = Path(os.environ.get("IMPROVE_WT_ROOT") or REPO.parent / f"{REPO.name}-wt").resolve()
 TIMEOUT = _env_int("IMPROVE_TIMEOUT", 20 * 60)
 maximum_screenshot_size_in_bytes = 8 * 1024 * 1024
+maximum_screenshots_per_job = 6
+maximum_total_screenshot_size_in_bytes = 24 * 1024 * 1024
 png_data_url_prefix = "data:image/png;base64,"
 png_file_signature = b"\x89PNG\r\n\x1a\n"
 MAX_WORKERS = 6
@@ -401,12 +404,15 @@ Hard limits for this unattended run:
 
 
 def describe_attached_screenshot_for_prompt(job) -> str:
-    if not job.get("screenshot"):
+    screenshot_paths = job.get("screenshots") or ([job["screenshot"]] if job.get("screenshot") else [])
+    if not screenshot_paths:
         return ""
-
-    screenshot_note = (f"\nThe owner attached a screenshot with the issues marked in red pen: {job['screenshot']}\n"
-                       "Read it (it is a PNG) before starting; the red marks show what the request is about.\n")
-    return screenshot_note
+    if len(screenshot_paths) == 1:
+        return (f"\nThe owner attached a screenshot with the issues marked in red pen: {screenshot_paths[0]}\n"
+                "Read it (it is a PNG) before starting; the red marks show what the request is about.\n")
+    listed_paths = "".join(f"- {path}\n" for path in screenshot_paths)
+    return (f"\nThe owner attached {len(screenshot_paths)} screenshots with the issues marked in red pen:\n{listed_paths}"
+            "Read them all (they are PNGs) before starting; the red marks show what the request is about.\n")
 
 
 AGENT_TASK = f"""This came from the Agent tab, not the Improve box: the owner wants a task done for them in
@@ -1239,14 +1245,25 @@ def decode_png_screenshot_data_url(screenshot_data_url: str) -> bytes:
     return png_bytes
 
 
-def save_screenshot_for_job(jid: str, png_bytes: bytes) -> str:
+def save_screenshot_for_job(jid: str, png_bytes: bytes, number: int = 1) -> str:
     LOGDIR.mkdir(parents=True, exist_ok=True)
-    screenshot_path = LOGDIR / f"{jid}.png"
+    # the first keeps the old <id>.png name; the rest are <id>-2.png, <id>-3.png, ...
+    screenshot_path = LOGDIR / (f"{jid}.png" if number == 1 else f"{jid}-{number}.png")
     screenshot_path.write_bytes(png_bytes)
     return str(screenshot_path)
 
 
-def submit(request: str, target: str, screenshot_data_url: str = "", mode: str = "improve") -> dict:
+def decode_all_screenshots(screenshot_data_urls) -> list:
+    if len(screenshot_data_urls) > maximum_screenshots_per_job:
+        raise ValueError(f"at most {maximum_screenshots_per_job} screenshots per request")
+    all_png_bytes = [decode_png_screenshot_data_url(data_url) for data_url in screenshot_data_urls]
+    if sum(map(len, all_png_bytes)) > maximum_total_screenshot_size_in_bytes:
+        raise ValueError("screenshots are larger than 24 MB together")
+    return all_png_bytes
+
+
+def submit(request: str, target: str, screenshot_data_url: str = "", mode: str = "improve",
+           screenshot_data_urls=()) -> dict:
     request = (request or "").strip()
     if not request:
         raise ValueError("request is empty")
@@ -1256,14 +1273,20 @@ def submit(request: str, target: str, screenshot_data_url: str = "", mode: str =
         raise ValueError(f"target must be one of {', '.join(TARGETS)}")
     if mode not in ("improve", "agent"):
         raise ValueError("mode must be improve or agent")
-    screenshot_png_bytes = decode_png_screenshot_data_url(screenshot_data_url) if screenshot_data_url else b""
+    if not isinstance(screenshot_data_urls, (list, tuple)) or not all(isinstance(u, str) for u in screenshot_data_urls):
+        raise ValueError("screenshots must be a list of data URLs")
+    # the old single "screenshot" field and the "screenshots" list both work; together they add up
+    all_png_bytes = decode_all_screenshots(([screenshot_data_url] if screenshot_data_url else []) +
+                                           [u for u in screenshot_data_urls if u])
     jid = time.strftime("%m%d%H%M") + "-" + uuid.uuid4().hex[:4]
     job = {"id": jid, "kind": "improve", "request": request, "target": target, "status": "queued",
            "created": time.time(), "owner": _me}
     if mode == "agent":
         job["mode"] = "agent"
-    if screenshot_png_bytes:
-        job["screenshot"] = save_screenshot_for_job(jid, screenshot_png_bytes)
+    if all_png_bytes:
+        job["screenshots"] = [save_screenshot_for_job(jid, png_bytes, number)
+                              for number, png_bytes in enumerate(all_png_bytes, 1)]
+        job["screenshot"] = job["screenshots"][0]
     with _cv:
         _jobs[jid] = job
         _cv.notify_all()
@@ -1446,7 +1469,8 @@ def handle(h, method: str, u) -> None:
             return h._json(out, code)
         if not parts:
             return h._json(submit(str(body.get("request", "")), str(body.get("target", "poke-routes")),
-                                  str(body.get("screenshot") or ""), str(body.get("mode") or "improve")), 202)
+                                  str(body.get("screenshot") or ""), str(body.get("mode") or "improve"),
+                                  body.get("screenshots") or []), 202)
         if parts == ["workers"]:
             return h._json(set_workers(body.get("workers")))
         if len(parts) == 2 and parts[1] == "undo":

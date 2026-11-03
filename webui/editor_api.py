@@ -153,7 +153,7 @@ def retile(srv, b: dict) -> dict:
     same = np.array(keys(cls)) == np.array(keys(route.cls))
     fixed = np.where(same, final.metatile.astype(np.int64), -1)
     seed = int(getattr(route.spec, "seed", 0))
-    lay = srv.tiler().tile(cls, seed=seed, fixed=fixed)
+    lay = srv.tiler(srv.route_tileset(route.spec)).tile(cls, seed=seed, fixed=fixed)
     route.cls = cls
     srv._results[gid] = (route, lay)
     return {"id": gid, "painted": n, "cls": ["".join(r) for r in cls],

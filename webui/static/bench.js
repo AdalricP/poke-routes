@@ -1054,7 +1054,7 @@
     };
     if (sel.type === "route") {
       title(r.name, "#4d90d6");
-      kv([["id", r.route_id], ["seed", r.seed], ["size", `${r.width} × ${r.height}`], ["biome", r.biome], ["tiler", r.tiler === "ark" ? "Ark rule tiles" : "learned (General + Fortree)"],
+      kv([["id", r.route_id], ["seed", r.seed], ["size", `${r.width} × ${r.height}`], ["biome", r.biome], ["tiler", r.tiler === "ark" ? "Ark rule tiles" : `learned (${r.tileset || "general_fortree"})`],
         ["stages", r.stages.length], ["zones", r.zones.length], ["events", r.events.length], ["exportable", r.exportable ? "yes" : "no (too big)"]]);
       return;
     }

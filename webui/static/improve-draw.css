@@ -9,8 +9,11 @@
 .imp-draw-bar button:hover { background: #525252; }
 .imp-draw-bar button.attach { background: #3b78c4; border-color: #2c5d87; color: #fff; }
 .imp-draw canvas { display: block; width: 100vw; height: 100vh; cursor: crosshair; touch-action: none; }
-.imp-shot { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+.imp-shot { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
 .imp-shot[hidden] { display: none; }
+.imp-shot-item { position: relative; display: inline-flex; }
 .imp-shot img { max-width: 120px; max-height: 68px; border: 1px solid #e3201b; }
-.imp-docked .imp-shot { margin-top: 4px; }
+.imp-shot .imp-shot-drop { position: absolute; top: -6px; right: -6px; width: 16px; height: 16px; min-width: 0; padding: 0;
+  border-radius: 50%; border: 1px solid #222; background: #474747; color: #eee; font: 12px/14px system-ui, sans-serif; cursor: pointer; }
+.imp-docked .imp-shot { margin-top: 8px; }
 .imp-docked .imp-shot img { max-height: 26px; }

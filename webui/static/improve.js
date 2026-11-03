@@ -49,7 +49,7 @@
             <button type="button" class="btn" id="impPenBtn" title="Draw on the page in red, then attach the area around it or the whole page">Mark up</button>
             <button type="button" class="btn primary" id="impSubmit">Submit</button>
           </div>
-          <div class="imp-shot" id="impShot" hidden><img id="impShotImg" alt="attached screenshot"><button type="button" class="btn" id="impShotDrop">Remove</button></div>
+          <div class="imp-shot" id="impShot" hidden></div>
           <p class="imp-note">One commit per job, undoable. Shift+Enter for a new line.</p>
           <p class="imp-err" id="impErr"></p>
         </div>
@@ -80,7 +80,7 @@
           <button type="button" id="impPenBtn" title="Draw on the page in red, then attach the area around it or the whole page">Mark up</button>
           <button type="button" class="primary" id="impSubmit">Submit</button>
         </div>
-        <div class="imp-shot" id="impShot" hidden><img id="impShotImg" alt="attached screenshot"><button type="button" id="impShotDrop">Remove</button></div>
+        <div class="imp-shot" id="impShot" hidden></div>
         <p class="imp-note">One commit per job, undoable. Shift+Enter for a new line.</p>
         <p class="imp-err" id="impErr"></p>
       </section>
@@ -106,10 +106,11 @@
   const isOpen = () => (dock ? !!dock.offsetParent : !panel.hidden);
   const $ = (id) => panel.querySelector("#" + id);
 
-  const state = { jobs: [], running: [], shown: null, logNext: 0, logFor: null, timer: null, prev: {}, h: null, screenshot: "" };
+  const state = { jobs: [], running: [], shown: null, logNext: 0, logFor: null, timer: null, prev: {}, h: null, screenshots: [] };
   const ACTIVE = ["queued", "running", "merging"];
   const BAD = ["failed", "timeout", "cancelled", "conflict"];
   const maximum_screenshot_width_in_pixels = 1920;
+  const maximum_screenshots_per_request = 6;     // same cap as improve.py
   const red_pen_colour = "#e3201b";
   const red_pen_width_as_fraction_of_image_width = 1 / 320;
 
@@ -346,9 +347,11 @@
     const b = $("impSubmit");
     b.disabled = true;
     try {
-      const j = await api("/api/improve", { request: text, target: $("impTarget").value, screenshot: state.screenshot });
+      // first image in the old "screenshot" field too, so a server not yet restarted still gets that one
+      const [first_screenshot = "", ...other_screenshots] = state.screenshots;
+      const j = await api("/api/improve", { request: text, target: $("impTarget").value, screenshot: first_screenshot, screenshots: other_screenshots });
       $("impText").value = "";
-      set_attached_screenshot("");
+      set_attached_screenshots([]);
       state.shown = j.id;
       state.logFor = null;
       await refresh();
@@ -502,10 +505,20 @@
     return stroke_bounds;
   }
 
-  function set_attached_screenshot(screenshot_data_url) {
-    state.screenshot = screenshot_data_url;
-    $("impShot").hidden = !screenshot_data_url;
-    $("impShotImg").src = screenshot_data_url;
+  // a strip of thumbnails, each with an × to drop it
+  function set_attached_screenshots(screenshot_data_urls) {
+    state.screenshots = screenshot_data_urls;
+    const strip = $("impShot");
+    strip.innerHTML = "";
+    strip.hidden = !screenshot_data_urls.length;
+    screenshot_data_urls.forEach((screenshot_data_url, index) => {
+      const thumbnail = el("span", "imp-shot-item");
+      const remove_button = Object.assign(el("button", "imp-shot-drop", "\u00d7"), { type: "button", title: "Remove this screenshot",
+        onclick: () => set_attached_screenshots(state.screenshots.filter((_, i) => i !== index)) });
+      thumbnail.append(Object.assign(el("img"), { src: screenshot_data_url, alt: `attached screenshot ${index + 1}` }), remove_button);
+      strip.append(thumbnail);
+    });
+    $("impShotBtn").disabled = $("impPenBtn").disabled = screenshot_data_urls.length >= maximum_screenshots_per_request;
   }
 
   // mode: "box" (drag a box to screenshot) or "pen" (draw in red, attach around it or the whole page)
@@ -517,12 +530,11 @@
       return;
     }
     const screenshot_data_url = await open_capture_overlay(captured_canvas, mode);
-    if (screenshot_data_url) set_attached_screenshot(screenshot_data_url);
+    if (screenshot_data_url) set_attached_screenshots([...state.screenshots, screenshot_data_url].slice(0, maximum_screenshots_per_request));
   }
 
   $("impShotBtn").onclick = () => capture_and_attach_screenshot("box");
   $("impPenBtn").onclick = () => capture_and_attach_screenshot("pen");
-  $("impShotDrop").onclick = () => set_attached_screenshot("");
   $("impSubmit").onclick = submit;
   for (const b of $("impWctl").querySelectorAll("button")) b.onclick = () => setWorkers(Number(b.dataset.d));
   $("impText").addEventListener("keydown", (e) => {

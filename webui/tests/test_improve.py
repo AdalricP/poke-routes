@@ -362,6 +362,26 @@ class MemoryGuard(Base):
             improve.mem_available_mb = real
 
 
+class Screenshots(Base):
+    PNG = "data:image/png;base64," + __import__("base64").b64encode(improve.png_file_signature + b"x").decode()
+
+    def test_old_field_and_list_are_all_saved_and_listed(self):
+        j = improve.submit("look at these", "poke-routes", self.PNG, screenshot_data_urls=[self.PNG, self.PNG])
+        paths = improve._jobs[j["id"]]["screenshots"]
+        self.assertEqual([Path(p).name for p in paths], [f"{j['id']}.png", f"{j['id']}-2.png", f"{j['id']}-3.png"])
+        self.assertEqual(improve._jobs[j["id"]]["screenshot"], paths[0])
+        self.assertTrue(all(Path(p).read_bytes().startswith(improve.png_file_signature) for p in paths))
+        note = improve.describe_attached_screenshot_for_prompt(improve._jobs[j["id"]])
+        self.assertIn("3 screenshots", note)
+        self.assertTrue(all(p in note for p in paths))
+
+    def test_one_screenshot_prompt_unchanged_and_cap(self):
+        j = improve.submit("look", "poke-routes", self.PNG)
+        self.assertIn("attached a screenshot with", improve.describe_attached_screenshot_for_prompt(improve._jobs[j["id"]]))
+        with self.assertRaises(ValueError):
+            improve.submit("too many", "poke-routes", screenshot_data_urls=[self.PNG] * 7)
+
+
 class Jobs(Base):
     """Whole jobs through the workers with the fake claude."""
 

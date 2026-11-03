@@ -34,6 +34,7 @@ sys.path.insert(0, str(HERE))
 import route_extras  # noqa: E402
 from fasttile import FastTiler  # noqa: E402
 from pokeroutes.autotile import Autotiler  # noqa: E402
+from pokeroutes.spec import BIOMES  # noqa: E402
 from pokeroutes.tileset import NUM_PRIMARY_METATILES, load_pair  # noqa: E402
 
 # The generator (spec / generate / places / export) is still being worked on, so it
@@ -41,8 +42,8 @@ from pokeroutes.tileset import NUM_PRIMARY_METATILES, load_pair  # noqa: E402
 
 PORT = int(os.environ.get("PORT", 8790))
 EMERALD = ROOT / "vendor" / "pokeemerald"
-MODEL = ROOT / "pokeroutes" / "models" / "general_fortree.json"
-PRIMARY, SECONDARY = "general", "fortree"
+MODELS = ROOT / "pokeroutes" / "models"
+TILESET = "general_fortree"  # forest / meadow / riverland; other biomes use their own learned model
 # the Pokedex: $POKEROUTES_SPECIES_FILE, else the sibling arklarna checkout, else the original dev path
 SPECIES_FILE = os.environ.get("POKEROUTES_SPECIES_FILE") or next((str(p) for p in (ROOT.parent / "arklarna" / "design" / "pokedex.json", Path("/Users/aryan/Desktop/experiments/arklarna/design/pokedex.json")) if p.is_file()), str(ROOT.parent / "arklarna" / "design" / "pokedex.json"))
 STATIC = HERE / "static"
@@ -50,34 +51,43 @@ ATLAS_COLS = 32
 
 # ------------------------------------------------------------------ cached heavy objects
 
-_tiler = None
-_pair = None
-_atlas = None
+_tilers: dict = {}
+_pairs: dict = {}
+_atlases: dict = {}
 _lock = threading.Lock()
 
 
-def tiler() -> FastTiler:
-    global _tiler
+def route_tileset(spec) -> str:
+    """The learned model / tileset pair for a route's biome (spec.tileset, picked from the
+    biome: Route 111's for desert, Slateport's for beach...), General + Fortree if none."""
+    ts = str(getattr(spec, "tileset", "") or TILESET)
+    return ts if (MODELS / f"{ts}.json").is_file() else TILESET
+
+
+def tiler(ts: str = TILESET) -> FastTiler:
     with _lock:
-        if _tiler is None:
-            _tiler = FastTiler(Autotiler.load(MODEL))
-        return _tiler
+        if ts not in _tilers:
+            _tilers[ts] = FastTiler(Autotiler.load(MODELS / f"{ts}.json"))
+        return _tilers[ts]
 
 
-def pair():
-    global _pair
+def pair(ts: str = TILESET):
     with _lock:
-        if _pair is None:
-            _pair = load_pair(EMERALD / "data/tilesets", PRIMARY, SECONDARY)
-        return _pair
+        if ts not in _pairs:
+            _pairs[ts] = load_pair(EMERALD / "data/tilesets", *ts.split("_", 1))
+        return _pairs[ts]
 
 
-def atlas():
+def atlas_url(ts: str = TILESET, png: bool = False) -> str:
+    return "/api/atlas" + (".png" if png else "") + ("" if ts == TILESET else f"?ts={ts}")
+
+
+def atlas(ts: str = TILESET):
     """(png bytes, metadata) for every metatile of the pair, rendered once."""
-    global _atlas
-    if _atlas is None:
-        _atlas = build_atlas(pair(), f"gTileset_{PRIMARY.title()}", f"gTileset_{SECONDARY.title()}", "/api/atlas.png")
-    return _atlas
+    if ts not in _atlases:
+        a, b = ts.split("_", 1)
+        _atlases[ts] = build_atlas(pair(ts), f"gTileset_{a.title()}", f"gTileset_{b.title()}", atlas_url(ts, png=True))
+    return _atlases[ts]
 
 
 def build_atlas(p, primary_sym: str, secondary_sym: str, png_url: str):
@@ -101,19 +111,20 @@ def build_atlas(p, primary_sym: str, secondary_sym: str, png_url: str):
 
 # ------------------------------------------------------------------ worker pool (stage tiling)
 
-_wtiler = None
+_wtilers: dict = {}
 
 
 def _winit():
-    global _wtiler
-    _wtiler = FastTiler(Autotiler.load(MODEL))
+    _wtilers[TILESET] = FastTiler(Autotiler.load(MODELS / f"{TILESET}.json"))
 
 
-def _wtile(cls, final_cls, final_mt, final_col, final_el, seed):
+def _wtile(cls, final_cls, final_mt, final_col, final_el, seed, ts=TILESET):
     from pokeroutes.layout import Layout
 
+    if ts not in _wtilers:
+        _wtilers[ts] = FastTiler(Autotiler.load(MODELS / f"{ts}.json"))
     final = Layout(final_mt, final_col, final_el)
-    return _wtiler.tile_stage(cls, final_cls, final, seed=seed).metatile
+    return _wtilers[ts].tile_stage(cls, final_cls, final, seed=seed).metatile
 
 
 _pool = None
@@ -199,7 +210,7 @@ HINTS = {
     "seed": {"group": "route", "min": 0, "max": 2 ** 31 - 1},
     "width": {"group": "route", "min": 24, "max": 96, "step": 2},
     "height": {"group": "route", "min": 24, "max": 112, "step": 2},
-    "biome": {"group": "route", "choices": ["forest", "meadow", "riverland"]},
+    "biome": {"group": "route", "choices": list(BIOMES)},
     "meander": {"group": "shape", "min": 0, "max": 1, "step": 0.05},
     "branches": {"group": "shape", "min": 0, "max": 8},
     "loops": {"group": "shape", "min": 0, "max": 4},
@@ -376,7 +387,7 @@ def _bbox(cells):
     return [int(min(xs)), int(min(ys)), int(max(xs)) + 1, int(max(ys)) + 1]  # x0, y0, x1, y1 (exclusive)
 
 
-def _tile_stages(route, final, seed, warnings):
+def _tile_stages(route, final, seed, warnings, ts=TILESET):
     """Metatile grid for every snapshot (worker pool, in-process fallback)."""
     global _pool
     snaps = route.snapshots
@@ -393,7 +404,7 @@ def _tile_stages(route, final, seed, warnings):
             jobs[i] = prev
             continue
         try:
-            jobs[i] = pool().submit(_wtile, cls, route.cls, final.metatile, final.collision, final.elevation, seed)
+            jobs[i] = pool().submit(_wtile, cls, route.cls, final.metatile, final.collision, final.elevation, seed, ts)
         except Exception:
             _pool = None
             jobs[i] = None
@@ -406,7 +417,7 @@ def _tile_stages(route, final, seed, warnings):
             _pool = None  # a broken pool gets rebuilt next time
             warnings.append(f"stage tiling worker failed ({type(e).__name__}); tiled in-process")
         if tiles[i] is None:
-            tiles[i] = tiler().tile_stage(snaps[i][1], route.cls, final, seed=seed).metatile
+            tiles[i] = tiler(ts).tile_stage(snaps[i][1], route.cls, final, seed=seed).metatile
     for i, f in jobs.items():
         if isinstance(f, int):
             tiles[i] = tiles[f]
@@ -445,6 +456,11 @@ def generate(params: dict) -> dict:
     t_gen = time.time() - t0
 
     use = "ark" if params.get("tiler") == "ark" else "learned"
+    ts = route_tileset(spec)
+    if use == "ark" and ts != TILESET:
+        # the Ark tiles are woodland only (sand would be drawn as dirt road, sea as pond)
+        warnings.append(f"the Ark tiles have no {spec.biome} art yet; used Emerald's learned {ts} tiles")
+        use = "learned"
     final = tiles = None
     t_final = 0.0
     if use == "ark":
@@ -457,10 +473,10 @@ def generate(params: dict) -> dict:
             warnings.append(f"Ark tiler unavailable ({type(e).__name__}: {e}); used the learned tiler")
             use = "learned"
     if use == "learned":
-        ft = tiler()
+        ft = tiler(ts)
         final = G().ground.texture_open_ground(ft.tile(route.cls, seed=spec.seed), route.cls, spec.seed)  # same as the CLI
         t_final = time.time() - t0 - t_gen
-        tiles = _tile_stages(route, final, spec.seed, warnings)
+        tiles = _tile_stages(route, final, spec.seed, warnings, ts)
     t_stages = time.time() - t0 - t_gen - t_final
 
     stages = []
@@ -499,7 +515,8 @@ def generate(params: dict) -> dict:
         _ark_ids.discard(_results.popitem(last=False)[0])
     return {
         "id": gid, "name": spec.name, "route_id": spec.id, "seed": spec.seed, "biome": getattr(spec, "biome", ""),
-        "tiler": use, "atlas": "/api/atlas?tiler=ark" if use == "ark" else "/api/atlas",
+        "tiler": use, "tileset": "ark" if use == "ark" else ts,
+        "atlas": "/api/atlas?tiler=ark" if use == "ark" else atlas_url(ts),
         "width": route.w, "height": route.h, "stages": stages, "zones": zones, "events": events, "exits": exits,
         "report": rep, "encounters": enc, "emerald_encounters": em,
         "log": part("log", lambda: [str(l) for l in route.log if l not in _stage_names()], []),
@@ -528,7 +545,9 @@ def _stage_names() -> set:
 
 def export_zip(gid: str) -> tuple:
     route, final = _results[gid]
-    tl = tiler()
+    ts = route_tileset(route.spec)
+    tl = tiler(ts)
+    primary, secondary = ts.split("_", 1)
     with tempfile.TemporaryDirectory() as td:
         out = Path(td) / "emerald"
         if not route_extras.gba_size_ok(route.w, route.h):
@@ -541,7 +560,7 @@ def export_zip(gid: str) -> tuple:
 
                 write_ark_emerald(route, final, out, shell_api.ark_tiler())
             else:
-                G().export.write_emerald(route, final, out, PRIMARY, SECONDARY, borders=tl.at.m.get("borders"))
+                G().export.write_emerald(route, final, out, primary, secondary, borders=tl.at.m.get("borders"))
         except Exception as e:  # export.py is in flux: fall back to just the layout files
             traceback.print_exc()
             note = f"pokeroutes.export.write_emerald failed ({type(e).__name__}: {e}); only the layout was written."
@@ -553,7 +572,7 @@ def export_zip(gid: str) -> tuple:
             (lay / "layouts_entry.json").write_text(json.dumps({
                 "id": f"LAYOUT_{route.spec.id.upper()}", "name": f"{route.spec.id}_Layout",
                 "width": route.w, "height": route.h,
-                "primary_tileset": f"gTileset_{PRIMARY.title()}", "secondary_tileset": f"gTileset_{SECONDARY.title()}",
+                "primary_tileset": f"gTileset_{primary.title()}", "secondary_tileset": f"gTileset_{secondary.title()}",
                 "border_filepath": f"data/layouts/{route.spec.id}/border.bin",
                 "blockdata_filepath": f"data/layouts/{route.spec.id}/map.bin", "layout_version": "emerald"}, indent=2))
         buf = io.BytesIO()
@@ -614,10 +633,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         try:
-            if u.path == "/api/atlas":
-                return self._json(atlas()[1])
-            if u.path == "/api/atlas.png":
-                return self._send(200, atlas()[0], "image/png")
+            if u.path in ("/api/atlas", "/api/atlas.png"):
+                ts = parse_qs(u.query).get("ts", [TILESET])[0]
+                if not (ts.replace("_", "").isalnum() and (MODELS / f"{ts}.json").is_file()):
+                    return self._json({"error": "unknown tileset"}, 404)
+                a = atlas(ts)
+                return self._json(a[1]) if u.path == "/api/atlas" else self._send(200, a[0], "image/png")
             if u.path == "/api/options":
                 return self._json(options())
             if u.path == "/api/spec-schema":

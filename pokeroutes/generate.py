@@ -213,9 +213,26 @@ def stage_cleanup(route: Route) -> None:
                     if sum(1 for v in n4 if v == "w") == 0:
                         cls[y, x] = "g"
                         changed += 1
+        changed += _thin_water(route)
         if not changed:
             break
     route.snap("cleanup")
+
+
+def _thin_water(route: Route) -> int:
+    """Water no 2x2 block of water covers (1-wide strips, L-shaped puddles) has no
+    bank tiles in either tileset and comes out as broken edges: make it grass.
+    Bridges count as water here so the river under a crossing stays."""
+    cls = route.cls
+    wet = np.isin(cls, ["w", "q"])
+    blk = wet[:-1, :-1] & wet[1:, :-1] & wet[:-1, 1:] & wet[1:, 1:]
+    cover = np.zeros_like(wet)
+    for dy in (0, 1):
+        for dx in (0, 1):
+            cover[dy:dy + blk.shape[0], dx:dx + blk.shape[1]] |= blk
+    thin = (cls == "w") & ~cover
+    cls[thin] = "g"
+    return int(thin.sum())
 
 
 # ---------------------------------------------------------------- reachability
@@ -265,7 +282,44 @@ def stage_connect(route: Route) -> None:
         for (y, x) in astar(cost, src, target):
             if route.cls[y, x] in "fr":
                 route.cls[y, x] = "g"
+    _untrap(route)
     route.snap("connect")
+
+
+def can_leave(cls: np.ndarray, exits: Sequence[Cell]) -> np.ndarray:
+    """Cells from which some exit can still be walked to (ledges only go south)."""
+    h, w = cls.shape
+    seen = np.zeros((h, w), dtype=bool)
+    stack = [c for c in exits if cls[c] in WALKABLE]
+    for s in stack:
+        seen[s] = True
+    while stack:
+        y, x = stack.pop()
+        prev = [(y + dy, x + dx) for dy, dx in DIRS4]
+        if y >= 2 and cls[y - 1, x] == "s":
+            prev.append((y - 2, x))  # jumped down onto (y, x)
+        for ny, nx in prev:
+            if 0 <= ny < h and 0 <= nx < w and not seen[ny, nx] and cls[ny, nx] in WALKABLE:
+                seen[ny, nx] = True
+                stack.append((ny, nx))
+    return seen
+
+
+def _untrap(route: Route) -> None:
+    """No softlocks: a ledge that drops into a pocket with no way back to an exit
+    (a field boxed in by hedges, a lane that dead-ends below the drop) becomes
+    plain grass, so the pocket is two-way."""
+    starts = route.exits[0][1]
+    exits = [c for _, cells in route.exits for c in cells]
+    for _ in range(20):
+        trapped = reachable(route.cls, starts) & ~can_leave(route.cls, exits)
+        ys, xs = np.nonzero(route.cls[:-1] == "s")
+        bad = [(y, x) for y, x in zip(ys, xs) if trapped[y + 1, x]]
+        if not bad:
+            break
+        for c in bad:
+            route.cls[c] = "g"
+        route.log.append(f"untrap: {len(bad)} ledge cells over a dead-end pocket made two-way")
 
 
 # ---------------------------------------------------------------- places & events
