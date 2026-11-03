@@ -64,7 +64,7 @@
       </section>
       <section data-sec="queue">
         <h2 class="imp-tabs" id="impHistTabs">
-          <button type="button" class="imp-tab" data-tab="all">Queue &amp; history</button>
+          <button type="button" class="imp-tab" data-tab="all">Queue</button>
           <button type="button" class="imp-tab imp-tab-done" data-tab="done">Done</button>
           <button type="button" class="imp-tab imp-tab-error" data-tab="error">Error<b id="impErrCount"></b></button>
           <button type="button" class="imp-tab imp-tab-cancelled" data-tab="cancelled">Cancelled</button>
@@ -106,7 +106,7 @@
       </section>
       <section>
         <h2 class="imp-tabs" id="impHistTabs">
-          <button type="button" class="imp-tab" data-tab="all">History</button>
+          <button type="button" class="imp-tab" data-tab="all">Queue</button>
           <button type="button" class="imp-tab imp-tab-done" data-tab="done">Done</button>
           <button type="button" class="imp-tab imp-tab-error" data-tab="error">Error<b id="impErrCount"></b></button>
           <button type="button" class="imp-tab imp-tab-cancelled" data-tab="cancelled">Cancelled</button>
@@ -126,7 +126,7 @@
     // sections can be dragged: onto a sibling to reorder, or onto the Hierarchy /
     // Inspector dock to pin themselves there, beneath its own content (Unity-style)
     const ORDER_KEY = "pokeroutes-improve-order-v1";
-    const LABELS = { request: "Request", workers: "Workers", current: "Current job", queue: "Queue & history", usage: "Usage" };
+    const LABELS = { request: "Request", workers: "Workers", current: "Current job", queue: "Queue", usage: "Usage" };
     const sections = Array.from(panel.children);
     const bySec = new Map(sections.map((s) => [s.dataset.sec, s]));
     let order = [];
@@ -195,12 +195,14 @@
     return new Date(t * 1000).toLocaleDateString();
   };
 
-  // the "Done" and "Error" tabs are filtered views of the same job list, not a separate store
+  // the "Done", "Error" and "Cancelled" tabs are filtered views of the same job list, not a
+  // separate store; the default "all" tab is really "Queue" and only shows jobs still waiting
+  // to run (running jobs have their own row under Workers)
   function jobsForTab(tab) {
     if (tab === "done") return state.jobs.filter((j) => j.status === "done");
     if (tab === "error") return state.jobs.filter((j) => BAD.includes(j.status));
     if (tab === "cancelled") return state.jobs.filter((j) => j.status === "cancelled");
-    return state.jobs;
+    return state.jobs.filter((j) => j.status === "queued");
   }
 
   function renderHistTabs() {
@@ -215,7 +217,7 @@
     const ul = $("impHist");
     ul.innerHTML = "";
     const jobs = jobsForTab(state.histTab);
-    if (!jobs.length) { ul.append(el("li", "muted", state.histTab === "all" ? "nothing yet" : `nothing ${state.histTab} yet`)); return; }
+    if (!jobs.length) { ul.append(el("li", "muted", state.histTab === "all" ? "nothing queued" : `nothing ${state.histTab} yet`)); return; }
     for (const j of jobs) {
       const li = el("li", current() === j.id ? "on" : "");
       const req = el("button", "req", j.request);
@@ -293,6 +295,12 @@
         r.title = `Show this job's log (verifies on port ${s.port})`;
         r.onclick = () => showLog(j.id);
         li.append(r);
+        if (!j.held_by) {
+          const c = el("button", "undo", "Cancel");
+          c.type = "button";
+          c.onclick = () => api(`/api/improve/${j.id}/cancel`, {}).then(refresh).catch((e) => ($("impErr").textContent = e.message));
+          li.append(c);
+        }
       } else li.append(el("span", "idle", s.retiring ? "stopping" : "idle"));
       ul.append(li);
     }
