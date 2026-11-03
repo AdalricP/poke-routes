@@ -55,12 +55,16 @@
         </div>
       </section>
       <section>
-        <h2>Queue &amp; history</h2>
-        <div class="imp-sec"><ul class="imp-hist" id="impHist"><li class="muted">nothing yet</li></ul></div>
+        <h2 class="imp-wh">Workers <span class="imp-wctl" id="impWctl"><button type="button" data-d="-1" title="Fewer workers">&minus;</button><b id="impWn">-</b><button type="button" data-d="1" title="More workers">+</button></span></h2>
+        <div class="imp-sec"><ul class="imp-slots" id="impSlots"></ul><p class="imp-note" id="impOwner"></p></div>
       </section>
       <section>
-        <h2 class="imp-wh">Workers <span class="imp-wctl" id="impWctl"><button type="button" data-d="-1" title="Fewer workers">&minus;</button><b id="impWn">-</b><button type="button" data-d="1" title="More workers">+</button></span></h2>
-        <div class="imp-sec" id="impLogBox"><ul class="imp-slots" id="impSlots"></ul><p class="imp-note" id="impOwner"></p><p class="imp-cur" id="impCur"></p><pre class="imp-log" id="impLog"></pre></div>
+        <h2>Current job</h2>
+        <div class="imp-sec" id="impLogBox"><p class="imp-cur" id="impCur"></p><pre class="imp-log" id="impLog"></pre></div>
+      </section>
+      <section>
+        <h2>Queue &amp; history</h2>
+        <div class="imp-sec"><ul class="imp-hist" id="impHist"><li class="muted">nothing yet</li></ul></div>
       </section>
       <section>
         <h2>Usage</h2>
