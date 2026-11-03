@@ -10,6 +10,7 @@ and a headless Claude Code run implements it as exactly one git commit.
     POST /api/improve/<id>/undo    queue a git revert of that job's commit
     POST /api/improve/<id>/fix     {"request": "..."}  queue a follow-up job on top of a done one,
                                     for when the agent got it wrong or incomplete
+    POST /api/improve/<id>/retry   queue a fresh job with the same request, for a failed/timeout/conflict one
     POST /api/improve/<id>/cancel  cancel a queued or running job
     POST /api/improve/workers      {"workers": n}  how many jobs run at once (1-6)
 
@@ -1458,6 +1459,33 @@ def fix(jid: str, request: str) -> dict:
     return public(job)
 
 
+def retry(jid: str) -> dict:
+    """A one-click do-over for a failed/timeout/conflict job: a new job with the same request,
+    target, mode and screenshots. The old job is left alone, same as fix()."""
+    with _cv:
+        src = _jobs.get(jid)
+        if not src or src["kind"] != "improve":
+            raise KeyError(jid)
+        if src["status"] not in ("failed", "timeout", "conflict"):
+            raise ValueError(f"nothing to retry (status {src['status']})")
+        rid = jid + "-retry"
+        n = 1
+        while rid in _jobs:
+            n += 1
+            rid = f"{jid}-retry{n}"
+        job = {"id": rid, "kind": "improve", "retry_of": jid, "request": src["request"],
+               "target": src["target"], "status": "queued", "created": time.time(), "owner": _me}
+        if src.get("mode") == "agent":
+            job["mode"] = "agent"
+        if src.get("screenshots"):
+            job["screenshots"] = src["screenshots"]
+            job["screenshot"] = src.get("screenshot", "")
+        _jobs[rid] = job
+        _cv.notify_all()
+    _save()
+    return public(job)
+
+
 def cancel(jid: str) -> dict:
     with _lock:
         job = _jobs.get(jid)
@@ -1619,6 +1647,8 @@ def handle(h, method: str, u) -> None:
             return h._json(undo(parts[0]), 202)
         if len(parts) == 2 and parts[1] == "fix":
             return h._json(fix(parts[0], str(body.get("request", ""))), 202)
+        if len(parts) == 2 and parts[1] == "retry":
+            return h._json(retry(parts[0]), 202)
         if len(parts) == 2 and parts[1] == "cancel":
             return h._json(cancel(parts[0]))
         return h._json({"error": "not found"}, 404)

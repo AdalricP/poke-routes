@@ -251,6 +251,13 @@
         c.onclick = () => api(`/api/improve/${j.id}/cancel`, {}).then(refresh).catch((e) => ($("impErr").textContent = e.message));
         meta.append(c);
       }
+      if (j.kind === "improve" && BAD.includes(j.status) && !(state.h && state.h.readonly && !state.h.owner.port)) {
+        const rt = el("button", "undo", "Retry");
+        rt.type = "button";
+        rt.title = "Queue a fresh job with the same request";
+        rt.onclick = () => { rt.disabled = true; api(`/api/improve/${j.id}/retry`, {}).then(refresh).catch((e) => { rt.disabled = false; $("impErr").textContent = e.message; }); };
+        meta.append(rt);
+      }
       li.append(req, meta);
       if (j.error) li.append(el("p", "sum", j.error));
       else if (j.notes && j.notes.length && ACTIVE.includes(j.status)) li.append(el("p", "sum", j.notes[j.notes.length - 1]));
