@@ -1170,7 +1170,7 @@ class Planner:
                 break
             # a failed try only rules out its own spot, not the whole mass around it
             d[tried] = 0
-            if d.max() < COVER_BLANK - 3:
+            if d.max() < COVER_BLANK:
                 break
             d += self.rng.random(d.shape) * 0.9
             ty, tx = np.unravel_index(int(np.argmax(d)), d.shape)
