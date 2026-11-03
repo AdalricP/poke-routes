@@ -78,39 +78,55 @@ def coastline(w: World) -> None:
     u, v = (xs + 0.5) / w.W, (ys + 0.5) / w.H
     U = lambda a, b: float(rng.uniform(a, b))  # noqa: E731
     warp = Fbm(rng, 4)
-    wa, ws = U(0.06, 0.13), U(13, 24)
+    wa, ws = U(0.05, 0.16), U(10, 26)
     wu = u + wa * (norm01(warp(xs / ws, ys / ws)) - 0.5) * 2
     wv = v + wa * (norm01(warp(xs / ws + 7.3, ys / ws + 3.1)) - 0.5) * 2
 
     def ell(cx, cy, rx, ry):
         return 1.0 - ((wu - cx) / rx) ** 2 - ((wv - cy) / ry) ** 2
 
+    def lobed(cx, cy, rx, ry, k_max=5, amp=0.32):
+        """An ellipse whose radius wobbles with angle (a few random harmonics), so each seed's
+        landmass has its own silhouette instead of the same oval."""
+        dx, dy = (wu - cx) / rx, (wv - cy) / ry
+        th = np.arctan2(dy, dx)
+        r = np.ones_like(th)
+        for k in range(2, k_max + 1):
+            r += U(0.0, amp) / (k - 1) ** 0.7 * np.cos(k * th + U(0, 2 * math.pi))
+        return 1.0 - (np.hypot(dx, dy) / np.maximum(r, 0.35)) ** 2
+
     # the strait and the Nehrung first: the mainland grows out to meet them
-    sx, sy = U(0.60, 0.67), U(0.22, 0.42)
-    ex, ey = U(0.85, 0.88), U(max(0.42, sy + 0.12), 0.66)
-    erx, ery = U(0.07, 0.09), U(0.19, min(0.26, 0.93 - ey))
-    # mainland: a core blob, a lobe out to the strait, and 2-4 random headlands
-    cx, cy = U(0.27, 0.38), U(0.44, 0.62)
-    rx, ry = U(0.20, min(0.29, sx - 0.06 - cx + 0.12)), U(0.26, 0.36)
-    nx, ny = sx - U(0.09, 0.13), sy + U(0.06, 0.11)
-    main = np.maximum(ell(cx, cy, rx, ry), ell(nx, ny, U(0.09, 0.13), U(0.10, 0.15)))
-    for _ in range(int(rng.integers(2, 5))):
-        a = U(0.5, 2.9) if rng.random() < 0.8 else U(-0.9, 0.5)  # mostly west/north/south
-        d = U(0.65, 1.0)
+    sx, sy = U(0.57, 0.68), U(0.18, 0.46)
+    ex, ey = U(0.82, 0.89), U(max(0.40, sy + 0.12), 0.70)
+    erx, ery = U(0.055, 0.11), U(0.14, min(0.29, 0.93 - ey))
+    # mainland: a lobed core, a lobe out to the strait, 1-6 headlands, 0-3 bays bitten out
+    cx, cy = U(0.24, 0.40), U(0.36, 0.66)
+    rx, ry = U(0.16, min(0.30, sx - 0.06 - cx + 0.12)), U(0.20, 0.38)
+    nx, ny = sx - U(0.08, 0.14), sy + U(0.05, 0.12)
+    main = np.maximum(lobed(cx, cy, rx, ry), ell(nx, ny, U(0.08, 0.14), U(0.09, 0.16)))
+    for _ in range(int(rng.integers(1, 7))):
+        a = U(0, 2 * math.pi)
+        d = U(0.6, 1.05)
         lx = min(cx - math.cos(a) * rx * d, sx - 0.08)
-        ly = cy - math.sin(a) * ry * d * (1 if rng.random() < 0.5 else -1)
-        main = np.maximum(main, ell(lx, ly, U(0.06, 0.14), U(0.06, 0.14)))
-    east = ell(ex, ey, erx, ery)
-    cs = U(5, 9)
-    coast_noise = norm01(Fbm(rng, 5, gain=U(0.55, 0.72))((xs / cs), (ys / cs))) - 0.5
-    ca = U(0.5, 0.9)
+        ly = cy - math.sin(a) * ry * d
+        main = np.maximum(main, lobed(lx, ly, U(0.04, 0.15), U(0.04, 0.15), k_max=3, amp=0.4))
+    for _ in range(int(rng.integers(0, 4))):  # bays and fjords: seawater cut into the coast
+        a = U(0, 2 * math.pi)
+        bx_, by_ = cx - math.cos(a) * rx * U(0.75, 1.0), cy - math.sin(a) * ry * U(0.75, 1.0)
+        if bx_ > sx - 0.12:   # never cut the neck out to the strait
+            continue
+        main = np.minimum(main, -ell(bx_, by_, U(0.03, 0.08), U(0.03, 0.08)))
+    east = lobed(ex, ey, erx, ery, k_max=4, amp=0.28)
+    cs = U(4, 11)
+    coast_noise = norm01(Fbm(rng, 5, gain=U(0.5, 0.75))((xs / cs), (ys / cs))) - 0.5
+    ca = U(0.4, 1.1)
     mainland = (main + coast_noise * ca) > 0
     eastland = (east + coast_noise * ca) > 0
 
     # the spit: leaves the strait heading east, bows north, drops onto the Nehrung block
     a, b = np.array([sx + 0.014, sy - 0.005]), np.array([ex, ey - ery * 0.4])
-    ky = max(0.02, min(a[1], b[1]) - U(0.06, 0.18))
-    k1, k2 = a + [0.08, 0.0], np.array([b[0] - U(0.0, 0.06), ky])
+    ky = max(0.02, min(a[1], b[1]) - U(0.03, 0.22))
+    k1, k2 = a + [U(0.04, 0.12), U(-0.04, 0.03)], np.array([b[0] - U(0.0, 0.08), ky])
     pts = [(1 - t) ** 3 * a + 3 * t * (1 - t) ** 2 * k1 + 3 * t * t * (1 - t) * k2 + t ** 3 * b
            for t in np.linspace(0, 1, 11)]
     spit_d = np.full(mainland.shape, 1e9)
@@ -126,6 +142,10 @@ def coastline(w: World) -> None:
     haff = (u > sx - 0.04) & (u < ex - 0.04) & (v > sy - 0.06) & ~spit
     mainland &= ~(haff & (main + coast_noise * ca < 0.12))
     eastland &= ~(haff & (east + coast_noise * ca < 0.12)) | spit
+    for _ in range(int(rng.integers(0, 4))):  # a few offshore islets, wherever they fall
+        ix, iy = U(0.06, 0.94), U(0.08, 0.92)
+        isl = (lobed(ix, iy, U(0.012, 0.035), U(0.012, 0.035), k_max=3, amp=0.5) + coast_noise * ca * 0.4) > 0
+        mainland |= isl & ~eastland & ~spit & ~haff
     m = 3  # a ring of sea around the map edge
     for a in (mainland, eastland):
         a[:m, :] = a[-m:, :] = False
