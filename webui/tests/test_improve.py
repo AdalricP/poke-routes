@@ -164,6 +164,32 @@ class Recovery(Base):
         self.assertEqual(disk["lost1"]["status"], "queued")
         self.assertEqual(json.loads(improve.META.read_text())["migrated_ids"], ["lost1", "lost2"])
 
+    def test_recovered_merged_undo_marks_source_undone_and_drops_branch(self):
+        # the server died right after an undo job's branch landed on main but before it could
+        # record "done"; recover_interrupted() sees the commit already there and should also
+        # undo the source and clean up the branch it no longer needs (finding 48)
+        wt = self.tmp / "wt-u1"
+        base = git(self.repo, "rev-parse", "main")
+        br = "improve/job-u1"
+        git(self.repo, "worktree", "add", "-q", "-b", br, str(wt), base)
+        (wt / "b.txt").write_text("reverted\n")
+        git(wt, "add", "b.txt")
+        git(wt, "commit", "-q", "-m", "Revert improve: write b.txt")
+        tip = git(wt, "rev-parse", "HEAD")
+        git(self.repo, "worktree", "remove", "--force", str(wt))   # the crash: worktree gone, branch left
+        git(self.repo, "update-ref", "refs/heads/main", tip)       # ...but the merge had already landed
+        src = {"id": "src", "kind": "improve", "request": "r", "target": "poke-routes",
+               "status": "done", "commit": "c1", "created": 1}
+        job = {"id": "u1", "kind": "undo", "undo_of": "src", "status": "merging", "branch": br,
+               "base": base, "worktree": str(wt), "created": 2, "owner": 999999}
+        improve._jobs["src"] = src
+        improve._jobs["u1"] = job
+        improve.recover_interrupted(job)
+        self.assertEqual(job["status"], "done")
+        self.assertEqual(src["status"], "undone")
+        self.assertEqual(src["undone_by"], "u1")
+        self.assertEqual(git(self.repo, "branch", "--list", br), "")
+
     def test_migration_runs_once(self):
         improve._meta["migrated_lost_v1"] = 1
         improve.META.write_text(json.dumps(improve._meta))

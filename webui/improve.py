@@ -1175,6 +1175,9 @@ def recover_interrupted(job, why="the server stopped while it was running"):
         if tip != job.get("base") and _is_ancestor(REPO, tip, f"refs/heads/{MAIN}"):
             job["commit"], job["commits"] = tip, [tip]
             set_status(job, "done", note="its commit was already on main when the server restarted")
+            if job.get("kind") == "undo" and job.get("undo_of") in _jobs:
+                set_status(_jobs[job["undo_of"]], "undone", undone_by=job["id"])
+            _drop_worktree(job.get("worktree") or WT_ROOT / f"job-{job['id']}", br)
             return job
     if job.get("requeued", 0) >= 1:
         set_status(job, "failed", error=f"interrupted twice ({why}); not requeued again")
