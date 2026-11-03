@@ -94,6 +94,25 @@ def test_build_network_keeps_branch_links_when_all_routes_are_pinned():
     assert "Dummy2 branch" in names
 
 
+# ---------------------------------------------------------------- finding 3
+
+def test_rebuild_keeps_hand_link_referencing_an_unpinned_route():
+    """network.py:823 (user_link/build_network): a hand-drawn link that names an
+    unpinned route by name used to vanish from w.links for good on a rebuild, because
+    the unpinned route gets a fresh (possibly different) name and the ref can no
+    longer resolve."""
+    w = make_four_city_world()
+    network.build_network(w, keep=[], plan=[])
+    some_route = w.routes[0]["name"]
+    ul = dict(name="Hand link 1", kind="user", src_ref={"route": some_route}, dst_ref={"city": "tvangsburg"})
+    plan = list(w.links) + [ul]
+
+    network.build_network(w, keep=[], plan=plan)
+
+    names = {l["name"] for l in w.links}
+    assert "Hand link 1" in names
+
+
 if __name__ == "__main__":
     import sys
 

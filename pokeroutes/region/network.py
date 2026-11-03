@@ -689,6 +689,9 @@ def build_network(w: World, keep: Optional[List[dict]] = None, plan: Optional[Li
         if link is not None:
             add(link)
         else:
+            # keep the ref around with no routes, so a later rebuild can retry once it resolves
+            links.append(dict(name=ul["name"], kind="user", mode=ul.get("mode", "land"),
+                              src_ref=ul.get("src_ref"), dst_ref=ul.get("dst_ref"), routes=[]))
             w.log.append(f"{ul['name']}: an end is gone; not laid")
     add_back_gates(net)
     classify(w, net)
