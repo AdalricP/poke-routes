@@ -18,7 +18,7 @@ and a headless Claude Code run implements it as exactly one git commit.
     POST /api/improve/<id>/pin     {"pinned": true/false}  protect a finished job from /clear, highlight it
     POST /api/improve/clear        {"status": "done"|"error"|"cancelled"}  dismiss every finished, unpinned
                                     job of that kind from history (they stay on disk, just hidden)
-    POST /api/improve/workers      {"workers": n}  how many jobs run at once (1-6)
+    POST /api/improve/workers      {"workers": n}  how many jobs run at once (1-8)
 
 "agent" jobs come from the shell's Agent tab: a task done *for* the owner in the tool
 ("get this tileset", "apply that tileset") instead of a change to the software.
@@ -97,7 +97,7 @@ maximum_screenshots_per_job = 6
 maximum_total_screenshot_size_in_bytes = 24 * 1024 * 1024
 png_data_url_prefix = "data:image/png;base64,"
 png_file_signature = b"\x89PNG\r\n\x1a\n"
-MAX_WORKERS = 6
+MAX_WORKERS = 8
 DEFAULT_WORKERS = 3
 PORT_BASE = 8800                 # a job in slot s verifies with its own server copy on PORT_BASE + s
 MEM_MIN_MB = _env_int("IMPROVE_MEM_MIN_MB", 800)
