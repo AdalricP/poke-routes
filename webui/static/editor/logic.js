@@ -9,7 +9,6 @@
   const STALE_BY = {
     terrain: ["water", "climate", "biomes", "routes"],
     coast: ["water", "climate", "biomes", "routes"],
-    river: ["climate", "biomes", "routes"],
     biome: ["routes"],
     places: ["routes"],
   };
@@ -293,15 +292,6 @@
         touch(doc, s, "river")[i] = 0;
         touch(doc, s, "biome")[i] = 111; // o
       }
-    }
-  }
-  function paintRiver(doc, s, cells, erase) {
-    const pr = touch(doc, s, "paint_river"), river = touch(doc, s, "river");
-    const land = doc.grids.land, lake = doc.grids.lake;
-    for (const [i] of cells) {
-      if (!land[i] || lake[i]) continue;
-      pr[i] = erase ? 2 : 1;
-      river[i] = erase ? 0 : 1;
     }
   }
 
@@ -687,7 +677,7 @@
     STAGES, STALE_BY, BIOME_NAMES, PAINT_BIOMES, BIOME_RGB, ROLE_RGB, ROLES, SPEC_BIOMES, SIDES, DELTA, OPP, CELL,
     decodeGrid, encodeGrid, decodeDoc, encodeDoc, b64ToBytes, bytesToB64,
     History, snapshot, restore, touch, markStale, stagesFor,
-    brushCells, lineCells, bbox, brushRaise, brushFlatten, brushSmooth, paintBiome, paintWater, paintRiver,
+    brushCells, lineCells, bbox, brushRaise, brushFlatten, brushSmooth, paintBiome, paintWater,
     shadeGrid, cellColor, renderBase,
     asciiId, routeByName, nodeRect, placeAt, refOf, renameRoute, renamePlace, moveCity, moveLandmark,
     exitAlong, sideRange, edgeCell, mirrorExit, moveExit, sizeOk, resizeRoute, deleteRoute, routeWarnings,

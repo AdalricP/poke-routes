@@ -48,7 +48,6 @@
     <hr data-modes="geography">
     <button type="button" data-tool="biome"><b>B</b>biome</button>
     <button type="button" data-tool="water"><b>W</b>coast</button>
-    <button type="button" data-tool="river"><b>I</b>river</button>
     <hr data-modes="">
     <button type="button" data-tool="route"><b>A</b>add route</button>
   </nav>
@@ -80,7 +79,7 @@
       <h2>Stages</h2>
       <ul class="stages" data-ed="stages"></ul>
       <button type="button" class="small wide" data-ed="recalcStale" title="C">Recompute everything stale</button>
-      <p class="hint">Hand-painted biomes, coast and rivers stay as overrides. Pinned routes stay put.</p>
+      <p class="hint">Hand-painted biomes and coast stay as overrides; rivers follow the ground. Pinned routes stay put.</p>
     </section>
     <section data-ed="toolOpts">
       <h2 data-ed="toolTitle">Select</h2>
@@ -110,10 +109,10 @@
     <h2>Keys</h2>
     <dl>
       <dt>V R L F S</dt><dd>select, raise, lower, flatten, smooth</dd>
-      <dt>B W I</dt><dd>paint biome, coast (land / sea / lake), river</dd>
+      <dt>B W</dt><dd>paint biome, coast (land / sea / lake)</dd>
       <dt>A</dt><dd>add route: drag from one place to another</dd>
       <dt>[ ]</dt><dd>brush smaller / bigger</dd>
-      <dt>Alt + drag</dt><dd>river tool erases; raise lowers</dd>
+      <dt>Alt + drag</dt><dd>raise lowers, lower raises</dd>
       <dt>Space + drag</dt><dd>pan (right or middle drag too)</dd>
       <dt>wheel, + - 0</dt><dd>zoom, fit</dd>
       <dt>1 - 5</dt><dd>layers: height, biome, water, routes, labels</dd>
@@ -139,9 +138,9 @@
   const REGION_KEY = "pokeroutes-region-spec"; // region-bridge.js reads this
   const TOOLS = {
     select: "Select", raise: "Raise", lower: "Lower", flatten: "Flatten", smooth: "Smooth",
-    biome: "Paint biome", water: "Coast", river: "River", route: "Add route",
+    biome: "Paint biome", water: "Coast", route: "Add route",
   };
-  const BRUSH_TOOLS = new Set(["raise", "lower", "flatten", "smooth", "biome", "water", "river"]);
+  const BRUSH_TOOLS = new Set(["raise", "lower", "flatten", "smooth", "biome", "water"]);
   const SPEC_FIELDS = [
     ["meander", 0.05], ["branches", 1], ["loops", 1], ["dead_ends", 1], ["clearings", 1], ["lakes", 1],
     ["tall_grass", 0.05], ["hidden_paths", 1], ["hidden_items", 1], ["special_area_chance", 0.05],
@@ -155,7 +154,7 @@
     marsh: "#aadcaa", dunes: "#fadc96", deepwood: "#8cdc8c",
   };
   const tools_shown_in_each_editor_mode = {
-    geography: ["select", "raise", "lower", "flatten", "smooth", "biome", "water", "river"],
+    geography: ["select", "raise", "lower", "flatten", "smooth", "biome", "water"],
     region: ["select", "route"],
     story: ["select"],
     gates: ["select"],
@@ -175,7 +174,7 @@
 
   const st = {
     doc: null, hist: new ED.History(100), view: { z: 6, ox: 0, oy: 0 },
-    mode: null, tool: "select", brush: 4, strength: 0.03, biome: "f", water: "sea", riverErase: false,
+    mode: null, tool: "select", brush: 4, strength: 0.03, biome: "f", water: "sea",
     layers: { height: true, biome: true, water: true, routes: true, labels: true },
     sel: null, hover: null, drag: null, space: false, busy: false, unsaved: false, cursor: null,
     step: -1, // route design B: beats done so far (-1 = new game)
@@ -379,7 +378,7 @@
       const r = g.recv ? g.recv[i] : -1;
       let to = null;
       if (r >= 0 && (g.river[r] || g.lake[r] || !g.land[r]) && Math.abs((r % W) - x) <= 1) to = [r % W, (r / W) | 0];
-      if (!to) { // hand-drawn rivers: join 4-neighbours that are river too
+      if (!to) { // no downhill neighbour on the river: join 4-neighbours that are river too
         for (const [dx, dy] of [[1, 0], [0, 1]]) {
           const j = (y + dy) * W + x + dx;
           if (x + dx < W && y + dy < d.H && g.river[j]) segs.push([x, y, x + dx, y + dy, wdt]);
@@ -639,7 +638,7 @@
   function drawToolOverlay(d, X, Y, z) {
     if (st.cursor && BRUSH_TOOLS.has(st.tool) && !st.space) {
       const { fx, fy } = st.cursor;
-      const r = st.tool === "river" ? 0.5 : st.brush;
+      const r = st.brush;
       ctx.strokeStyle = "rgba(255,255,255,0.9)";
       ctx.lineWidth = 1.5;
       ctx.beginPath();
@@ -820,7 +819,7 @@
     if (!dr) return;
     if (dr.kind === "brush") {
       if (!dr.changed) { st.hist.cancel(); return; }
-      const cause = { raise: "terrain", lower: "terrain", flatten: "terrain", smooth: "terrain", biome: "biome", water: "coast", river: "river" }[st.tool];
+      const cause = { raise: "terrain", lower: "terrain", flatten: "terrain", smooth: "terrain", biome: "biome", water: "coast" }[st.tool];
       commit(TOOLS[st.tool].toLowerCase(), cause);
       return;
     }
@@ -852,8 +851,7 @@
 
   function dab(fx, fy, moving) {
     const d = st.doc, dr = st.drag;
-    const r = st.tool === "river" ? 0.5 : st.brush;
-    const cells = ED.brushCells(d.W, d.H, Math.floor(fx), Math.floor(fy), r);
+    const cells = ED.brushCells(d.W, d.H, Math.floor(fx), Math.floor(fy), st.brush);
     if (!cells.length) return;
     const s = dr.s, alt = dr.alt;
     const k = st.strength;
@@ -864,7 +862,6 @@
       case "smooth": ED.brushSmooth(d, s, cells, 0.5); break;
       case "biome": ED.paintBiome(d, s, cells, st.biome); break;
       case "water": ED.paintWater(d, s, cells, st.water); break;
-      case "river": ED.paintRiver(d, s, cells, st.riverErase || alt); break;
     }
     dr.changed = true;
     void moving;
@@ -880,7 +877,7 @@
     const bits = [`x ${x}  y ${y}`, `h ${g.height[i].toFixed(3)}`, ED.BIOME_NAMES[b] || b];
     if (g.tiers) bits.push(`tier ${g.tiers[i]}`);
     if (g.river[i]) bits.push("river");
-    if (g.paint_biome[i] || g.paint_water[i] || g.paint_river[i]) bits.push("hand-painted");
+    if (g.paint_biome[i] || g.paint_water[i]) bits.push("hand-painted");
     $("status").textContent = bits.join("  ·  ");
   }
 
@@ -957,10 +954,8 @@
       add('<p class="hint">Drag from a town or route to another town, route or landmark. The new route is laid around everything else and comes back pinned.</p>');
       return;
     }
-    if (st.tool !== "river") {
-      const d = add(`<div class="slider"><label for="ed-bsz"><span>Brush size</span><output>${st.brush}</output></label><input type="range" id="ed-bsz" min="1" max="16" step="1" value="${st.brush}"></div>`);
-      d.querySelector("input").oninput = (e) => { st.brush = +e.target.value; d.querySelector("output").textContent = st.brush; draw(); };
-    }
+    const d = add(`<div class="slider"><label for="ed-bsz"><span>Brush size</span><output>${st.brush}</output></label><input type="range" id="ed-bsz" min="1" max="16" step="1" value="${st.brush}"></div>`);
+    d.querySelector("input").oninput = (e) => { st.brush = +e.target.value; d.querySelector("output").textContent = st.brush; draw(); };
     if (["raise", "lower"].includes(st.tool)) {
       const d = add(`<div class="slider"><label for="ed-bst"><span>Strength</span><output>${st.strength.toFixed(3)}</output></label><input type="range" id="ed-bst" min="0.005" max="0.12" step="0.005" value="${st.strength}"></div>`);
       d.querySelector("input").oninput = (e) => { st.strength = +e.target.value; d.querySelector("output").textContent = st.strength.toFixed(3); };
@@ -991,16 +986,6 @@
         d.firstChild.appendChild(b);
       }
       add('<p class="hint">Painted coast and lakes stay through recomputes; land paint also stops a lake forming there.</p>');
-    }
-    if (st.tool === "river") {
-      const d = add('<div class="segrow"></div>');
-      for (const [m, lbl] of [[false, "draw"], [true, "erase"]]) {
-        const b = document.createElement("button");
-        b.type = "button"; b.textContent = lbl; b.className = st.riverErase === m ? "on" : "";
-        b.onclick = () => { st.riverErase = m; refreshTool(); };
-        d.firstChild.appendChild(b);
-      }
-      add('<p class="hint">One cell wide. Alt erases. Drawn and erased cells win over the river pass.</p>');
     }
   }
 
@@ -1354,7 +1339,7 @@
   $("help").onclick = (e) => { if (e.target === $("help")) $("help").hidden = true; };
   $("docName").onchange = () => { if (st.doc) { st.doc.name = $("docName").value.trim(); st.unsaved = true; } };
 
-  const KEY_TOOLS = { v: "select", r: "raise", l: "lower", f: "flatten", s: "smooth", b: "biome", w: "water", i: "river", a: "route" };
+  const KEY_TOOLS = { v: "select", r: "raise", l: "lower", f: "flatten", s: "smooth", b: "biome", w: "water", a: "route" };
   on(document, "keydown", (ev) => {
     if (opts.keys === false || !root.isConnected || root.closest("[hidden]")) return; // a host can hide or park the editor
     const mod = ev.ctrlKey || ev.metaKey;

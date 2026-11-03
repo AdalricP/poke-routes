@@ -15,7 +15,7 @@ function makeDoc() {
   const g = {
     height: new Float32Array(N), land: new Uint8Array(N), half: new Uint8Array(N), lake: new Uint8Array(N),
     river: new Uint8Array(N), biome: new Uint8Array(N), tiers: new Uint8Array(N), dirty: new Uint8Array(N),
-    paint_biome: new Uint8Array(N), paint_water: new Uint8Array(N), paint_river: new Uint8Array(N),
+    paint_biome: new Uint8Array(N), paint_water: new Uint8Array(N),
   };
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = y * W + x, inside = x >= 4 && x < 36 && y >= 4 && y < 26;
@@ -130,16 +130,6 @@ test("water paint: sea, lake, land", () => {
   assert.strictEqual(d.grids.paint_water[i], 1);
 });
 
-test("river draw and erase", () => {
-  const d = makeDoc(), s = new ED.History().begin(d);
-  const cells = ED.lineCells(6, 6, 30, 6).map(([x, y]) => [y * 40 + x, 1]);
-  ED.paintRiver(d, s, cells, false);
-  assert.strictEqual(d.grids.river[6 * 40 + 10], 1);
-  assert.strictEqual(d.grids.paint_river[6 * 40 + 10], 1);
-  ED.paintRiver(d, s, cells.slice(0, 3), true);
-  assert.strictEqual(d.grids.river[6 * 40 + 6], 0);
-  assert.strictEqual(d.grids.paint_river[6 * 40 + 6], 2);
-});
 
 test("undo / redo with copy-on-write grids, 120 steps, limit honoured", () => {
   const d = makeDoc(), h = new ED.History(100);

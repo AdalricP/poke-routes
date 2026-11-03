@@ -7,8 +7,10 @@ JSON (cities, landmarks, links, routes). Editor-only grids:
 
   paint_biome  0 = none, else the char code of a biome painted by hand
   paint_water  0 = none, 1 forced land, 2 forced sea, 3 forced lake
-  paint_river  0 = none, 1 river drawn by hand, 2 river erased by hand
   dirty        cells the terrain brushes touched since the last water pass
+
+Rivers are never painted: they come from the water stage (rain routed downhill over
+the height, a river wherever enough of it gathers), so reshaping the ground moves them.
 
 Stages (in order): water (lakes, rivers, flow), climate (temperature, moisture),
 biomes (tiers, biomes) and routes (network, roles, names; pinned routes stay).
@@ -34,7 +36,7 @@ WGRIDS = {"height": "f4", "land": "u1", "half": "u1", "lake": "u1", "river": "u1
 # w.overrides grids (legend effects)
 OGRIDS = {"spit": "u1", "no_route": "u1", "trench": "u1", "isles": "u1", "no_lake": "u1", "lake_extra": "u1",
           "heat": "f4", "rain": "f4", "upland": "f4", "moist_noise": "f4"}
-EGRIDS = {"paint_biome": "u1", "paint_water": "u1", "paint_river": "u1", "dirty": "u1", "legend_biome": "u1"}
+EGRIDS = {"paint_biome": "u1", "paint_water": "u1", "dirty": "u1", "legend_biome": "u1"}
 META = ("den_gate", "volcano", "capital_site", "den", "tier_q", "preyl")
 BOOL = {"land", "lake", "river", "lagoon", "spit", "no_route", "trench", "isles", "no_lake", "lake_extra"}
 
@@ -171,13 +173,7 @@ def stage_water(w: World) -> None:
     w.overrides["no_lake"] = w.overrides["no_lake"] | hand_no
     terrain.hydrology(w)
     w.overrides["no_lake"] = np.asarray(base_no, bool)  # the legend's own mask stays as it was
-    _apply_rivers(w)
     w.overrides["_edit"]["dirty"] = np.zeros(w.land.shape, np.uint8)
-
-
-def _apply_rivers(w: World) -> None:
-    pr = _paint(w, "paint_river")
-    w.river = ((w.river | (pr == 1)) & ~(pr == 2)) & w.land & ~w.lake
 
 
 def stage_climate(w: World) -> None:
