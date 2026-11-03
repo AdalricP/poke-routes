@@ -1040,7 +1040,7 @@ class Planner:
         ok = [i for i, k in self.kind_of.items() if k in ("main", "loop", "dead_end")]
         if hosts_only:
             ok = [i for i in ok if self.kind_of[i] in ("main", "loop")
-                  or any(l.id == i and l.fate == "dead" and not l.meta.get("spur") for l in self.lanes)]
+                  or any(lane.id == i and lane.fate == "dead" and not lane.meta.get("spur") for lane in self.lanes)]
         goal = np.isin(self.owner, ok)
         near = binary_dilation(self.owner >= 0, structure=np.ones((2 * GAP + 1, 2 * GAP + 1), dtype=bool))
         h, w = self.h, self.w
