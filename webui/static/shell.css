@@ -82,6 +82,7 @@ code, kbd { font-family: var(--mono); font-size: 11px; }
 /* ------------------------------------------------------------ toolbar */
 .toolbar { display: flex; align-items: center; gap: 10px; padding: 0 8px; background: var(--chrome); border-bottom: 1px solid var(--line); }
 .tb-group { display: flex; align-items: center; gap: 2px; }
+#tbStageGroup, #tbTilerGroup { display: contents; }
 .tb-center { position: absolute; left: 50%; transform: translateX(-50%); }
 .tb-right { margin-left: auto; }
 .tb-btn { display: inline-grid; place-items: center; width: 26px; height: 22px; padding: 0; background: #3a3a3a;

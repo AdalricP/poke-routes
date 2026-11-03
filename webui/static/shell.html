@@ -21,7 +21,7 @@
 
   <!-- toolbar -->
   <div class="toolbar" id="toolbar" role="toolbar" aria-label="Tools">
-    <div class="tb-group" role="group" aria-label="Scene tools">
+    <div class="tb-group" id="tbSceneTools" role="group" aria-label="Scene tools">
       <button type="button" class="tb-btn" data-tool="select" title="Select (V)" aria-label="Select">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2l8 6.2-3.6.5 2 4.1-1.6.8-2-4.1L4 12z" fill="currentColor"/></svg>
       </button>
@@ -48,34 +48,38 @@
     </div>
 
     <div class="tb-group tb-center" role="group" aria-label="Stages">
-      <button type="button" class="tb-btn" id="tbFirst" title="First stage (Home)" aria-label="First stage">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3h1.6v10H3zM13 3v10L5.5 8z" fill="currentColor"/></svg>
-      </button>
-      <button type="button" class="tb-btn" id="tbPrev" title="Previous stage (Left arrow)" aria-label="Previous stage">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.5 3v10L4 8z" fill="currentColor"/></svg>
-      </button>
-      <button type="button" class="tb-btn play" id="tbPlay" title="Play stages (Space)" aria-label="Play stages">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path class="i-play" d="M4.5 2.5v11l9-5.5z" fill="currentColor"/><g class="i-pause"><rect x="4" y="3" width="2.6" height="10" fill="currentColor"/><rect x="9.4" y="3" width="2.6" height="10" fill="currentColor"/></g></svg>
-      </button>
-      <button type="button" class="tb-btn" id="tbNext" title="Next stage (Right arrow)" aria-label="Next stage">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 3v10L12 8z" fill="currentColor"/></svg>
-      </button>
-      <button type="button" class="tb-btn" id="tbLast" title="Final stage (End)" aria-label="Final stage">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.4 3H13v10h-1.6zM3 3v10l7.5-5z" fill="currentColor"/></svg>
-      </button>
-      <span class="tb-stage" id="tbStage">no route</span>
-      <span class="tb-sep"></span>
+      <span id="tbStageGroup">
+        <button type="button" class="tb-btn" id="tbFirst" title="First stage (Home)" aria-label="First stage">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3h1.6v10H3zM13 3v10L5.5 8z" fill="currentColor"/></svg>
+        </button>
+        <button type="button" class="tb-btn" id="tbPrev" title="Previous stage (Left arrow)" aria-label="Previous stage">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.5 3v10L4 8z" fill="currentColor"/></svg>
+        </button>
+        <button type="button" class="tb-btn play" id="tbPlay" title="Play stages (Space)" aria-label="Play stages">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path class="i-play" d="M4.5 2.5v11l9-5.5z" fill="currentColor"/><g class="i-pause"><rect x="4" y="3" width="2.6" height="10" fill="currentColor"/><rect x="9.4" y="3" width="2.6" height="10" fill="currentColor"/></g></svg>
+        </button>
+        <button type="button" class="tb-btn" id="tbNext" title="Next stage (Right arrow)" aria-label="Next stage">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 3v10L12 8z" fill="currentColor"/></svg>
+        </button>
+        <button type="button" class="tb-btn" id="tbLast" title="Final stage (End)" aria-label="Final stage">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.4 3H13v10h-1.6zM3 3v10l7.5-5z" fill="currentColor"/></svg>
+        </button>
+        <span class="tb-stage" id="tbStage">no route</span>
+        <span class="tb-sep"></span>
+      </span>
       <button type="button" class="tb-primary" id="tbGenerate">Generate</button>
     </div>
 
     <div class="tb-group tb-right" role="group" aria-label="View">
-      <label class="tb-label">Tiler
-        <select id="tbTiler" aria-label="Tiler">
-          <option value="learned">Learned</option>
-          <option value="ark">Ark</option>
-        </select>
-      </label>
-      <span class="tb-sep"></span>
+      <span id="tbTilerGroup">
+        <label class="tb-label">Tiler
+          <select id="tbTiler" aria-label="Tiler">
+            <option value="learned">Learned</option>
+            <option value="ark">Ark</option>
+          </select>
+        </label>
+        <span class="tb-sep"></span>
+      </span>
       <button type="button" class="tb-btn" id="tbZoomOut" aria-label="Zoom out" title="Zoom out">
         <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7.2" width="10" height="1.6" fill="currentColor"/></svg>
       </button>

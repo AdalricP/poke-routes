@@ -1525,6 +1525,35 @@
     $("viewScene").hidden = tab !== "scene";
     $("viewMap").hidden = tab === "scene";
     if (tab !== "scene") show_region_editor_in_mode(tab);
+    // the toolbar is shared: scene-only groups (route tools, stage scrubber, tiler) hide
+    // outside Scene, while Generate and zoom stay and drive whichever view is showing
+    $("tbSceneTools").hidden = tab !== "scene";
+    $("tbStageGroup").hidden = tab !== "scene";
+    $("tbTilerGroup").hidden = tab !== "scene";
+    $("tbGenerate").title = tab === "scene" ? `Generate (${Shell.fmt("Mod+g")})` : "Generate";
+    syncNonSceneToolbar();
+  }
+  function syncNonSceneToolbar() {
+    if (isScene()) return;
+    const ea = region_editor();
+    const doc = ea && ea.getDoc();
+    if (doc) $("seed").value = doc.seed;
+    $("tbZoom").textContent = ea ? `${ea.getZoomPct()}%` : "100%";
+  }
+  // Generate/Regenerate are shared between the toolbar and the Generate menu, and drive
+  // whichever view (Scene or the geography/region/story/gates editor) is on screen.
+  function doGenerate() {
+    if (isScene()) { generate(); return; }
+    const ea = region_editor();
+    if (ea) ea.generate(+$("seed").value || undefined);
+  }
+  function doRegenerate() {
+    if (isScene()) { regenerate(); return; }
+    const ea = region_editor();
+    if (!ea) return;
+    const newSeed = Math.floor(Math.random() * 100000);
+    $("seed").value = newSeed;
+    ea.generate(newSeed);
   }
   Shell.onCenter((tab) => {
     show_center_tab(tab);
@@ -1807,8 +1836,8 @@
       } },
     ] },
     { label: "Generate", items: [
-      { id: "gen", label: "Generate", run: () => { Shell.setCenter("scene"); generate(); } },
-      { id: "regen", label: "Regenerate with new seed", run: () => { Shell.setCenter("scene"); regenerate(); } },
+      { id: "gen", label: "Generate", run: () => doGenerate() },
+      { id: "regen", label: "Regenerate with new seed", run: () => doRegenerate() },
       { sep: true },
       { id: "gen-region", label: "Generate region…", run: () => Shell.setCenter("geography") },
       { sep: true },
@@ -1864,17 +1893,17 @@
     $("tbLast").onclick = () => stageEnd(true);
     $("tbPlay").onclick = togglePlay;
     $("tlPlay").onclick = togglePlay;
-    $("tbGenerate").onclick = () => { Shell.setCenter("scene"); generate(); };
+    $("tbGenerate").onclick = doGenerate;
     $("tbGenerate").title = `Generate (${Shell.fmt("Mod+g")})`;
-    $("tbZoomIn").onclick = () => zoomBy(1);
-    $("tbZoomOut").onclick = () => zoomBy(-1);
-    $("tbFit").onclick = fit;
+    $("tbZoomIn").onclick = () => { if (isScene()) zoomBy(1); else { region_editor() && region_editor().zoomIn(); syncNonSceneToolbar(); } };
+    $("tbZoomOut").onclick = () => { if (isScene()) zoomBy(-1); else { region_editor() && region_editor().zoomOut(); syncNonSceneToolbar(); } };
+    $("tbFit").onclick = () => { if (isScene()) fit(); else { region_editor() && region_editor().fit(); syncNonSceneToolbar(); } };
     $("tbTiler").onchange = () => setTiler($("tbTiler").value);
     $("tlSpeed").onchange = () => { prefs.stageMs = +$("tlSpeed").value; savePrefs(); if (state.playing) startPlay(); };
     $("tlLoop").onchange = () => { prefs.loop = $("tlLoop").checked; savePrefs(); };
-    $("dice").onclick = () => regenerate();
+    $("dice").onclick = doRegenerate;
     $("name").addEventListener("change", () => edited("name"));
-    $("seed").addEventListener("change", () => edited("seed"));
+    $("seed").addEventListener("change", () => { if (isScene()) edited("seed"); else sset("pokeroutes-shell-region-seed", +$("seed").value || 1); });
     $("areaAdd").onclick = addSpecial;
     $("areaInput").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); addSpecial(); } });
     $("exitAdd").onclick = () => { if (state.exits.length < 4) { state.exits.push({ side: "west", at: 0.5, width: 3 }); renderExits(); edited("exits"); } };

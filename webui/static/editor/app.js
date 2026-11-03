@@ -16,7 +16,7 @@
   const MARKUP = `<div class="ed">
   <header class="ed-top">
     <h1 data-ed="title">region editor</h1>
-    <div class="grp">
+    <div class="grp grp-generate">
       <label class="inl">seed <input data-ed="seed" type="number" min="0" value="1"></label>
       <button type="button" class="small" data-ed="genBtn">Generate</button>
       <button type="button" class="small" data-ed="diceBtn" title="Random seed and generate">New random</button>
@@ -62,7 +62,7 @@
         <button type="button" class="tog on" data-layer="routes" title="4">Routes</button>
         <button type="button" class="tog on" data-layer="labels" title="5">Labels</button>
       </div>
-      <div class="seg" role="group" aria-label="Zoom">
+      <div class="seg seg-zoom" role="group" aria-label="Zoom">
         <button type="button" data-ed="zOut" aria-label="Zoom out">-</button>
         <span data-ed="zLbl">1x</span>
         <button type="button" data-ed="zIn" aria-label="Zoom in">+</button>
@@ -1383,6 +1383,7 @@
     set_editor_mode, set_route_opener: (route_opener) => { open_route_spec_in_host = route_opener; },
     deleteSelected, help: () => { $("help").hidden = !$("help").hidden; },
     tools: Object.keys(TOOLS), layers: () => Object.assign({}, st.layers),
+    zoomIn: () => $("zIn").onclick(), zoomOut: () => $("zOut").onclick(), getZoomPct: () => Math.round(st.view.z / 6 * 100),
     getDoc: () => st.doc, isUnsaved: () => st.unsaved, select: (sel) => { st.sel = sel; refreshInspector(); draw(); },
     destroy() {
       ro.disconnect();
