@@ -347,6 +347,8 @@ table.enc .pct { display: inline-block; height: 6px; margin-right: 6px; backgrou
 .imp-docked .imp-usage .big { margin: 2px 0 4px; font-size: 18px; color: var(--text); }
 .imp-docked .imp-usage .bar { height: 6px; background: #474747; border-radius: 2px; overflow: hidden; }
 .imp-docked .imp-usage .bar span { display: block; height: 100%; background: #6f9a5f; }
+.imp-docked .imp-usage.low .big { color: var(--error); }
+.imp-docked .imp-usage.low .bar span { background: var(--error); }
 .imp-docked .imp-hist { list-style: none; margin: 0; padding: 0; }
 .imp-docked .imp-hist li { padding: 4px 0 5px; border-bottom: 1px solid #333; }
 .imp-docked .imp-hist .req { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 0; color: var(--text); cursor: default; }

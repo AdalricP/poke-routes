@@ -75,6 +75,8 @@
 .imp-usage .big { margin: 0 0 4px; font: 18px/1.2 var(--pixel, ui-monospace, monospace); }
 .imp-usage .bar { height: 6px; border-radius: 2px; overflow: hidden; background: var(--line, #d9d4c7); }
 .imp-usage .bar span { display: block; height: 100%; background: var(--accent, #3e6b47); }
+.imp-usage.low .big { color: #b3362b; }
+.imp-usage.low .bar span { background: #b3362b; }
 
 .imp-wh { display: flex; align-items: center; justify-content: space-between; }
 .imp-wctl { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }

@@ -254,6 +254,7 @@
     if (u.utilization == null) { box.append(el("p", "imp-note", `No reading: ${u.error || "unknown"}.`)); return; }
     const reset = u.resets_at && u.resets_at < Date.now() / 1000;
     const left = Math.max(0, Math.round(100 - u.utilization * 100));
+    box.classList.toggle("low", !reset && left < 40);
     box.append(el("p", "big", reset ? "window reset" : `${left}% left`));
     const bar = el("div", "bar");
     bar.append(Object.assign(el("span"), { style: `width:${reset ? 100 : left}%` }));
