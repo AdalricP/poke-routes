@@ -15,7 +15,10 @@ import sys
 import time
 from pathlib import Path
 
-prompt = sys.argv[sys.argv.index("-p") + 1]
+# the real CLI now feeds the prompt as a stream-json user turn on stdin (-p with --input-format
+# stream-json takes no prompt argument), so read our first turn there instead of from argv.
+_msg = json.loads(sys.stdin.readline())
+prompt = "".join(c.get("text", "") for c in _msg["message"]["content"] if isinstance(c, dict))
 req = prompt.split("<<<\n", 1)[1].split("\n>>>", 1)[0]
 repo = re.search(r"worktree of poke-routes \((.+?)\) on branch", prompt).group(1)
 cwd = Path.cwd()
