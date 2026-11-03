@@ -75,9 +75,9 @@
 .imp-hist .st.done { color: var(--accent, #3e6b47); }
 .imp-hist .st.failed, .imp-hist .st.timeout, .imp-hist .st.conflict, .imp-hist .st.cancelled { color: var(--warn, #9a4b16); }
 .imp-hist code { font: 11.5px ui-monospace, "SF Mono", Menlo, monospace; }
-.imp-hist .undo { margin-left: auto; height: 24px; padding: 0 8px; font-size: 12px; border-radius: 4px;
-  background: var(--field, #fff); border: 1px solid var(--line, #d9d4c7); color: inherit; cursor: pointer; }
-.imp-hist .undo:hover { border-color: var(--ink-3, #8b867a); }
+.imp-hist .undo, .imp-slots .undo { margin-left: auto; height: 24px; padding: 0 8px; font-size: 12px; border-radius: 4px;
+  background: var(--field, #fff); border: 1px solid var(--line, #d9d4c7); color: inherit; cursor: pointer; font-family: inherit; }
+.imp-hist .undo:hover, .imp-slots .undo:hover { border-color: var(--ink-3, #8b867a); }
 .imp-hist .undo.imp-shift { transform: translate(14px, -2px); transition: transform 0.15s ease; }
 .imp-hist .sum { margin: 4px 0 0; font-size: 12.5px; color: var(--ink-2, #5c584e); }
 .imp-added { margin: 6px 0 0; }
