@@ -92,7 +92,7 @@
     if (!id) { $("agCur").textContent = ""; return; }
     if (state.logFor !== id) { state.logFor = id; state.logNext = 0; log.textContent = ""; }
     let j;
-    try { j = await api(`/api/improve/${id}?since=${state.logNext}`); } catch (e) { return; }
+    try { j = await api(`/api/improve/${id}?since=${state.logNext}`); } catch { return; }
     if (state.logFor !== id) return;
     $("agCur").textContent = `${j.status}: ${j.request.slice(0, 90)}`;
     const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 30;
@@ -111,7 +111,7 @@
       state.jobs = h.jobs.filter((j) => j.mode === "agent");
       if (!state.shown && state.jobs.length) state.shown = state.jobs[0].id;
       if (dock.offsetParent) { renderHist(); pollLog(); }
-    } catch (e) { /* server busy or restarting; try again on the next tick */ }
+    } catch { /* server busy or restarting; try again on the next tick */ }
     const busy = state.jobs.some((j) => j.status === "queued" || j.status === "running");
     state.timer = setTimeout(refresh, dock.offsetParent ? (busy ? 1500 : 4000) : 30000);
   }
