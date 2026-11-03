@@ -1060,7 +1060,7 @@ class Planner:
                 if nd == (-d[0], -d[1]):
                     continue
                 ny, nx = cur[0] + nd[0], cur[1] + nd[1]
-                if not (MARGIN <= ny < h - MARGIN and MARGIN <= nx < w - MARGIN):
+                if not (MARGIN <= ny < h - MARGIN and MARGIN <= nx < w - MARGIN) or self.keep_any[ny, nx]:
                     continue
                 cost = 1.0 + (TURN if (d != (0, 0) and nd != d) else 0) + (5.0 if near[ny, nx] and not goal[ny, nx] else 0)
                 key = ((ny, nx), nd)
