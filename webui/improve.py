@@ -510,13 +510,54 @@ def _claude():
     return os.environ.get("IMPROVE_CLAUDE") or shutil.which("claude") or "/opt/homebrew/bin/claude"
 
 
-def claude_cmd(prompt, cwd_target, wt=None):
+ROUTER_MODEL = os.environ.get("IMPROVE_ROUTER_MODEL", "claude-sonnet-5")
+MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5"}
+ROUTER_PROMPT = """You route coding jobs to a model. Decide how hard this change request is for an
+agent working in the {target} repo ({about}).
+
+Answer "opus" only for genuinely complex work: new subsystems or algorithms, changes spanning many
+files or modules, tricky generation/geometry logic, ROM/engine work, or anything vague that needs
+real design judgement. Answer "sonnet" for everything else: UI tweaks, styling, copy, small bug
+fixes, toggles, parameter changes, removing things.
+
+Request:
+<<<
+{request}
+>>>
+
+Reply with exactly one line of JSON: {{"model": "opus" | "sonnet", "reason": "<10 words>"}}"""
+
+
+def route_model(job):
+    """Ask Sonnet how hard the job is; pick Opus for complex work, Sonnet otherwise.
+    IMPROVE_MODEL pins one model for every job. Undo jobs need no thought: Sonnet."""
+    if os.environ.get("IMPROVE_MODEL"):
+        return os.environ["IMPROVE_MODEL"], "pinned by IMPROVE_MODEL"
+    if job.get("kind") == "undo":
+        return MODELS["sonnet"], "undo"
+    about = "a Pokemon ROM hack (pokeemerald-expansion, C and assembly data)" if job["target"] == "rom" \
+        else "a Python route generator with a stdlib web UI"
+    prompt = ROUTER_PROMPT.format(target=job["target"], about=about, request=job["request"][:4000])
+    try:
+        out = subprocess.run([_claude(), "-p", prompt, "--model", ROUTER_MODEL, "--output-format", "json",
+                              "--tools", "", "--strict-mcp-config", "--no-chrome", "--setting-sources", ""],
+                             capture_output=True, text=True, timeout=90, env=_child_env(job["target"]),
+                             stdin=subprocess.DEVNULL)
+        text = json.loads(out.stdout).get("result", "")
+        verdict = json.loads(text[text.index("{"):text.rindex("}") + 1])
+        pick = "opus" if str(verdict.get("model", "")).lower().startswith("opus") else "sonnet"
+        return MODELS[pick], str(verdict.get("reason", ""))[:80]
+    except Exception as e:  # router trouble never blocks a job: fall back to Sonnet
+        return MODELS["sonnet"], f"router failed ({type(e).__name__}), default"
+
+
+def claude_cmd(prompt, cwd_target, wt=None, model=None):
     # the job's worktree is the cwd; the log dir holds an attached screenshot
     add = [str(ARK / "rom-wt"), str(DOCS), str(RELEASE_ROM.parent), str(ARK / "tools"), str(LOGDIR)] \
         if cwd_target == "rom" else [str(LOGDIR)]
     cmd = [_claude(), "-p", prompt, "--output-format", "stream-json", "--verbose",
            "--permission-mode", "bypassPermissions", "--strict-mcp-config", "--no-chrome",
-           "--model", os.environ.get("IMPROVE_MODEL", "claude-sonnet-5")]
+           "--model", model or os.environ.get("IMPROVE_MODEL", MODELS["sonnet"])]
     tools = Path(wt or REPO) / "webui" / "route_tools.py"
     if cwd_target == "poke-routes" and tools.exists():   # route tools, run on the worktree's own code
         cmd += ["--mcp-config", json.dumps({"mcpServers": {"routes": {"command": sys.executable, "args": [str(tools)]}}})]
@@ -599,7 +640,11 @@ def _run_agent(job, cwd, wt=None, port=None):
     prompt = build_prompt(job, wt=wt, port=port)
     LOGDIR.mkdir(parents=True, exist_ok=True)
     (LOGDIR / f"{jid}.prompt.txt").write_text(prompt)
-    cmd = claude_cmd(prompt, target, wt)
+    if not job.get("model"):   # a re-run (conflict, restart) keeps its first decision
+        job["model"], job["model_reason"] = route_model(job)
+        _save()
+    _log(jid, f"[router] {job['model']} ({job.get('model_reason', '')})")
+    cmd = claude_cmd(prompt, target, wt, model=job["model"])
     _log(jid, f"[run] {Path(cmd[0]).name} -p <prompt> " + " ".join(a for a in cmd[3:] if "\n" not in a)
          + f"  (cwd {cwd})")
     proc = subprocess.Popen(cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
