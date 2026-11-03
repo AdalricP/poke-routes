@@ -168,7 +168,7 @@
     window.addEventListener("dragend", () => sections.forEach((s) => s.classList.remove("drag-over")));
   }
 
-  const state = { jobs: [], running: [], shown: null, logNext: 0, logFor: null, timer: null, prev: {}, h: null, screenshots: [], histTab: "all", reloadShown: false };
+  const state = { jobs: [], running: [], shown: null, logNext: 0, logFor: null, timer: null, prev: {}, h: null, screenshots: [], histTab: "all", reloadShown: false, fixOpenFor: null };
   const ACTIVE = ["queued", "running", "merging"];
   const BAD = ["failed", "timeout", "conflict"];
   const RETRYABLE = ["failed", "timeout", "conflict", "cancelled"];
@@ -398,10 +398,15 @@
     li.append(box);
   }
 
-  // inline "what's wrong?" box under a done job; submits as a new job on top of it
+  // inline "what's wrong?" box under a done job; submits as a new job on top of it.
+  // The periodic refresh's renderHist rebuilds every <li> from scratch, which would otherwise
+  // wipe this form and whatever the owner had typed seconds after opening it (finding 10);
+  // refresh() skips that rebuild while state.fixOpenFor names a job, and resumes it once the
+  // form closes (cancelled, sent, or the owner navigates to a different job/tab).
   function toggleFixForm(j, li) {
     const existing = li.querySelector(".imp-fix-form");
-    if (existing) { existing.remove(); return; }
+    if (existing) { existing.remove(); state.fixOpenFor = null; return; }
+    state.fixOpenFor = j.id;
     const form = el("div", "imp-fix-form");
     const ta = document.createElement("textarea");
     ta.placeholder = "What's wrong, or what to change about this one?";
@@ -417,6 +422,7 @@
       try {
         const nj = await api(`/api/improve/${j.id}/fix`, { request: text });
         form.remove();
+        state.fixOpenFor = null;
         state.shown = nj.id;
         state.logFor = null;
         await refresh();
@@ -439,6 +445,7 @@
     state.shown = id;
     state.logFor = null;
     state.reloadShown = false;   // the owner is looking at a log on purpose; let it show again
+    state.fixOpenFor = null;     // navigating away closes any open fix form
     pollLog();
     renderHist();
     if (state.h) renderSlots(state.h);
@@ -501,7 +508,11 @@
     state.running = h.running || [];
     state.h = h;
     dot.hidden = !state.running.length && !h.queued;
-    if (isOpen()) { renderSlots(h); renderHistTabs(); renderHist(); pollLog(); pollUsage(); } else renderUsage(h.usage);
+    if (isOpen()) {
+      renderSlots(h); renderHistTabs();
+      if (!state.fixOpenFor) renderHist();   // don't wipe an open fix form and its typed text (finding 10)
+      pollLog(); pollUsage();
+    } else renderUsage(h.usage);
     schedule();
   }
 
@@ -710,7 +721,7 @@
   $("impPenBtn").onclick = () => capture_and_attach_screenshot("pen");
   $("impSubmit").onclick = submit;
   for (const b of $("impHistTabs").querySelectorAll(".imp-tab")) {
-    b.onclick = () => { state.histTab = b.dataset.tab; renderHistTabs(); renderHist(); };
+    b.onclick = () => { state.histTab = b.dataset.tab; state.fixOpenFor = null; renderHistTabs(); renderHist(); };
   }
   for (const b of $("impWctl").querySelectorAll("button")) b.onclick = () => setWorkers(Number(b.dataset.d));
   $("impText").addEventListener("keydown", (e) => {
