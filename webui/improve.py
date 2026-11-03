@@ -20,8 +20,9 @@ Same queue, same one-commit-and-Undo rule, only the prompt's opening differs.
 Several workers run in parallel (default 3). A poke-routes job gets its own git worktree
 (../poke-routes-wt/job-<id>, branch improve/job-<id>) made from main; once its commit is
 there, a merge step under a global lock rebases it onto the latest main and fast-forwards main
-(and the repo-root checkout the server serves from). A conflict re-runs the job once on fresh
-main; a second conflict leaves the branch for the owner. ROM jobs keep their own worktree flow
+(and the repo-root checkout the server serves from). A conflict is first handed to a short Opus
+run that resolves only the conflicted lines; if it can't, the job re-runs once on fresh main, and a
+second conflict leaves the branch for the owner. ROM jobs keep their own worktree flow
 in the ROM repo and only one runs at a time. No job starts while free + inactive memory is
 under ~0.8 GB.
 
@@ -325,6 +326,48 @@ def _advance_main(repo, old, new, log, root_wait):
     return True, False, note
 
 
+RESOLVER_MODEL = os.environ.get("IMPROVE_RESOLVER_MODEL", "claude-opus-5-5")
+RESOLVER_EFFORT = os.environ.get("IMPROVE_RESOLVER_EFFORT", "medium")
+RESOLVE_PROMPT = """A git rebase in this worktree stopped with merge conflicts in: {files}.
+Two independent changes touched the same lines. The incoming side (the commit being rebased) is one
+job's change; the other side is what is already on main.
+
+Resolve ONLY the conflicts: edit the conflict regions so both changes' intent is kept, and touch no
+other lines. When every conflict marker is gone, run:
+  git add {files}
+  GIT_EDITOR=true git rebase --continue
+Repeat if the rebase stops again. Never run git rebase --abort, git reset, git push or anything that
+rewrites main. If the two changes truly cannot both be kept, stop without continuing the rebase and
+say why in one sentence."""
+
+
+def resolve_conflict(wt, files, log=lambda s: None):
+    """Let one short Opus run resolve a paused rebase in place (instead of redoing the whole job).
+    True when the rebase completed cleanly; False leaves the rebase paused for the caller to abort."""
+    if os.environ.get("IMPROVE_RESOLVER", "1") == "0":
+        return False
+    log(f"[resolve] {RESOLVER_MODEL} ({RESOLVER_EFFORT}) resolving {', '.join(files)}")
+    prompt = RESOLVE_PROMPT.format(files=" ".join(files))
+    try:
+        r = subprocess.run([_claude(), "-p", prompt, "--model", RESOLVER_MODEL, "--effort", RESOLVER_EFFORT,
+                            "--permission-mode", "bypassPermissions", "--strict-mcp-config", "--no-chrome",
+                            "--disallowedTools", *DENY],
+                           cwd=str(wt), capture_output=True, text=True, timeout=900,
+                           env={**_child_env("poke-routes"), **_committer_env()}, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        log("[resolve] timed out")
+        return False
+    in_rebase = any(Path(_git(wt, "rev-parse", "--git-path", d, check=False)).exists()
+                    for d in ("rebase-merge", "rebase-apply"))
+    markers = _gitr(wt, "grep", "-l", "-E", "^(<<<<<<<|>>>>>>>) ", "--", ".").stdout.strip()
+    if in_rebase or markers:
+        log(f"[resolve] not resolved ({'rebase still paused' if in_rebase else 'markers left: ' + markers}); "
+            f"{(r.stdout or '').strip()[-200:]}")
+        return False
+    log("[resolve] resolved; rebase completed")
+    return True
+
+
 def merge_onto_main(repo, wt, base, log=lambda s: None, root_wait=None):
     """Put the job's commit(s) base..HEAD of worktree wt on top of the latest main and fast-forward
     main to them. Never forces, never rewrites commits already on main.
@@ -339,6 +382,9 @@ def merge_onto_main(repo, wt, base, log=lambda s: None, root_wait=None):
                 r = _gitr(wt, "rebase", "--onto", old, base, env=_committer_env())
                 if r.returncode:
                     files = _git(wt, "diff", "--name-only", "--diff-filter=U", check=False).split()
+                    if files and resolve_conflict(wt, files, log):
+                        base = old
+                        continue          # rebase finished with the conflicts resolved; fast-forward below
                     _gitr(wt, "rebase", "--abort")
                     details = " ".join((r.stdout + " " + r.stderr).split())[:800]
                     return {"ok": False, "conflict": True, "files": files, "details": details}
