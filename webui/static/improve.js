@@ -68,6 +68,7 @@
           <button type="button" class="imp-tab imp-tab-done" data-tab="done">Done</button>
           <button type="button" class="imp-tab imp-tab-error" data-tab="error">Error<b id="impErrCount"></b></button>
           <button type="button" class="imp-tab imp-tab-cancelled" data-tab="cancelled">Cancelled</button>
+          <button type="button" class="imp-clear" id="impHistClear" title="Remove unpinned jobs from this tab">Clear</button>
         </h2>
         <div class="imp-sec"><ul class="imp-hist" id="impHist"><li class="muted">nothing yet</li></ul></div>
       </section>
@@ -110,6 +111,7 @@
           <button type="button" class="imp-tab imp-tab-done" data-tab="done">Done</button>
           <button type="button" class="imp-tab imp-tab-error" data-tab="error">Error<b id="impErrCount"></b></button>
           <button type="button" class="imp-tab imp-tab-cancelled" data-tab="cancelled">Cancelled</button>
+          <button type="button" class="imp-clear" id="impHistClear" title="Remove unpinned jobs from this tab">Clear</button>
         </h2>
         <ul class="imp-hist" id="impHist"><li class="muted">nothing yet</li></ul>
       </section>
@@ -213,6 +215,7 @@
     for (const b of bar.querySelectorAll(".imp-tab")) b.classList.toggle("on", b.dataset.tab === state.histTab);
     const errCount = jobsForTab("error").length;
     $("impErrCount").textContent = errCount ? ` (${errCount})` : "";
+    $("impHistClear").hidden = state.histTab === "all";
   }
 
   function renderHist() {
@@ -221,7 +224,7 @@
     const jobs = jobsForTab(state.histTab);
     if (!jobs.length) { ul.append(el("li", "muted", state.histTab === "all" ? "nothing queued" : `nothing ${state.histTab} yet`)); return; }
     for (const j of jobs) {
-      const li = el("li", current() === j.id ? "on" : "");
+      const li = el("li", (current() === j.id ? "on " : "") + (j.pinned ? "pinned" : ""));
       const req = el("button", "req", j.request);
       req.type = "button";
       req.title = "Show this run's log";
@@ -232,6 +235,13 @@
       if (j.attempt > 1) meta.append(el("span", "", "re-run"));
       if (j.held_by) meta.append(el("span", "", "held by " + j.held_by));
       meta.append(el("span", "", ago(j.finished || j.started || j.created)));
+      if (state.histTab !== "all") {
+        const p = el("button", "undo pin" + (j.pinned ? " on" : ""), j.pinned ? "Pinned" : "Pin");
+        p.type = "button";
+        p.title = j.pinned ? "Unpin: Clear can remove this again" : "Pin: highlight this and keep it out of Clear";
+        p.onclick = () => api(`/api/improve/${j.id}/pin`, { pinned: !j.pinned }).then(refresh).catch((e) => ($("impErr").textContent = e.message));
+        meta.append(p);
+      }
       if (j.kind === "improve" && j.status === "done" && j.commit && !(state.h && state.h.readonly && !state.h.owner.port)) {
         const u = el("button", "undo", "Undo");
         u.type = "button";
@@ -782,6 +792,12 @@
   for (const b of $("impHistTabs").querySelectorAll(".imp-tab")) {
     b.onclick = () => { state.histTab = b.dataset.tab; state.fixOpenFor = null; renderHistTabs(); renderHist(); };
   }
+  $("impHistClear").onclick = () => {
+    const tab = state.histTab;
+    if (!jobsForTab(tab).some((j) => !j.pinned)) return;
+    if (!confirm(`Remove all unpinned ${tab} jobs from this list? Pinned ones are kept.`)) return;
+    api("/api/improve/clear", { status: tab }).then(refresh).catch((e) => ($("impErr").textContent = e.message));
+  };
   for (const b of $("impWctl").querySelectorAll("button")) b.onclick = () => setWorkers(Number(b.dataset.d));
   $("impText").addEventListener("keydown", (e) => {
     e.stopPropagation(); // keep page shortcuts out of the textarea

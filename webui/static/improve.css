@@ -61,9 +61,14 @@
 .imp-tab-error.on { background: rgba(176, 58, 46, 0.14); }
 .imp-tab-cancelled.on { background: rgba(139, 134, 122, 0.18); }
 .imp-tab-error b:empty { display: none; }
+.imp-clear { margin-left: auto; border: 0; background: none; padding: 1px 4px; border-radius: 3px; font: inherit;
+  font-size: inherit; color: var(--ink-3, #8b867a); cursor: pointer; }
+.imp-clear:hover { color: var(--warn, #9a4b16); }
 
 .imp-hist { list-style: none; margin: 0; padding: 0; }
 .imp-hist li { padding: 8px 0; border-bottom: 1px solid var(--line, #d9d4c7); }
+.imp-hist li.pinned { background: rgba(201, 162, 39, 0.1); border-radius: 4px; padding-left: 6px; padding-right: 6px; }
+.imp-hist .pin.on { background: rgba(201, 162, 39, 0.25); border-color: rgba(201, 162, 39, 0.6); }
 .imp-hist li:last-child { border-bottom: 0; }
 .imp-hist .req { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 0;
   color: inherit; font: inherit; cursor: pointer; }

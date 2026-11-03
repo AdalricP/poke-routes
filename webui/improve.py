@@ -14,6 +14,10 @@ and a headless Claude Code run implements it as exactly one git commit.
                                     for a failed/timeout/conflict/cancelled job
     POST /api/improve/<id>/cancel  cancel a queued or running job
     POST /api/improve/<id>/delete  drop a finished job (not queued/running/merging) from the list
+    POST /api/improve/<id>/steer   {"text": "..."}  feed extra instructions to a running job's live agent
+    POST /api/improve/<id>/pin     {"pinned": true/false}  protect a finished job from /clear, highlight it
+    POST /api/improve/clear        {"status": "done"|"error"|"cancelled"}  dismiss every finished, unpinned
+                                    job of that kind from history (they stay on disk, just hidden)
     POST /api/improve/workers      {"workers": n}  how many jobs run at once (1-6)
 
 "agent" jobs come from the shell's Agent tab: a task done *for* the owner in the tool
@@ -1580,6 +1584,36 @@ def cancel(jid: str) -> dict:
     return public(job)
 
 
+def pin(jid: str, pinned: bool) -> dict:
+    """Highlight a finished job so it stands out in its tab and survives clear()."""
+    with _lock:
+        job = _jobs.get(jid)
+        if not job:
+            raise KeyError(jid)
+        job["pinned"] = bool(pinned)
+    _save()
+    return public(job)
+
+
+_CLEARABLE = {"done": ("done",), "error": ("failed", "timeout", "conflict"), "cancelled": ("cancelled",)}
+
+
+def clear(tab: str) -> dict:
+    """Dismiss every unpinned job in one history tab (Done/Error/Cancelled). Dismissed jobs stay
+    in storage (other jobs' fix_of/undo_of/retry_of links keep working) but history() hides them."""
+    statuses = _CLEARABLE.get(tab)
+    if not statuses:
+        raise ValueError(f"cannot clear tab {tab!r}")
+    with _lock:
+        n = 0
+        for job in _jobs.values():
+            if job.get("status") in statuses and not job.get("pinned") and not job.get("dismissed"):
+                job["dismissed"] = True
+                n += 1
+    _save()
+    return {"cleared": n}
+
+
 def public(job, since=None) -> dict:
     d = {k: v for k, v in job.items() if k not in ("summary", "agent_pid")}
     d["summary"] = job.get("summary", "")
@@ -1613,7 +1647,8 @@ def _view_jobs():
 
 
 def history() -> dict:
-    jobs = sorted(_view_jobs().values(), key=lambda j: j.get("created", 0), reverse=True)
+    jobs = sorted((j for j in _view_jobs().values() if not j.get("dismissed")),
+                  key=lambda j: j.get("created", 0), reverse=True)
     holder = {"pid": _me, "port": _st["port"]} if _st["owner"] else (_lock_holder() or {})
     active = [j for j in jobs if j.get("status") in ACTIVE]
     if _st["owner"]:
@@ -1720,6 +1755,8 @@ def handle(h, method: str, u) -> None:
                                   body.get("screenshots") or []), 202)
         if parts == ["workers"]:
             return h._json(set_workers(body.get("workers")))
+        if parts == ["clear"]:
+            return h._json(clear(str(body.get("status", ""))))
         if len(parts) == 2 and parts[1] == "undo":
             return h._json(undo(parts[0]), 202)
         if len(parts) == 2 and parts[1] == "fix":
@@ -1732,6 +1769,8 @@ def handle(h, method: str, u) -> None:
             return h._json(delete(parts[0]))
         if len(parts) == 2 and parts[1] == "steer":
             return h._json(steer(parts[0], str(body.get("text", ""))))
+        if len(parts) == 2 and parts[1] == "pin":
+            return h._json(pin(parts[0], bool(body.get("pinned"))))
         return h._json({"error": "not found"}, 404)
     except KeyError:
         return h._json({"error": "unknown job"}, 404)
