@@ -56,8 +56,10 @@
 .imp-tab.on { color: var(--ink, #26241f); text-decoration: underline; text-underline-offset: 3px; }
 .imp-tab-done { background: rgba(63, 139, 73, 0.07); }
 .imp-tab-error { background: rgba(176, 58, 46, 0.07); }
-.imp-tab-done.on, .imp-tab-error.on { background: rgba(63, 139, 73, 0.14); }
+.imp-tab-cancelled { background: rgba(139, 134, 122, 0.1); }
+.imp-tab-done.on, .imp-tab-error.on, .imp-tab-cancelled.on { background: rgba(63, 139, 73, 0.14); }
 .imp-tab-error.on { background: rgba(176, 58, 46, 0.14); }
+.imp-tab-cancelled.on { background: rgba(139, 134, 122, 0.18); }
 .imp-tab-error b:empty { display: none; }
 
 .imp-hist { list-style: none; margin: 0; padding: 0; }

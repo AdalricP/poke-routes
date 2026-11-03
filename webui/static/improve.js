@@ -67,6 +67,7 @@
           <button type="button" class="imp-tab" data-tab="all">Queue &amp; history</button>
           <button type="button" class="imp-tab imp-tab-done" data-tab="done">Done</button>
           <button type="button" class="imp-tab imp-tab-error" data-tab="error">Error<b id="impErrCount"></b></button>
+          <button type="button" class="imp-tab imp-tab-cancelled" data-tab="cancelled">Cancelled</button>
         </h2>
         <div class="imp-sec"><ul class="imp-hist" id="impHist"><li class="muted">nothing yet</li></ul></div>
       </section>
@@ -108,6 +109,7 @@
           <button type="button" class="imp-tab" data-tab="all">History</button>
           <button type="button" class="imp-tab imp-tab-done" data-tab="done">Done</button>
           <button type="button" class="imp-tab imp-tab-error" data-tab="error">Error<b id="impErrCount"></b></button>
+          <button type="button" class="imp-tab imp-tab-cancelled" data-tab="cancelled">Cancelled</button>
         </h2>
         <ul class="imp-hist" id="impHist"><li class="muted">nothing yet</li></ul>
       </section>
@@ -120,7 +122,7 @@
 
   const state = { jobs: [], running: [], shown: null, logNext: 0, logFor: null, timer: null, prev: {}, h: null, screenshots: [], histTab: "all" };
   const ACTIVE = ["queued", "running", "merging"];
-  const BAD = ["failed", "timeout", "cancelled", "conflict"];
+  const BAD = ["failed", "timeout", "conflict"];
   const maximum_screenshot_width_in_pixels = 1920;
   const maximum_screenshots_per_request = 6;     // same cap as improve.py
   const red_pen_colour = "#e3201b";
@@ -149,6 +151,7 @@
   function jobsForTab(tab) {
     if (tab === "done") return state.jobs.filter((j) => j.status === "done");
     if (tab === "error") return state.jobs.filter((j) => BAD.includes(j.status));
+    if (tab === "cancelled") return state.jobs.filter((j) => j.status === "cancelled");
     return state.jobs;
   }
 
