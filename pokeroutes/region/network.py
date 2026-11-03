@@ -615,7 +615,7 @@ def build_network(w: World, keep: Optional[List[dict]] = None, plan: Optional[Li
     C = {n["id"]: n["idx"] for n in net.nodes if n["kind"] == "city"}
     plan = plan or []
     pins = add_kept(w, net, keep or [], plan)
-    dropped = {l["name"] for l in plan if l.get("dropped")}
+    dropped = {pl["name"] for pl in plan if pl.get("dropped")}
 
     links: List[dict] = []
 
@@ -701,12 +701,12 @@ def build_network(w: World, keep: Optional[List[dict]] = None, plan: Optional[Li
             n["role"] = man["role"]
     name_routes(w, net)
     w.links = []
-    for l in links:
-        d = dict(name=l["name"], kind=l["kind"], mode=l.get("mode", "land"),
-                 routes=[net.nodes[k]["name"] for k in l.get("routes", [])], landmark=l.get("landmark"))
+    for lk in links:
+        d = dict(name=lk["name"], kind=lk["kind"], mode=lk.get("mode", "land"),
+                 routes=[net.nodes[k]["name"] for k in lk.get("routes", [])], landmark=lk.get("landmark"))
         for k in ("dropped", "src_ref", "dst_ref"):
-            if l.get(k):
-                d[k] = l[k]
+            if lk.get(k):
+                d[k] = lk[k]
         w.links.append(d)
     w.routes = [route_json(w, net, n) for n in net.nodes if n["kind"] == "route"]
     w.overrides["network"] = net
@@ -741,7 +741,7 @@ def add_kept(w: World, net: Network, keep: List[dict], plan: List[dict]) -> Dict
     still have to cities and to each other. Returns link name -> kept node indices
     in the order the link visits them."""
     by_name = {n["name"]: n["idx"] for n in net.nodes}
-    kinds = {l["name"]: l.get("kind", "main") for l in plan}
+    kinds = {pl["name"]: pl.get("kind", "main") for pl in plan}
     for r in keep:
         k = net.add_node("route", r["rect"], link=r.get("link"), mode=r.get("mode", "land"),
                          kind_link=r.get("kind_link") or kinds.get(r.get("link"), "main"),
@@ -770,7 +770,7 @@ def add_kept(w: World, net: Network, keep: List[dict], plan: List[dict]) -> Dict
             net.conns.append(dict(a=n["idx"], b=t, cell_a=ca, cell_b=cb, side_a=e["side"], side_b=OPP[e["side"]],
                                   link=e.get("link") or r.get("link") or ""))
     pins: Dict[str, List[int]] = {}
-    order = {l["name"]: l.get("routes", []) for l in plan}
+    order = {pl["name"]: pl.get("routes", []) for pl in plan}
     for n in net.nodes:
         r = n.get("keep")
         if r:
