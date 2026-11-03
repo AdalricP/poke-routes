@@ -515,10 +515,12 @@ MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5"}
 ROUTER_PROMPT = """You route coding jobs to a model. Decide how hard this change request is for an
 agent working in the {target} repo ({about}).
 
-Answer "opus" only for genuinely complex work: new subsystems or algorithms, changes spanning many
-files or modules, tricky generation/geometry logic, ROM/engine work, or anything vague that needs
-real design judgement. Answer "sonnet" for everything else: UI tweaks, styling, copy, small bug
-fixes, toggles, parameter changes, removing things.
+Sonnet is a strong coder and should take most jobs, including moderately complex ones: multi-file
+features, new UI panels or tools, bug hunts, refactors within one area, and changes to generation
+rules or parameters. Answer "opus" only for the hardest work: designing a new subsystem or algorithm
+from scratch (e.g. a new terrain or world-generation model), deep changes across several modules at
+once, ROM/engine work, or very vague requests that need real design judgement. When in doubt,
+answer "sonnet".
 
 Request:
 <<<
