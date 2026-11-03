@@ -71,30 +71,48 @@ def _seg_dist(px, py, ax, ay, bx, by):
 def coastline(w: World) -> None:
     """Two halves: the Oberland mainland (west) and the Nehrung (east): a sand spit
     running from the strait at Pilsau to the Samland block, with the lagoon (Haff)
-    between them. Shapes are fixed by the lore; their outlines come from the seed."""
+    between them. That layout is fixed by the lore; where the lobes sit, how big they
+    are, where the strait is and how ragged the coast is all come from the seed."""
     rng = w.rng
     xs, ys = _grid(w)
     u, v = (xs + 0.5) / w.W, (ys + 0.5) / w.H
+    U = lambda a, b: float(rng.uniform(a, b))  # noqa: E731
     warp = Fbm(rng, 4)
-    wu = u + 0.09 * (norm01(warp(xs / 18, ys / 18)) - 0.5) * 2
-    wv = v + 0.09 * (norm01(warp(xs / 18 + 7.3, ys / 18 + 3.1)) - 0.5) * 2
-    j = lambda s: float(rng.uniform(-s, s))  # noqa: E731
+    wa, ws = U(0.06, 0.13), U(13, 24)
+    wu = u + wa * (norm01(warp(xs / ws, ys / ws)) - 0.5) * 2
+    wv = v + wa * (norm01(warp(xs / ws + 7.3, ys / ws + 3.1)) - 0.5) * 2
 
     def ell(cx, cy, rx, ry):
         return 1.0 - ((wu - cx) / rx) ** 2 - ((wv - cy) / ry) ** 2
 
-    main = np.maximum(ell(0.335 + j(0.02), 0.62 + j(0.02), 0.28, 0.35),
-                      ell(0.53 + j(0.015), 0.39, 0.115, 0.13))
-    main = np.maximum(main, ell(0.18 + j(0.03), 0.40 + j(0.03), 0.13, 0.13))  # western headland
-    east = ell(0.885 + j(0.01), 0.50 + j(0.02), 0.075, 0.23)
-    coast_noise = norm01(Fbm(rng, 5, gain=0.65)((xs / 7), (ys / 7))) - 0.5
-    mainland = (main + coast_noise * 0.7) > 0
-    eastland = (east + coast_noise * 0.7) > 0
+    # the strait and the Nehrung first: the mainland grows out to meet them
+    sx, sy = U(0.60, 0.67), U(0.22, 0.42)
+    ex, ey = U(0.85, 0.88), U(max(0.42, sy + 0.12), 0.66)
+    erx, ery = U(0.07, 0.09), U(0.19, min(0.26, 0.93 - ey))
+    # mainland: a core blob, a lobe out to the strait, and 2-4 random headlands
+    cx, cy = U(0.27, 0.38), U(0.44, 0.62)
+    rx, ry = U(0.20, min(0.29, sx - 0.06 - cx + 0.12)), U(0.26, 0.36)
+    nx, ny = sx - U(0.09, 0.13), sy + U(0.06, 0.11)
+    main = np.maximum(ell(cx, cy, rx, ry), ell(nx, ny, U(0.09, 0.13), U(0.10, 0.15)))
+    for _ in range(int(rng.integers(2, 5))):
+        a = U(0.5, 2.9) if rng.random() < 0.8 else U(-0.9, 0.5)  # mostly west/north/south
+        d = U(0.65, 1.0)
+        lx = min(cx - math.cos(a) * rx * d, sx - 0.08)
+        ly = cy - math.sin(a) * ry * d * (1 if rng.random() < 0.5 else -1)
+        main = np.maximum(main, ell(lx, ly, U(0.06, 0.14), U(0.06, 0.14)))
+    east = ell(ex, ey, erx, ery)
+    cs = U(5, 9)
+    coast_noise = norm01(Fbm(rng, 5, gain=U(0.55, 0.72))((xs / cs), (ys / cs))) - 0.5
+    ca = U(0.5, 0.9)
+    mainland = (main + coast_noise * ca) > 0
+    eastland = (east + coast_noise * ca) > 0
 
-    # the strait: tip of the mainland lobe; the spit starts just across it
-    sx, sy = 0.645 + j(0.006), 0.30 + j(0.015)
-    pts = [(sx + 0.014, sy - 0.005), (0.70 + j(0.01), sy - 0.06 + j(0.01)),
-           (0.78 + j(0.01), 0.19 + j(0.01)), (0.85, 0.22), (0.885, 0.31)]
+    # the spit: leaves the strait heading east, bows north, drops onto the Nehrung block
+    a, b = np.array([sx + 0.014, sy - 0.005]), np.array([ex, ey - ery * 0.4])
+    ky = max(0.02, min(a[1], b[1]) - U(0.06, 0.18))
+    k1, k2 = a + [0.08, 0.0], np.array([b[0] - U(0.0, 0.06), ky])
+    pts = [(1 - t) ** 3 * a + 3 * t * (1 - t) ** 2 * k1 + 3 * t * t * (1 - t) * k2 + t ** 3 * b
+           for t in np.linspace(0, 1, 11)]
     spit_d = np.full(mainland.shape, 1e9)
     for (ax, ay), (bx, by) in zip(pts, pts[1:]):
         spit_d = np.minimum(spit_d, _seg_dist(xs, ys, ax * w.W, ay * w.H, bx * w.W, by * w.H))
@@ -102,12 +120,12 @@ def coastline(w: World) -> None:
     spit = spit_d < spit_w
     eastland |= spit
     # the mainland always reaches the strait: a neck of land out to the spit's start
-    neck = _seg_dist(xs, ys, 0.53 * w.W, 0.39 * w.H, (sx - 0.014) * w.W, sy * w.H) < 3.2
+    neck = _seg_dist(xs, ys, nx * w.W, ny * w.H, (sx - 0.014) * w.W, sy * w.H) < 3.2
     mainland |= neck & ~spit
     # Haff: the lagoon between the mainland's east coast and the Nehrung
-    haff = (u > 0.60) & (u < 0.84) & (v > 0.24) & ~spit
-    mainland &= ~(haff & (main + coast_noise * 0.7 < 0.12))
-    eastland &= ~(haff & (east + coast_noise * 0.7 < 0.12)) | spit
+    haff = (u > sx - 0.04) & (u < ex - 0.04) & (v > sy - 0.06) & ~spit
+    mainland &= ~(haff & (main + coast_noise * ca < 0.12))
+    eastland &= ~(haff & (east + coast_noise * ca < 0.12)) | spit
     m = 3  # a ring of sea around the map edge
     for a in (mainland, eastland):
         a[:m, :] = a[-m:, :] = False

@@ -21,4 +21,7 @@ Known gaps / next:
   water.grid, rivers, waterfalls, coast, biome grid/gradient, path or landmarks.
 - Some seeds: Romowe gate ends up inside the Pilsau-Kaup route (logged; route lists it).
 - Rects near crowded spots (around the capital) can be small; labels overlap there.
-- Seeds checked: 1, 3, 5, 7, 11. Seed 1 is the reference render.
+- 2026-11-03: the coast used to be fixed ellipses, so every seed gave the same two islands.
+  Now lobe count/placement, strait, spit arc, Nehrung size and coast roughness come from the
+  seed (lore layout kept). Seeds 1-60 all build; ~1 in 8 drops an optional link
+  (often the Huettenau-Pilsau loop), seed 31 loses Pilsau-Kaup. Worth a look.

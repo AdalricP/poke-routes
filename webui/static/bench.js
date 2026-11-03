@@ -1468,7 +1468,7 @@
   function show_region_editor_in_mode(mode_name) {
     if (region_editor()) { region_editor().set_editor_mode(mode_name); return; }
     if (region_editor_frame) return;
-    const seed_of_last_region = sget("pokeroutes-shell-region-seed") || 1;
+    const seed_of_last_region = sget("pokeroutes-shell-region-seed") || Math.floor(Math.random() * 100000);
     region_editor_frame = el("iframe");
     region_editor_frame.title = "Geography and region editor";
     region_editor_frame.src = `editor.html?mode=${mode_name}&seed=${seed_of_last_region}`;

@@ -230,6 +230,9 @@ class Network:
         rects = []
         for _ in range(12):
             r, used, done = self._grow(path, prev, goal_node, link)
+            if r is None:
+                self.w.log.append(f"link {link['name']}: no room after {len(rects)} routes")
+                break
             k = self.add_node("route", r, link=link["name"], mode=link.get("mode", "land"), kind_link=link["kind"])
             self.nodes[k]["paths"].append(used)
             self._connect(prev, k, path[0], link)
@@ -344,6 +347,8 @@ class Network:
             if not size_ok(bx1 - bx0, by1 - by0) or not self.free(core):
                 break
             cands.append(j)
+        if not cands:
+            return None, None, False
         jmax = cands[-1]
         if jmax == L - 1:
             j = jmax

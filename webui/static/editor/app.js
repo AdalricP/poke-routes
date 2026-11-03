@@ -19,6 +19,7 @@
     <div class="grp">
       <label class="inl">seed <input data-ed="seed" type="number" min="0" value="1"></label>
       <button type="button" class="small" data-ed="genBtn">Generate</button>
+      <button type="button" class="small" data-ed="diceBtn" title="Random seed and generate">New random</button>
     </div>
     <div class="grp">
       <select data-ed="loadSel" aria-label="Saved regions"><option value="">saved regions...</option></select>
@@ -1341,6 +1342,7 @@
   $("zOut").onclick = () => { const b = wrap.getBoundingClientRect(); zoomAt(0.8, b.width / 2, b.height / 2); };
   $("zFit").onclick = fit;
   $("genBtn").onclick = generate;
+  $("diceBtn").onclick = () => { $("seed").value = Math.floor(Math.random() * 100000); generate(); };
   $("seed").addEventListener("keydown", (e) => { if (e.key === "Enter") generate(); });
   $("loadBtn").onclick = () => loadSaved($("loadSel").value);
   $("saveBtn").onclick = save;

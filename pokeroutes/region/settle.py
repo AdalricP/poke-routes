@@ -55,12 +55,18 @@ def settle(w: World) -> None:
     sx, sy = w.strait
     wh = SIZES["pilsau"]
     cands = [(sx + dx, sy + dy) for dx in range(-6, 7) for dy in range(-6, 7)]
+    spit_land = land & (w.half == 2)
 
     def pil_score(r, cx, cy):
         a, b = frac(land & (w.half == 1), r), frac(land & (w.half == 2), r)
         if min(a, b) < 0.10:  # the port must stand on both shores
             return -1e9 + a + b
-        return 2 * min(a, b) + a + b - frac(hard, r) * 9 - 0.03 * np.hypot(cx - sx, cy - sy)
+        # the road onto the spit leaves through a side, not a corner (routes skip corners)
+        x0, y0, x1, y1 = r
+        sides = np.concatenate([spit_land[y0 + 2:y1 - 2, x1:x1 + 1].ravel(), spit_land[y0 - 1:y0, x0 + 2:x1 - 2].ravel(),
+                                spit_land[y1:y1 + 1, x0 + 2:x1 - 2].ravel()])
+        return (2 * min(a, b) + a + b - frac(hard, r) * 9 - 0.03 * np.hypot(cx - sx, cy - sy)
+                + (1.0 if sides.any() else 0.0))
 
     pil = _best(w, wh, pil_score, cands, avoid)
     avoid.append(pil)
