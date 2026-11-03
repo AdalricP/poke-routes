@@ -338,6 +338,8 @@ def stage_lakes(route: Route) -> None:
         _rivers(route)
     if b == "beach":
         _sea(route)
+    if b == "desert":
+        _open_desert(route)
     _ponds(route, route.spec.lakes if b != "riverland" else max(1, route.spec.lakes // 2))
     route.snap("water")
 
@@ -636,6 +638,28 @@ def _sec_len(p, s) -> int:
     return f.uv(B.y, B.x)[0] - f.uv(A.y, A.x)[0]
 
 
+def _open_desert(route: Route) -> None:
+    """Desert (think Route 111): one open sand field, not a cliff maze. The cliff
+    between the lanes falls away except a ragged rim along the map edge and a few
+    rock outcrops, so the lanes turn into tracks across the sand. Special areas keep
+    their walls so they stay hidden. Only cliff turns to sand, so nothing gets cut off."""
+    from scipy.ndimage import binary_dilation, binary_opening
+
+    h, w = route.h, route.w
+    cliff = route.cls == wall_class(route)
+    n = fbm(h, w, 6.0, route.rng)
+    yy, xx = np.mgrid[:h, :w]
+    edge = np.minimum.reduce([yy, xx, h - 1 - yy, w - 1 - xx])
+    keep = (edge < 2 + 5 * n) | (n > np.quantile(n, 0.84))  # the top sixth of the noise is rock
+    special = np.zeros(cliff.shape, dtype=bool)
+    for c in route.zone_cells("special"):
+        special[c] = True
+    keep |= binary_dilation(special, iterations=3)
+    # rocks at least 2x2 so the cliff edges tile
+    rock = binary_opening(np.pad(cliff & keep, 2, constant_values=True), np.ones((2, 2)))[2:-2, 2:-2]
+    route.cls[cliff & ~rock] = ground_class(route)
+
+
 def _sea(route: Route) -> None:
     """Beach: the planner kept the lanes off one lateral third of the map; that side
     is open sea (touching the map edge), with a sand shore between it and the land,
@@ -897,6 +921,9 @@ def stage_ledges(route: Route) -> None:
     short connector with a ledge lets you drop from the upper lane to the lower one
     (sometimes with an item on the ledge top, visible from below). Where lanes run
     north-south, a ledge across a loop lane makes it a downhill-only shortcut."""
+    if route.spec.biome == "desert":  # an open sand field has no steps to drop off
+        route.snap("ledges")
+        return
     p, rng, spec = plan_of(route), route.rng, route.spec
     chance = float(getattr(spec, "ledge_chance", 0.35))
     walk = _walk_mask(route)
