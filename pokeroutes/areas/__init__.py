@@ -394,7 +394,7 @@ def _make_door(p: stamps.Painter, side: str) -> Tuple[Cell, Cell]:
         y, x = c
         while p.in_box(y + step[0], x + step[1]):
             y, x = y + step[0], x + step[1]
-            if (y, x) in p.fixed:
+            if (y, x) in p.fixed or (y, x) in p.custom:
                 return False
         return True
 
@@ -403,7 +403,7 @@ def _make_door(p: stamps.Painter, side: str) -> Tuple[Cell, Cell]:
     y, x = start
     while p.in_box(y + step[0], x + step[1]):
         y, x = y + step[0], x + step[1]
-        if (y, x) in p.fixed:
+        if (y, x) in p.fixed or (y, x) in p.custom:
             break
         if p.cls[y, x] not in WALK:
             p.paint(y, x, "g")
