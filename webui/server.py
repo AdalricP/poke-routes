@@ -567,12 +567,20 @@ def export_zip(gid: str) -> tuple:
             lay = out / "data/layouts" / route.spec.id
             lay.mkdir(parents=True, exist_ok=True)
             (lay / "map.bin").write_bytes(final.to_blockdata())
-            border = (tl.at.m.get("borders") or {}).get("f") or [0x1D4, 0x1D5, 0x1DC, 0x1DD]
+            if gid in _ark_ids:
+                import shell_api
+                from pokeroutes.ruletile import PRIMARY_SYMBOL, SECONDARY_SYMBOL
+
+                border = shell_api.ark_tiler().border()
+                primary_symbol, secondary_symbol = PRIMARY_SYMBOL, SECONDARY_SYMBOL
+            else:
+                border = (tl.at.m.get("borders") or {}).get("f") or [0x1D4, 0x1D5, 0x1DC, 0x1DD]
+                primary_symbol, secondary_symbol = f"gTileset_{primary.title()}", f"gTileset_{secondary.title()}"
             (lay / "border.bin").write_bytes(np.array(border, dtype="<u2").tobytes())
             (lay / "layouts_entry.json").write_text(json.dumps({
                 "id": f"LAYOUT_{route.spec.id.upper()}", "name": f"{route.spec.id}_Layout",
                 "width": route.w, "height": route.h,
-                "primary_tileset": f"gTileset_{primary.title()}", "secondary_tileset": f"gTileset_{secondary.title()}",
+                "primary_tileset": primary_symbol, "secondary_tileset": secondary_symbol,
                 "border_filepath": f"data/layouts/{route.spec.id}/border.bin",
                 "blockdata_filepath": f"data/layouts/{route.spec.id}/map.bin", "layout_version": "emerald"}, indent=2))
         buf = io.BytesIO()
