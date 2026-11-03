@@ -274,6 +274,16 @@ test("landmark move carries the pillar and the gate", () => {
   assert.deepStrictEqual(d.meta.den_gate, [22, 19]);
 });
 
+test("landmark move clamped at the map edge keeps its footprint attached", () => {
+  const d = makeDoc();
+  const l = d.landmarks[0]; // romowe at (20, 22), W=40 H=30
+  const fpBefore = l.footprint.slice();
+  ED.moveLandmark(d, "romowe", 5000, 0); // clamps x to W - 1 = 39
+  assert.strictEqual(l.x, d.W - 1);
+  const dx = l.x - 20;
+  assert.deepStrictEqual(l.footprint, [fpBefore[0] + dx, fpBefore[1], fpBefore[2] + dx, fpBefore[3]]);
+});
+
 test("placeAt priorities and refs", () => {
   const d = makeDoc();
   assert.strictEqual(ED.placeAt(d, 20, 22).kind, "landmark");

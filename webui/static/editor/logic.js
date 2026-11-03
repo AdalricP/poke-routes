@@ -490,17 +490,19 @@
   function moveLandmark(doc, id, dx, dy) {
     const l = doc.landmarks.find((l) => l.id === id);
     if (!l || (!dx && !dy)) return false;
+    const ndx = Math.max(-l.x, Math.min(doc.W - 1 - l.x, dx));
+    const ndy = Math.max(-l.y, Math.min(doc.H - 1 - l.y, dy));
     const ids = [id].concat(CARRY[id] || []);
     for (const lid of ids) {
       const m = doc.landmarks.find((q) => q.id === lid);
       if (!m) continue;
-      m.x = Math.max(0, Math.min(doc.W - 1, m.x + dx));
-      m.y = Math.max(0, Math.min(doc.H - 1, m.y + dy));
-      m.footprint = [m.footprint[0] + dx, m.footprint[1] + dy, m.footprint[2] + dx, m.footprint[3] + dy];
+      m.x = m.x + ndx;
+      m.y = m.y + ndy;
+      m.footprint = [m.footprint[0] + ndx, m.footprint[1] + ndy, m.footprint[2] + ndx, m.footprint[3] + ndy];
     }
-    if (id === "romowe" && doc.meta && doc.meta.den_gate) doc.meta.den_gate = [doc.meta.den_gate[0] + dx, doc.meta.den_gate[1] + dy];
-    if (id === "glutberg" && doc.meta && doc.meta.volcano) doc.meta.volcano = [doc.meta.volcano[0] + dx, doc.meta.volcano[1] + dy];
-    return true;
+    if (id === "romowe" && doc.meta && doc.meta.den_gate) doc.meta.den_gate = [doc.meta.den_gate[0] + ndx, doc.meta.den_gate[1] + ndy];
+    if (id === "glutberg" && doc.meta && doc.meta.volcano) doc.meta.volcano = [doc.meta.volcano[0] + ndx, doc.meta.volcano[1] + ndy];
+    return !!(ndx || ndy);
   }
 
   // exits: position along their side (x for north/south, y for east/west)
