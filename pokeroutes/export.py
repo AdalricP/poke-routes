@@ -28,6 +28,25 @@ BIOME_HABITATS = {
 RARITY_WEIGHT = {"common": 40, "uncommon": 14, "rare": 4, "very_rare": 1}
 
 
+def grade_forest(im: Image.Image) -> Image.Image:
+    """Forest reads too close to meadow at the same brightness: darken it under the
+    canopy, cool the shadows a touch, and fall off further at the edges (more light
+    reaches a clearing than the deep treeline) so it feels like standing under trees."""
+    a = np.asarray(im.convert("RGB")).astype(np.float32)
+    h, w = a.shape[:2]
+    yy, xx = np.mgrid[0:h, 0:w]
+    r = np.hypot((yy - h / 2) / (h / 2), (xx - w / 2) / (w / 2))
+    vignette = 1.0 - 0.15 * np.clip(r - 0.4, 0, 1)
+    a *= (0.78 * vignette)[..., None]
+    a[..., 2] *= 1.05  # cooler shade
+    a[..., 1] *= 0.98
+    return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
+
+
+def grade_for_biome(im: Image.Image, biome: str) -> Image.Image:
+    return grade_forest(im) if biome == "forest" else im
+
+
 def encounters(route: Route) -> dict:
     """Weighted wild tables: one for the route's tall grass, one per special area."""
     path = route.spec.species_file

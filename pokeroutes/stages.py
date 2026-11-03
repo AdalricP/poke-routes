@@ -43,7 +43,7 @@ TREE_BIOMES = ("forest", "meadow", "riverland")
 
 # per-biome palette: (wall between lanes, ground, lane surface, road, encounter grass)
 BIOME_CODES = {
-    "forest": ("f", "g", "g", "p", "t"),
+    "forest": ("f", "g", "g", "g", "t"),  # no dirt road under the canopy: the main lane is trodden forest floor
     "meadow": ("f", "g", "g", "p", "t"),  # dirt only on the main road; side lanes stay grass
     # like meadow, but the packed-off ground between lanes is a low hill (cliff rim,
     # jump-down ledge at the gate) instead of a tree mass: open plains, not a forest cut
@@ -814,7 +814,9 @@ def stage_tall_grass(route: Route) -> None:
 
 def _lane_patches(route: Route) -> None:
     """Rectangular tall grass across side lanes (you have to wade through it) and
-    patches in pockets and clearings. The main road stays one unbroken dirt strip."""
+    patches in pockets and clearings. The main road mostly stays readable, but every
+    so often a patch of tall grass grows right over it too, so it isn't one unbroken
+    dirt strip the whole way."""
     p, rng, spec = plan_of(route), route.rng, route.spec
     tg = float(spec.tall_grass)
     tall = grass_class(route)
@@ -832,13 +834,14 @@ def _lane_patches(route: Route) -> None:
             if rng.random() > p_patch:
                 continue
             on_road = l.kind == "main" and route.spec.road
+            grass_over_road = on_road and rng.random() < 0.3
             ln = int(rng.integers(3, 5)) if l.kind == "main" else int(rng.integers(4, min(9, n)))
             st = int(rng.integers(min(a[0], b2[0]) + 1, max(min(a[0], b2[0]) + 2, max(a[0], b2[0]) - ln)))
             lo, hi = -((l.width - 1) // 2), l.width // 2
             for u in range(st, st + ln):
                 for v in range(a[1] + lo, a[1] + hi + 1):
                     y, x = f.yx(u, v)
-                    if on_road and route.cls[y, x] == path_class(route):
+                    if on_road and not grass_over_road and route.cls[y, x] == path_class(route):
                         continue
                     if route.cls[y, x] in (ground_class(route), path_class(route), side_surface(route)):
                         route.cls[y, x] = tall

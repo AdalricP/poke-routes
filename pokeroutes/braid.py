@@ -492,10 +492,10 @@ class Planner:
             # a plain stretch with no lanes beside it: the road snakes, each bend swinging
             # it over to the far side of the band and back
             k = int(round(jog_scale * spec.meander * (max(0, room) / 10 + 1) + rng.uniform(-0.3, 0.3)))
-            k = max(0, min(k, 3))
+            k = max(0, min(k, 4))
             mid = (band[0] + band[1]) / 2
             side = -1 if va > mid else 1 if va < mid else (1 if rng.random() < 0.5 else -1)
-            inset = max(1, int((band[1] - band[0]) * (1 - spec.meander) * 0.4))
+            inset = max(1, int((band[1] - band[0]) * (1 - spec.meander) * 0.25))
             for _ in range(k):
                 edge = band[1] if side > 0 else band[0]
                 nv = int(edge - side * rng.integers(0, inset + 1))
@@ -504,8 +504,8 @@ class Planner:
                 side = -side
         else:
             k = int(round(jog_scale * spec.meander * max(0, room) / 15 + rng.uniform(-0.4, 0.4)))
-            k = max(0, min(k, 3))
-            amp_hi = 4 + int(8 * spec.meander)
+            k = max(0, min(k, 4))
+            amp_hi = 4 + int(11 * spec.meander)
             for _ in range(k):
                 for _try in range(10):
                     step = int(rng.integers(4, amp_hi + 1)) * (1 if rng.random() < 0.5 else -1)
