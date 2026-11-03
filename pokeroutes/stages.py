@@ -627,17 +627,22 @@ def _sea(route: Route) -> None:
 # ------------------------------------------------------------------ surfaces
 
 def stage_road(route: Route) -> None:
-    """Lanes get a readable surface: one dirt road on the critical path (3 wide);
-    side lanes stay grass, so the road is the only dirt and reads at a glance."""
+    """Lanes get a readable surface: a dirt road on the critical path (3 wide) that
+    forks where a lane splits off and rejoins it; merges, dead ends and trails stay
+    grass, so the road still reads at a glance."""
     p = plan_of(route)
     special = set(route.zone_cells("special"))
     pc = path_class(route)
     if route.spec.road:
         for s in p.sections:
-            m = p.lane(s.lanes[0])
-            for (y, x) in m.cells:
-                if (y, x) not in special and route.cls[y, x] == ground_class(route):
-                    route.cls[y, x] = pc
+            # the road itself forks: a lane that splits off and rejoins it is road too
+            # (a narrower one); merges and dead ends stay grass
+            road = [p.lane(i) for i in s.lanes if i == s.lanes[0]
+                    or (p.lane(i).kind == "loop" and p.lane(i).fate == "full" and p.lane(i).level == 1)]
+            for m in road:
+                for (y, x) in m.cells:
+                    if (y, x) not in special and route.cls[y, x] == ground_class(route):
+                        route.cls[y, x] = pc
         for e, cells in route.exits[:2]:
             for c in cells:
                 for d in range(3):
@@ -858,7 +863,10 @@ def stage_ledges(route: Route) -> None:
     for s in p.sections:
         lanes = [p.lane(i) for i in s.lanes]
         f, _ = p.legs[s.leg]
-        if len(lanes) < 2 or rng.random() > chance * 1.6:
+        # where the road forks, one fork always gets a ledge: a one-way shortcut, so
+        # which way round you can take it depends on the direction you walk
+        forks = [l for l in lanes if l.kind == "loop" and l.fate == "full" and l.level == 1]
+        if len(lanes) < 2 or (not (forks and f.vertical) and rng.random() > chance * 1.6):
             continue
         if not f.vertical:
             # lanes stacked north/south: connector at some column
@@ -892,7 +900,7 @@ def stage_ledges(route: Route) -> None:
             if ly - yb >= 1 and rng.random() < 0.5:
                 route.events.append(Event("item_ball", ly - 1, x, {"item": _item(rng), "why": "on the ledge, seen from below"}))
         else:
-            loops = [l for l in lanes if l.kind == "loop" and l.fate in ("full", "merge")]
+            loops = forks or [l for l in lanes if l.kind == "loop" and l.fate in ("full", "merge")]
             if not loops:
                 continue
             l = loops[int(rng.integers(0, len(loops)))]

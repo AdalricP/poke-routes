@@ -375,6 +375,7 @@ class Planner:
         self.nodes.append(Node(self._oid("node"), "exit", c0[0], c0[1], exit_index=0))
         k_int = 0
         prev_v = 0
+        node_side = 1 if rng.random() < 0.5 else -1
         for li, (f, U) in enumerate(self.legs):
             vlo, vhi = self.vrange(f)
             m = per_leg[li]
@@ -408,7 +409,12 @@ class Planner:
                 uu = int(round(u))
                 t = uu / max(1, U)
                 v_lin = (prev_v if li == 0 else 0) * (1 - t) + v_end * t if li == n_legs - 1 else 0
-                v = int(v_lin + rng.uniform(-1, 1) * (vhi - vlo) * 0.3 * spec.meander)
+                # consecutive nodes sit on opposite sides of the map, so the road crosses
+                # it section by section instead of beelining from exit to exit
+                swing = rng.uniform(0.6, 1.0) * (vhi - vlo) * 0.45 * spec.meander
+                v = int((vlo + vhi) / 2 + node_side * swing) if li < n_legs - 1 or m > 1 else \
+                    int(v_lin + node_side * swing * 0.6)
+                node_side = -node_side
                 sig, ov = 0, 0
                 if kind == "spectacle":
                     sig = 1 if (vhi - v) > (v - vlo) else -1
@@ -469,7 +475,8 @@ class Planner:
 
     # ------------------------------------------------------------ main lane
 
-    def main_profile(self, f: Frame, A: Node, B: Node, band: Tuple[int, int], spacing: int, jog_scale: float) -> Profile:
+    def main_profile(self, f: Frame, A: Node, B: Node, band: Tuple[int, int], spacing: int, jog_scale: float,
+                     snake: bool = False) -> Profile:
         rng, spec = self.rng, self.spec
         ua, va = f.uv(A.y, A.x)
         ub, vb = f.uv(B.y, B.x)
@@ -480,17 +487,32 @@ class Planner:
         u_hi = ub - hub - lead
         room = u_hi - u_lo
         # a few orthogonal bends per section (bends get a pond / obstacle later so they have a reason)
-        k = int(round(jog_scale * spec.meander * max(0, room) / 15 + rng.uniform(-0.4, 0.4)))
-        k = max(0, min(k, 3))
-        amp_hi = 4 + int(8 * spec.meander)
         levels = [va]
-        for _ in range(k):
-            for _try in range(10):
-                step = int(rng.integers(4, amp_hi + 1)) * (1 if rng.random() < 0.5 else -1)
-                nv = int(np.clip(levels[-1] + step, band[0], band[1]))
+        if snake:
+            # a plain stretch with no lanes beside it: the road snakes, each bend swinging
+            # it over to the far side of the band and back
+            k = int(round(jog_scale * spec.meander * (max(0, room) / 10 + 1) + rng.uniform(-0.3, 0.3)))
+            k = max(0, min(k, 3))
+            mid = (band[0] + band[1]) / 2
+            side = -1 if va > mid else 1 if va < mid else (1 if rng.random() < 0.5 else -1)
+            inset = max(1, int((band[1] - band[0]) * (1 - spec.meander) * 0.4))
+            for _ in range(k):
+                edge = band[1] if side > 0 else band[0]
+                nv = int(edge - side * rng.integers(0, inset + 1))
                 if abs(nv - levels[-1]) >= 4:
                     levels.append(nv)
-                    break
+                side = -side
+        else:
+            k = int(round(jog_scale * spec.meander * max(0, room) / 15 + rng.uniform(-0.4, 0.4)))
+            k = max(0, min(k, 3))
+            amp_hi = 4 + int(8 * spec.meander)
+            for _ in range(k):
+                for _try in range(10):
+                    step = int(rng.integers(4, amp_hi + 1)) * (1 if rng.random() < 0.5 else -1)
+                    nv = int(np.clip(levels[-1] + step, band[0], band[1]))
+                    if abs(nv - levels[-1]) >= 4:
+                        levels.append(nv)
+                        break
         levels.append(vb)
         # drop jogs smaller than 4 tiles (no one-tile wiggles)
         changed = True
@@ -586,8 +608,8 @@ class Planner:
                 n = 2
                 if max_lanes >= 3 and length >= 20 and rng.random() < 0.5:
                     n = 3
-                if s.id > 0 and rng.random() < 0.1:
-                    n = 1  # now and then a plain stretch: limited options
+                if s.id > 0 and rng.random() < 0.25:
+                    n = 1  # now and then a plain stretch that snakes instead: limited options
             plan = []  # (side, level, offset)
             if n >= 2:
                 # lanes go where there is room: compare the space either side of the nodes
@@ -617,7 +639,7 @@ class Planner:
             ok = False
             for attempt in range(40):
                 scale = 1.0 if attempt < 15 else (0.5 if attempt < 30 else 0.0)
-                prof = self.main_profile(f, A, B, band, spacing, scale)
+                prof = self.main_profile(f, A, B, band, spacing, scale, snake=not plan)
                 pts = self.prof_pts(prof, ua, ub)
                 cells = raster(f, pts, MAIN_W)
                 ja = self.junction_out(f, pts, A, False)
