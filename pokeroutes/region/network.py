@@ -649,9 +649,10 @@ def build_network(w: World, keep: Optional[List[dict]] = None, plan: Optional[Li
             else:
                 src.append((n["idx"], 40.0 if (n["kind"] == "city" and prefer_routes) else 0.0))
         goal = cell or (lm.x, lm.y)
-        if net.occ[goal[1], goal[0]] >= 0:
+        occ_k = int(net.occ[goal[1], goal[0]])
+        if occ_k >= 0 and net.nodes[occ_k].get("link") != name:
             w.log.append(f"{name}: {lid} already sits inside a route")
-            net.nodes[int(net.occ[goal[1], goal[0]])].setdefault("landmarks", []).append(lid)
+            net.nodes[occ_k].setdefault("landmarks", []).append(lid)
             return
         add(dict(name=name, kind="branch", src=src, goal=goal, mode=mode, landmark=lid))
 
