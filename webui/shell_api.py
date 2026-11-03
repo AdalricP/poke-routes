@@ -199,9 +199,10 @@ def handle(h, method: str, u, srv) -> bool:
                 spec = yaml.safe_load(text)  # JSON is YAML too
                 if not isinstance(spec, dict):
                     raise ValueError("a spec file must hold a mapping")
+                spec = json.loads(json.dumps(spec, default=str))
             except Exception as e:
                 return h._json({"error": f"could not read the spec: {e}"}, 400) or True
-            return h._json(json.loads(json.dumps(spec, default=str))) or True
+            return h._json(spec) or True
         if u.path == "/api/retile":
             # peek at the id without consuming the body for the real handler
             n = int(h.headers.get("Content-Length") or 0)
