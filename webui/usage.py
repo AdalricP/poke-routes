@@ -19,7 +19,14 @@ import threading
 import time
 from pathlib import Path
 
-USAGE = Path(__file__).resolve().parent / "improve-logs" / "usage.json"
+_HERE = Path(__file__).resolve().parent
+# same LOGDIR derivation as improve.py: honour IMPROVE_STATE / IMPROVE_LOGS so a job's own
+# usage.json (written under improve.py's LOGDIR) is the one we read (finding 33)
+_state = Path(os.environ.get("IMPROVE_STATE") or _HERE / "improvements.json").resolve()
+_default_logs = _HERE / "improve-logs" if _state == (_HERE / "improvements.json").resolve() \
+    else _state.with_name(_state.stem + "-logs")
+LOGDIR = Path(os.environ.get("IMPROVE_LOGS") or _default_logs).resolve()
+USAGE = LOGDIR / "usage.json"
 MAX_AGE = 60
 _lock = threading.Lock()
 _last_try = 0.0
