@@ -217,6 +217,7 @@
     bottom: { size: 180, open: true, tab: "console", float: null },   // float: {x, y, w, h} when torn off
     center: "scene",
     inspector: {},   // section id -> collapsed (true)
+    pins: { left: null, right: null },   // a panel (e.g. an Improve section) parked beneath Hierarchy/Inspector
   };
   const BOTTOM_TABS = ["console", "timeline", "improve", "commits", "agent"];
   const CENTER_TABS = ["scene", "geography", "region", "story", "gates"];
@@ -240,6 +241,12 @@
     if (CENTER_TABS.includes(x.center)) d.center = x.center;
     if (x.inspector && typeof x.inspector === "object") {
       for (const [k, v] of Object.entries(x.inspector)) if (typeof v === "boolean" && /^[\w-]{1,40}$/.test(k)) d.inspector[k] = v;
+    }
+    if (x.pins && typeof x.pins === "object") {
+      for (const side of ["left", "right"]) {
+        const v = x.pins[side];
+        d.pins[side] = typeof v === "string" && /^[\w-]{1,40}$/.test(v) ? v : null;
+      }
     }
     return d;
   }

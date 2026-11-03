@@ -36,7 +36,7 @@
   panel.hidden = !dock;
   panel.setAttribute("aria-label", "Improvements");
   panel.innerHTML = dock ? `
-      <section>
+      <section data-sec="request">
         <h2><label for="impText">How should this be different?</label></h2>
         <div class="imp-sec">
           <textarea id="impText" placeholder="e.g. show the walkable percentage in the stats panel"></textarea>
@@ -54,15 +54,15 @@
           <p class="imp-err" id="impErr"></p>
         </div>
       </section>
-      <section>
+      <section data-sec="workers">
         <h2 class="imp-wh">Workers <span class="imp-wctl" id="impWctl"><button type="button" data-d="-1" title="Fewer workers">&minus;</button><b id="impWn">-</b><button type="button" data-d="1" title="More workers">+</button></span></h2>
         <div class="imp-sec"><ul class="imp-slots" id="impSlots"></ul><p class="imp-note" id="impOwner"></p></div>
       </section>
-      <section>
+      <section data-sec="current">
         <h2>Current job</h2>
         <div class="imp-sec" id="impLogBox"><p class="imp-cur" id="impCur"></p><pre class="imp-log" id="impLog"></pre></div>
       </section>
-      <section>
+      <section data-sec="queue">
         <h2 class="imp-tabs" id="impHistTabs">
           <button type="button" class="imp-tab" data-tab="all">Queue &amp; history</button>
           <button type="button" class="imp-tab imp-tab-done" data-tab="done">Done</button>
@@ -71,7 +71,7 @@
         </h2>
         <div class="imp-sec"><ul class="imp-hist" id="impHist"><li class="muted">nothing yet</li></ul></div>
       </section>
-      <section>
+      <section data-sec="usage">
         <h2>Usage</h2>
         <div class="imp-sec imp-usage" id="impUsage"></div>
       </section>` : `
@@ -118,7 +118,55 @@
   if (dock) dock.append(panel); else document.body.append(btn, panel);
   // docked: "open" means the Improve tab is showing
   const isOpen = () => (dock ? !!dock.offsetParent : !panel.hidden);
-  const $ = (id) => panel.querySelector("#" + id);
+  // document-wide, not panel-scoped: a docked section can be pinned into Hierarchy or
+  // Inspector (see below), which moves it out from under `panel`
+  const $ = (id) => document.getElementById(id);
+
+  if (dock) {
+    // sections can be dragged: onto a sibling to reorder, or onto the Hierarchy /
+    // Inspector dock to pin themselves there, beneath its own content (Unity-style)
+    const ORDER_KEY = "pokeroutes-improve-order-v1";
+    const LABELS = { request: "Request", workers: "Workers", current: "Current job", queue: "Queue & history", usage: "Usage" };
+    const sections = Array.from(panel.children);
+    const bySec = new Map(sections.map((s) => [s.dataset.sec, s]));
+    let order = [];
+    try { order = JSON.parse(localStorage.getItem(ORDER_KEY) || "[]"); } catch (e) { order = []; }
+    order = order.filter((k) => bySec.has(k)).concat(sections.map((s) => s.dataset.sec).filter((k) => !order.includes(k)));
+    for (const k of order) panel.append(bySec.get(k));
+    const saveOrder = () => {
+      try { localStorage.setItem(ORDER_KEY, JSON.stringify(Array.from(panel.children).map((s) => s.dataset.sec))); } catch (e) { /* private mode */ }
+    };
+    for (const sec of sections) {
+      if (sec.dataset.sec === "request") continue; // the input box stays put
+      const head = sec.querySelector("h2");
+      head.draggable = true;
+      head.addEventListener("dragstart", (ev) => {
+        ev.dataTransfer.effectAllowed = "move";
+        ev.dataTransfer.setData("application/x-imp-reorder", sec.dataset.sec);
+        ev.dataTransfer.setData("application/x-pin-panel", sec.dataset.sec);
+      });
+      sec.addEventListener("dragover", (ev) => {
+        if (!ev.dataTransfer.types.includes("application/x-imp-reorder")) return;
+        ev.preventDefault();
+        sec.classList.add("drag-over");
+      });
+      sec.addEventListener("dragleave", () => sec.classList.remove("drag-over"));
+      sec.addEventListener("drop", (ev) => {
+        if (!ev.dataTransfer.types.includes("application/x-imp-reorder")) return;
+        ev.preventDefault();
+        sec.classList.remove("drag-over");
+        const fromKey = ev.dataTransfer.getData("application/x-imp-reorder");
+        const from = bySec.get(fromKey);
+        if (!from || from === sec) return;
+        if (window.Shell && window.Shell.unpinPanel) window.Shell.unpinPanel("imp-" + fromKey); // dragged in from Hierarchy/Inspector
+        const after = ev.clientX > sec.getBoundingClientRect().left + sec.getBoundingClientRect().width / 2;
+        sec.parentNode.insertBefore(from, after ? sec.nextSibling : sec);
+        saveOrder();
+      });
+      if (window.Shell && window.Shell.registerPanel) window.Shell.registerPanel("imp-" + sec.dataset.sec, sec, LABELS[sec.dataset.sec]);
+    }
+    window.addEventListener("dragend", () => sections.forEach((s) => s.classList.remove("drag-over")));
+  }
 
   const state = { jobs: [], running: [], shown: null, logNext: 0, logFor: null, timer: null, prev: {}, h: null, screenshots: [], histTab: "all" };
   const ACTIVE = ["queued", "running", "merging"];
@@ -411,11 +459,11 @@
       }
       if (was && was !== j.status && j.status === "done" && j.target === "poke-routes") {
         $("impCur").textContent = "Done. Reload the page to see the change.";
-        if (!panel.querySelector(".imp-reload")) {
+        if (!document.querySelector(".imp-reload")) {
           const r = el("button", dock ? "btn imp-reload" : "small imp-reload", "Reload page");
           r.type = "button";
           r.onclick = () => location.reload();
-          panel.querySelector("#impCur").after(r);
+          $("impCur").after(r);
         }
       }
       state.prev[j.id] = j.status;

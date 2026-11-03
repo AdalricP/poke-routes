@@ -224,6 +224,66 @@
     }).observe(dock);
   }
 
+  // pinned panels: another module (e.g. improve.js) offers a panel via registerPanel();
+  // dragging its header onto Hierarchy or Inspector parks it there, beneath that dock's
+  // own content, until it's dragged back out or its "Unpin" button is clicked
+  const pinHosts = { left: $("dockLeftExtra"), right: $("dockRightExtra") };
+  const panelRegistry = new Map();
+  function pinPanel(side, key) {
+    const entry = panelRegistry.get(key);
+    if (!entry) return;
+    for (const s of ["left", "right"]) if (layout.pins[s] === key && s !== side) unpinPanel(s);
+    if (layout.pins[side] && layout.pins[side] !== key) unpinPanel(side);
+    const host = pinHosts[side];
+    host.innerHTML = "";
+    const head = el("div", "dock-extra-head");
+    head.append(el("span", "", entry.label));
+    const un = el("button", "dock-extra-unpin", "Unpin");
+    un.type = "button";
+    un.title = "Send back to where it came from";
+    un.onclick = () => unpinPanel(side);
+    head.append(un);
+    host.append(head, entry.node);
+    host.hidden = false;
+    layout.pins[side] = key;
+    saveLayout();
+  }
+  function unpinPanel(side) {
+    const key = layout.pins[side];
+    const entry = key && panelRegistry.get(key);
+    if (entry) entry.parent.insertBefore(entry.node, entry.parent.contains(entry.next) ? entry.next : null);
+    pinHosts[side].innerHTML = "";
+    pinHosts[side].hidden = true;
+    layout.pins[side] = null;
+    saveLayout();
+  }
+  function registerPanel(key, node, label) {
+    panelRegistry.set(key, { node, label, parent: node.parentNode, next: node.nextSibling });
+    for (const side of ["left", "right"]) if (layout.pins[side] === key) pinPanel(side, key);
+  }
+  // for a panel's owner to call before moving its node itself (e.g. reordering it among
+  // siblings): a no-op unless that panel is currently pinned somewhere
+  function unpinByKey(key) {
+    for (const side of ["left", "right"]) if (layout.pins[side] === key) unpinPanel(side);
+  }
+  for (const side of ["left", "right"]) {
+    const zone = docks[side];
+    zone.addEventListener("dragover", (ev) => {
+      if (!ev.dataTransfer.types.includes("application/x-pin-panel")) return;
+      ev.preventDefault();
+      zone.classList.add("drop-target");
+    });
+    zone.addEventListener("dragleave", () => zone.classList.remove("drop-target"));
+    zone.addEventListener("drop", (ev) => {
+      if (!ev.dataTransfer.types.includes("application/x-pin-panel")) return;
+      ev.preventDefault();
+      zone.classList.remove("drop-target");
+      const key = ev.dataTransfer.getData("application/x-pin-panel");
+      if (key) pinPanel(side, key);
+    });
+  }
+  window.addEventListener("dragend", () => { docks.left.classList.remove("drop-target"); docks.right.classList.remove("drop-target"); });
+
   document.querySelectorAll("[data-collapse]").forEach((b) => {
     b.onclick = () => (layout[b.dataset.collapse].float ? redock(b.dataset.collapse) : toggleDock(b.dataset.collapse));
   });
@@ -542,6 +602,8 @@
     onCenter: (f) => centerCbs.push(f),
     onBottom: (f) => bottomCbs.push(f),
     log, status,
+    registerPanel,
+    unpinPanel: unpinByKey,
     setMenus(m, extra) { menus = m; extraKeys = extra || []; renderMenubar(); },
     closeMenus,
     openDialog,

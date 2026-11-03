@@ -433,3 +433,17 @@ table.enc .pct { display: inline-block; height: 6px; margin-right: 6px; backgrou
 .dock.floating .dock-collapse::before { transform: translate(-50%, -50%) rotate(0deg); width: 7px; height: 7px; border-width: 1.5px; }
 .dock-drop { position: absolute; z-index: 19; background: rgba(77,144,214,.18); border: 1px solid var(--focus); pointer-events: none; }
 body.moving, body.moving * { user-select: none !important; cursor: move !important; }
+
+/* ------------------------------------------------------------ pinned panels
+   Drag an Improve section's header onto Hierarchy or Inspector to park it there,
+   beneath that dock's own content (Unity-style). */
+.dock.drop-target { outline: 2px dashed var(--focus); outline-offset: -2px; }
+.dock-extra { flex: none; max-height: 220px; overflow: auto; border-top: 1px solid var(--line); }
+.dock-extra[hidden] { display: none; }
+#dockLeftExtra.imp-docked, #dockRightExtra.imp-docked { position: static; inset: auto; display: flex; flex-direction: column; grid-template-columns: none; }
+.dock-extra-head { display: flex; flex: none; align-items: center; justify-content: space-between; height: 22px; padding: 0 8px;
+  background: var(--panel-2); font-size: 11px; font-weight: 600; color: var(--text-2); }
+.dock-extra-unpin { height: 16px; padding: 0 6px; background: #474747; border: 1px solid #222; border-radius: 2px; color: var(--text); font-size: 11px; cursor: default; }
+.dock-extra-unpin:hover { background: #555; }
+.imp-docked > section > h2[draggable="true"] { cursor: grab; }
+.imp-docked > section.drag-over { background: rgba(77,144,214,.12); }
