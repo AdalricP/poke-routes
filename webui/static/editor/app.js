@@ -663,7 +663,7 @@
       ctx.stroke();
       ctx.setLineDash([]);
       if (st.drag.target) label("to " + (st.drag.target.obj.name || st.drag.target.id), X(b.fx), Y(b.fy) - 16, 13, "#ffd65c");
-    } else if (st.tool === "route" && st.hover && st.hover.place) {
+    } else if (st.cursor && st.tool === "route" && st.hover && st.hover.place) {
       const p = st.hover.place;
       label(p.obj.name || p.id, X(st.cursor.fx), Y(st.cursor.fy) - 16, 13, "#ffd65c");
     }
@@ -837,7 +837,7 @@
   }
   wrap.addEventListener("pointerup", endDrag);
   wrap.addEventListener("pointercancel", endDrag);
-  wrap.addEventListener("pointerleave", () => { st.cursor = null; $("status").textContent = ""; draw(); });
+  wrap.addEventListener("pointerleave", () => { st.cursor = null; st.hover = null; $("status").textContent = ""; draw(); });
   wrap.addEventListener("wheel", (ev) => {
     ev.preventDefault();
     const [sx, sy] = local(ev);
