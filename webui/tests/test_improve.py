@@ -269,6 +269,22 @@ class Lock(Base):
         self.assertIn("no server owns", out["error"])
 
 
+class Cancel(Base):
+    def test_cancel_running_job_with_no_agent_process_yet_still_flags_it(self):
+        # worktree setup, model routing and an undo's revert/build all run before _procs gets an
+        # entry for the job; cancel used to do nothing in that window (finding 15)
+        improve.try_acquire_lock(1)
+        improve._st["owner"] = True
+        job = {"id": "r1", "kind": "improve", "status": "running", "owner": improve._me,
+               "target": "poke-routes", "request": "r", "created": 1}
+        improve._jobs["r1"] = job
+        improve.cancel("r1")
+        self.assertEqual(job["killed"], "cancelled")
+        code, final = improve._run_agent(job, cwd=self.repo)
+        self.assertEqual((code, final), (-1, ""))   # the agent is never even started
+        self.assertNotIn("r1", improve._procs)
+
+
 class Merge(Base):
     def job_wt(self, name, edit):
         wt = self.tmp / f"wt-{name}"

@@ -705,6 +705,8 @@ def _usage():
 
 def _run_agent(job, cwd, wt=None, port=None):
     jid, target = job["id"], job["target"]
+    if job.get("killed"):   # cancelled before the agent process existed to kill (finding 15)
+        return -1, ""
     prompt = build_prompt(job, wt=wt, port=port)
     LOGDIR.mkdir(parents=True, exist_ok=True)
     (LOGDIR / f"{jid}.prompt.txt").write_text(prompt)
@@ -712,6 +714,8 @@ def _run_agent(job, cwd, wt=None, port=None):
         job["model"], job["model_reason"] = route_model(job)
         _save()
     _log(jid, f"[router] {job['model']} ({job.get('model_reason', '')})")
+    if job.get("killed"):   # cancelled while routing the model, still before any process exists
+        return -1, ""
     cmd = claude_cmd(prompt, target, wt, model=job["model"])
     _log(jid, f"[run] {Path(cmd[0]).name} -p <prompt> " + " ".join(a for a in cmd[3:] if "\n" not in a)
          + f"  (cwd {cwd})")
@@ -1500,8 +1504,12 @@ def cancel(jid: str) -> dict:
             if not _mine(job):
                 raise ValueError("an older server is running this job's queue; cancel it there")
             set_status(job, "cancelled")
-        elif job["status"] == "running" and _procs.get(jid):
-            threading.Thread(target=_kill, args=(_procs[jid], jid, "cancelled"), daemon=True).start()
+        elif job["status"] == "running":
+            # set the flag even with no agent process yet (worktree setup, model routing, an undo's
+            # revert/build): _run_agent and _do_poke check it before starting or merging (finding 15)
+            job["killed"] = "cancelled"
+            if _procs.get(jid):
+                threading.Thread(target=_kill, args=(_procs[jid], jid, "cancelled"), daemon=True).start()
         elif job["status"] == "merging":
             raise ValueError("the job is being merged; undo it once it is done")
     _save()
