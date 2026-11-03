@@ -410,9 +410,13 @@ class MemoryGuard(Base):
             j = improve.submit("write b.txt from memory test", "poke-routes")
             improve._st["workers"] = 1
             improve._spawn_workers()
-            time.sleep(1.0)
-            self.assertEqual(improve._jobs[j["id"]]["status"], "queued")
+            # poll instead of a fixed sleep: under a loaded test run the worker thread can take
+            # longer than any fixed delay to get scheduled and hit the memory check
+            deadline = time.time() + 10
+            while not improve._st["mem_wait"] and time.time() < deadline:
+                time.sleep(0.05)
             self.assertTrue(improve._st["mem_wait"])
+            self.assertEqual(improve._jobs[j["id"]]["status"], "queued")
             free["mb"] = 4000
             deadline = time.time() + 30
             while "finished" not in improve._jobs[j["id"]] and time.time() < deadline:
