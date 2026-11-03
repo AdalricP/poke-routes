@@ -370,8 +370,10 @@ def _inside_reach(route: Route, res) -> float:
     """Share of the area's open ground you can walk to from its door."""
     from collections import deque
 
+    from .areas import stamps
+
     y0, x0, h, w = res.box
-    opens = {(y, x) for y in range(y0, y0 + h) for x in range(x0, x0 + w) if route.cls[y, x] in "gt"}
+    opens = {(y, x) for y in range(y0, y0 + h) for x in range(x0, x0 + w) if route.cls[y, x] in stamps.WALK}
     if not opens:
         return 0.0
     start = res.door_out
