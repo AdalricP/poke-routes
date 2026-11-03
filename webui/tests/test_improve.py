@@ -201,6 +201,24 @@ class Recovery(Base):
         self.assertEqual(improve._jobs["legacy"]["owner"], improve._me)
         self.assertEqual(improve._jobs["legacy-run"]["status"], "queued")
 
+    def test_undo_claims_unowned_source_so_undone_sticks(self):
+        # the source job came from an old-style server (no "owner" field) and is already on disk
+        # as "done"; undo() must claim it so the later "undone" update is not overwritten by that
+        # stale disk copy on the next _save (finding 4)
+        improve.try_acquire_lock(1)
+        improve._st["owner"] = True
+        src = {"id": "src", "kind": "improve", "request": "r", "target": "poke-routes",
+               "status": "done", "commit": "c1", "created": 1}
+        improve._jobs["src"] = src
+        improve._save()   # disk now holds the unowned, "done" copy
+        improve.undo("src")
+        self.assertEqual(src["owner"], improve._me)
+        improve.set_status(src, "undone", undone_by="src-undo")
+        improve._save()
+        self.assertEqual(improve._jobs["src"]["status"], "undone")
+        disk = {j["id"]: j for j in json.loads(improve.STATE.read_text())}
+        self.assertEqual(disk["src"]["status"], "undone")
+
     def test_other_writers_cannot_clobber_owned_jobs(self):
         improve.try_acquire_lock(1)
         improve._st["owner"] = True

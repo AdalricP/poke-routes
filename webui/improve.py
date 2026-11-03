@@ -1416,6 +1416,8 @@ def undo(jid: str) -> dict:
             raise ValueError(f"nothing to undo (status {src['status']})")
         if any(j.get("undo_of") == jid and j["status"] in ("queued",) + ACTIVE for j in _jobs.values()):
             raise ValueError("an undo for this job is already queued")
+        src["owner"] = _me     # claim it: an unowned (old-style) source's "undone" update must not
+                                # be clobbered by its stale disk copy on the next _save (finding 4)
         uid = jid + "-undo"
         n = 1
         while uid in _jobs:
