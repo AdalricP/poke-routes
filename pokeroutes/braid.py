@@ -923,6 +923,16 @@ class Planner:
                 self.r.log.append(f"special: road runs within sight of {st['area'].get('id')}; dropped")
                 self.sites.remove(st)
                 self.owner[self.owner == st["oid"]] = -1
+                self._rebuild_keep_masks()
+
+    def _rebuild_keep_masks(self) -> None:
+        """keep_main/keep_any are camera and buffer zones around still-live sites."""
+        self.keep_main[:] = False
+        self.keep_any[:] = False
+        for st in self.sites:
+            y0, x0, h, w = st["box"]
+            self.keep_main[max(0, y0 - CAM_Y):y0 + h + CAM_Y, max(0, x0 - CAM_X):x0 + w + CAM_X] = True
+            self.keep_any[max(0, y0 - KEEP):y0 + h + KEEP, max(0, x0 - KEEP):x0 + w + KEEP] = True
 
     def lane(self, lid: int) -> Lane:
         return next(l for l in self.lanes if l.id == lid)
