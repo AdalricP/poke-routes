@@ -45,6 +45,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -444,6 +445,9 @@ with a stdlib web UI in webui/ (server.py; an editor shell: static/shell.html, s
 It is an experiment log, not a product: keep the lab-notebook tone in any docs you touch (see ../AGENTS.md).
 The generator modules are hot-reloaded by the running server; static files are read per request. If you change
 webui/*.py, say in your last message that the server needs a restart.
+Route tools (MCP server "routes", webui/route_tools.py, on this worktree's code): list_specs, spec_fields,
+generate_route (spec + seed + overrides -> tiled/plan PNGs, report, an id), route_grid, paint_route (fix cells and
+re-tile), generate_region, check_examples. Use them instead of hand-written scripts where they fit.
 
 {RULES.format(scope=wt)}
 How to verify before committing (do all that apply, and fix what breaks), all inside {wt}:
@@ -500,14 +504,17 @@ def _claude():
     return os.environ.get("IMPROVE_CLAUDE") or shutil.which("claude") or "/opt/homebrew/bin/claude"
 
 
-def claude_cmd(prompt, cwd_target):
+def claude_cmd(prompt, cwd_target, wt=None):
     # the job's worktree is the cwd; the log dir holds an attached screenshot
     add = [str(ARK / "rom-wt"), str(DOCS), str(RELEASE_ROM.parent), str(ARK / "tools"), str(LOGDIR)] \
         if cwd_target == "rom" else [str(LOGDIR)]
     cmd = [_claude(), "-p", prompt, "--output-format", "stream-json", "--verbose",
            "--permission-mode", "bypassPermissions", "--strict-mcp-config", "--no-chrome",
-           "--model", os.environ.get("IMPROVE_MODEL", "claude-sonnet-5"),
-           "--disallowedTools", *DENY]
+           "--model", os.environ.get("IMPROVE_MODEL", "claude-sonnet-5")]
+    tools = Path(wt or REPO) / "webui" / "route_tools.py"
+    if cwd_target == "poke-routes" and tools.exists():   # route tools, run on the worktree's own code
+        cmd += ["--mcp-config", json.dumps({"mcpServers": {"routes": {"command": sys.executable, "args": [str(tools)]}}})]
+    cmd += ["--disallowedTools", *DENY]
     for d in add:
         cmd += ["--add-dir", d]
     return cmd
@@ -586,7 +593,7 @@ def _run_agent(job, cwd, wt=None, port=None):
     prompt = build_prompt(job, wt=wt, port=port)
     LOGDIR.mkdir(parents=True, exist_ok=True)
     (LOGDIR / f"{jid}.prompt.txt").write_text(prompt)
-    cmd = claude_cmd(prompt, target)
+    cmd = claude_cmd(prompt, target, wt)
     _log(jid, f"[run] {Path(cmd[0]).name} -p <prompt> " + " ".join(a for a in cmd[3:] if "\n" not in a)
          + f"  (cwd {cwd})")
     proc = subprocess.Popen(cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
