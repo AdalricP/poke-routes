@@ -326,8 +326,9 @@ table.enc .pct { display: inline-block; height: 6px; margin-right: 6px; backgrou
 @keyframes tl-fill { to { width: 100%; } }
 
 /* Improve, docked (improve.js mounts into #improveDock) */
-#improveDock, #agentDock { position: absolute; inset: 0; }
+#improveDock, #agentDock, #commitsDock { position: absolute; inset: 0; }
 .imp-docked.agent { grid-template-columns: minmax(240px, 32%) minmax(220px, 30%) 1fr; }
+.imp-docked.commits { grid-template-columns: 1fr; }
 .imp-docked { position: absolute; inset: 0; display: grid; grid-template-columns: minmax(220px, 26%) minmax(150px, 16%) 1fr minmax(200px, 24%) minmax(150px, 12%); }
 .imp-docked > section { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
 .imp-docked > section:last-child { border-right: 0; }
@@ -392,6 +393,18 @@ table.enc .pct { display: inline-block; height: 6px; margin-right: 6px; backgrou
 .imp-docked .imp-added { margin: 3px 0 0; }
 .imp-docked .imp-added-list { list-style: none; margin: 0; padding: 0; font: 11px var(--mono); }
 .imp-docked .imp-added-list li { color: #bfe3b2; }
+
+/* Commits tab: a small local commit graph (commits.js), one row per commit */
+.commit-list { list-style: none; margin: 0; padding: 0; }
+.commit-list li { display: flex; align-items: flex-start; gap: 6px; padding: 2px 0; }
+.commit-dot { flex: none; }
+.commit-body { flex: 1; min-width: 0; padding: 2px 0; border-bottom: 1px solid #333; }
+.commit-list li:last-child .commit-body { border-bottom: 0; }
+.commit-body .req { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 0; color: var(--text); cursor: default; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.commit-body .req:hover { color: #fff; text-decoration: underline; text-decoration-color: #777; }
+.commit-list li.on .commit-body .req { color: #9cc6f0; }
+.commit-body .meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 2px; color: var(--text-3); font-size: 11px; }
+.commit-body .meta code { font: 11.5px var(--mono); }
 
 /* ------------------------------------------------------------ status bar */
 .statusbar { display: flex; align-items: center; gap: 12px; padding: 0 8px; background: var(--chrome); border-top: 1px solid var(--line); color: var(--text-2); font-size: 11px; }
