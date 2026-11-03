@@ -66,21 +66,21 @@
 .segrow button { flex: 1; height: 28px; background: var(--field); border: 1px solid var(--line); border-radius: 4px; }
 .segrow button.on { border-color: var(--ink); color: var(--ink); background: var(--bg); }
 
-#insp h3 { font: 600 16px/1.2 var(--pixel); margin: 0 0 2px; }
-#insp .sub { color: var(--ink-3); font-size: 12.5px; margin: 0 0 8px; }
-#insp .row > span { width: 92px; }
-#insp .row input[type="number"] { font-family: var(--pixel); }
-#insp .row.ovr > span::after { content: " *"; color: var(--accent); }
-#insp .row .rst { border: 0; background: none; color: var(--ink-3); padding: 0 2px; font-size: 15px; }
-#insp .row .rst:hover { color: var(--ink); }
-#insp .exits2 { list-style: none; padding: 0; margin: 4px 0 8px; }
-#insp .exits2 li { display: grid; grid-template-columns: 50px 1fr; gap: 6px; align-items: center; font-size: 12.5px; margin-bottom: 4px; }
-#insp .exits2 .to { grid-column: 1 / -1; color: var(--ink-3); margin-top: -3px; }
-#insp .warns { color: var(--warn); font-size: 12.5px; padding-left: 16px; margin: 6px 0; }
-#insp .story { color: var(--ink-2); font-size: 12.5px; }
-#insp .btns { display: flex; gap: 6px; margin-top: 10px; }
-#insp .btns button { flex: 1; }
-#insp textarea { width: 100%; min-height: 60px; background: var(--field); border: 1px solid var(--line); border-radius: 4px; padding: 6px; font: 12.5px var(--text); color: var(--ink); }
+[data-ed="insp"] h3 { font: 600 16px/1.2 var(--pixel); margin: 0 0 2px; }
+[data-ed="insp"] .sub { color: var(--ink-3); font-size: 12.5px; margin: 0 0 8px; }
+[data-ed="insp"] .row > span { width: 92px; }
+[data-ed="insp"] .row input[type="number"] { font-family: var(--pixel); }
+[data-ed="insp"] .row.ovr > span::after { content: " *"; color: var(--accent); }
+[data-ed="insp"] .row .rst { border: 0; background: none; color: var(--ink-3); padding: 0 2px; font-size: 15px; }
+[data-ed="insp"] .row .rst:hover { color: var(--ink); }
+[data-ed="insp"] .exits2 { list-style: none; padding: 0; margin: 4px 0 8px; }
+[data-ed="insp"] .exits2 li { display: grid; grid-template-columns: 50px 1fr; gap: 6px; align-items: center; font-size: 12.5px; margin-bottom: 4px; }
+[data-ed="insp"] .exits2 .to { grid-column: 1 / -1; color: var(--ink-3); margin-top: -3px; }
+[data-ed="insp"] .warns { color: var(--warn); font-size: 12.5px; padding-left: 16px; margin: 6px 0; }
+[data-ed="insp"] .story { color: var(--ink-2); font-size: 12.5px; }
+[data-ed="insp"] .btns { display: flex; gap: 6px; margin-top: 10px; }
+[data-ed="insp"] .btns button { flex: 1; }
+[data-ed="insp"] textarea { width: 100%; min-height: 60px; background: var(--field); border: 1px solid var(--line); border-radius: 4px; padding: 6px; font: 12.5px var(--text); color: var(--ink); }
 
 .log { list-style: none; margin: 0; padding: 0; font-size: 12px; color: var(--ink-3); max-height: 180px; overflow-y: auto; }
 .log li { padding: 2px 0; border-bottom: 1px solid var(--line); }
