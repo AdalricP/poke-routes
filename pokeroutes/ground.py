@@ -131,3 +131,28 @@ def plant_single_flower_clump(metatile_grid: np.ndarray, is_free_plain_grass: np
         row_step, column_step = random_source.choice(((0, 1), (1, 0), (0, -1), (-1, 0)))
         current_row = min(max(current_row + row_step, 0), grid_height_in_cells - 1)
         current_column = min(max(current_column + column_step, 0), grid_width_in_cells - 1)
+
+
+def tile_with_false_walls(route, tile, cls: np.ndarray = None) -> Layout:
+    """Tile ``cls`` (default: the route's grid) with every false-wall cell drawn as
+    forest, then clear those cells' collision: trees you can walk straight through,
+    the way hidden paths work in the real games. ``tile`` maps a class grid to a Layout.
+    False walls are recorded by places.place_hidden in route.false_walls (cell lists)."""
+    walls = [list(map(tuple, w)) for w in route.__dict__.get("false_walls") or []]
+    cls = np.array(route.cls if cls is None else cls, copy=True)
+    for w in walls:
+        for c in w:
+            cls[c] = "f"
+    layout = tile(cls)
+    every = {c for w in walls for c in w}
+    h, w_ = cls.shape
+    for w in walls:
+        # walk at the height of the open ground the gap joins
+        near = [int(layout.elevation[y + dy, x + dx]) for (y, x) in w for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1))
+                if 0 <= y + dy < h and 0 <= x + dx < w_ and (y + dy, x + dx) not in every
+                and layout.collision[y + dy, x + dx] == 0]
+        el = max(set(near), key=near.count) if near else 3
+        for c in w:
+            layout.collision[c] = 0
+            layout.elevation[c] = el
+    return layout

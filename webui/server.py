@@ -470,7 +470,8 @@ def generate(params: dict) -> dict:
             use = "learned"
     if use == "learned":
         ft = tiler(ts)
-        final = G().ground.texture_open_ground(ft.tile(route.cls, seed=spec.seed), route.cls, spec.seed)  # same as the CLI
+        laid = G().ground.tile_with_false_walls(route, lambda c: ft.tile(c, seed=spec.seed))
+        final = G().ground.texture_open_ground(laid, route.cls, spec.seed)  # same as the CLI
         t_final = time.time() - t0 - t_gen
         tiles = _tile_stages(route, final, spec.seed, warnings, ts)
     t_stages = time.time() - t0 - t_gen - t_final

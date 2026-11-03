@@ -511,10 +511,47 @@ def _lane_cells_owner(route: Route):
     return p.owner if p is not None else None
 
 
+# Hidden links and lore gaps are never just open: each is behind something. A false
+# wall is a gap left as trees you can walk straight through (like the real games' secret
+# passages); a sealed gap has an old stone figure in it that a hidden lever somewhere
+# else on the route moves.
+LINK_GATES = ("false_wall", "false_wall", "cut_tree", "rock_smash", "strength_boulder", "sealed")
+LORE_GATES = ("false_wall", "false_wall", "cut_tree", "sealed")
+
+
+def _gate_hidden(route: Route, cells: List[Cell], why: str, kinds, avoid: np.ndarray) -> str:
+    """Put a gate on a hidden gap (``cells`` ordered from the lane in). Returns its kind."""
+    rng = route.rng
+    kind = kinds[int(rng.integers(0, len(kinds)))]
+    if kind == "false_wall":
+        route.__dict__.setdefault("false_walls", []).append(list(cells))
+        return kind
+    y, x = cells[min(1, len(cells) - 1)] if kind == "sealed" else cells[len(cells) // 2]
+    if kind == "sealed":
+        # the lever: a quiet lane tip well away from the gate, never in a special area
+        walk = np.isin(route.cls, list(WALKABLE))
+        taken = {(e.y, e.x) for e in route.events} | {c for w in route.__dict__.get("false_walls") or [] for c in w}
+        tips = [(ty, tx) for ty in range(3, route.h - 3) for tx in range(3, route.w - 3)
+                if walk[ty, tx] and route.cls[ty, tx] != "p" and not avoid[ty, tx] and (ty, tx) not in taken
+                and (ty, tx) not in cells and abs(ty - y) + abs(tx - x) >= 20
+                and (route.cls[ty - 1 : ty + 2, tx - 1 : tx + 2] == "f").sum() >= 6]
+        if not tips:
+            kind = "cut_tree"
+        else:
+            sy, sx = tips[int(rng.integers(0, len(tips)))]
+            route.protect[sy, sx] = True  # cleanup must not grow a tree over it
+            gid = f"gate{sum(1 for e in route.events if e.kind == 'sealed_gate') + 1}"
+            route.events.append(Event("gate_switch", sy, sx, {"opens": gid, "why": f"opens the {why}"}))
+            route.events.append(Event("sealed_gate", y, x, {"gate": gid, "why": f"seals the {why}"}))
+            return kind
+    route.events.append(Event(kind, y, x, {"why": why}))
+    return kind
+
+
 def place_hidden(route: Route) -> None:
     """Hidden things live in the tree masses between lanes:
     - hidden links: a 1-wide gap straight through the trees between two parallel
-      lanes (sometimes behind a Cut tree);
+      lanes, always gated (walk-through trees, an HM obstacle or a sealed stone);
     - lore spots: a tiny clearing in the middle of a big tree mass, reached by a
       narrow straight gap, holding a sign / grave / ruin / hut plot / berry patch
       (emitted as events with a `lore` id so writers can fill them in);
@@ -574,10 +611,9 @@ def place_hidden(route: Route) -> None:
         from .purpose import record
 
         rec = record(route, "shortcut", cells[len(cells) // 2])
+        gate = _gate_hidden(route, cells, "hidden link", LINK_GATES, near_sp)
         route.zones.append(Zone("hidden", [(y, x)] + cells + [(y + dy * k, x + dx * k)], f"hidden link {made + 1}",
-                                {"purpose": rec}))
-        if rng.random() < 0.5:
-            route.events.append(Event("cut_tree", cells[len(cells) // 2][0], cells[len(cells) // 2][1], {"why": "hidden link"}))
+                                {"purpose": rec, "access": gate}))
         used.append((y, x))
         made += 1
     # lore spots in the biggest tree masses
@@ -618,7 +654,11 @@ def place_hidden(route: Route) -> None:
             route.cls[c] = _ground(route)
             route.protect[c] = True
         lore = f"{spec.id}_lore_{100 + i:03d}"
-        route.zones.append(Zone("hidden", best[1][::-1], f"gap to {kind.replace('_', ' ')}", {"lore": lore}))
+        behind = near_sp.copy()  # the lever can't sit in the nook it opens
+        for c in spot:
+            behind[c] = True
+        gate = _gate_hidden(route, best[1][::-1], f"gap to the {kind.replace('_', ' ')}", LORE_GATES, behind)
+        route.zones.append(Zone("hidden", best[1][::-1], f"gap to {kind.replace('_', ' ')}", {"lore": lore, "access": gate}))
         reason = {"grave": "A lone grave in the deep wood, tended by someone.",
                   "ruin": "A tumbled wall, all that is left of a forester's hut.",
                   "shrine": "A tiny shrine hidden in the trees.",

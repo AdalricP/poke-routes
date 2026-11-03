@@ -1030,7 +1030,8 @@
   }
 
   const KIND_NAMES = { main: "Main lane", branch: "Branch", loop: "Loop", dead_end: "Dead end", hidden: "Hidden trail", trail: "Area trail",
-    special: "Special area", clearing: "Clearing", lake: "Lake", hidden_item: "Hidden item", cut_tree: "Cut tree", rock_smash: "Smashable rock" };
+    special: "Special area", clearing: "Clearing", lake: "Lake", hidden_item: "Hidden item", cut_tree: "Cut tree", rock_smash: "Smashable rock",
+    sealed_gate: "Sealed stone (opened by a lever)", gate_switch: "Hidden lever" };
   const kname = (k) => KIND_NAMES[k] || String(k).replace(/_/g, " ");
 
   function renderSelection() {

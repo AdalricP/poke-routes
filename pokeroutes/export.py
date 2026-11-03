@@ -375,6 +375,27 @@ def build_events(route: Route, elev, settle, taken: set, cname: str):
             flag = hm_pool.pop(0) if k != "strength_boulder" and hm_pool else "0"
             objs.append(_obj(gfx, e.x, e.y, script, flag))
             used.add((e.y, e.x))
+        elif k == "sealed_gate" and free(e.y, e.x):
+            # an old stone figure in a hidden gap; its lever (gate_switch) sets the flag that hides it
+            flag = f"FLAG_ARK_{cname}_{e.data['gate'].upper()}_OPEN"
+            flags.append(flag)
+            sid = f"{s.id}_EventScript_{e.data['gate'].title()}"
+            objs.append(_obj("OBJ_EVENT_GFX_TRICK_HOUSE_STATUE", e.x, e.y, sid, flag, move="MOVEMENT_TYPE_FACE_DOWN", rng=0))
+            sc.append(f"{sid}::\n\tmsgbox {sid}_Text, MSGBOX_SIGN\n\tend\n\n"
+                      + text_block(f"{sid}_Text", "An old stone figure fills the gap. It won't budge. "
+                                                  "There must be a way to move it somewhere.", width=30))
+            used.add((e.y, e.x))
+        elif k == "gate_switch":
+            flag = f"FLAG_ARK_{cname}_{e.data['opens'].upper()}_OPEN"
+            sid = f"{s.id}_EventScript_{e.data['opens'].title()}Lever"
+            bgs.append({"type": "sign", "x": e.x, "y": e.y, "elevation": 0,
+                        "player_facing_dir": "BG_EVENT_PLAYER_FACING_ANY", "script": sid})
+            sc.append(f"{sid}::\n\tlockall\n\tgoto_if_set {flag}, {sid}_Done\n"
+                      f"\tmsgbox {sid}_Text, MSGBOX_DEFAULT\n\tsetflag {flag}\n\tplayse SE_M_STRENGTH\n"
+                      f"\twaitse\n\tmsgbox {sid}_TextFar, MSGBOX_DEFAULT\n\treleaseall\n\tend\n"
+                      f"{sid}_Done::\n\treleaseall\n\tend\n\n"
+                      + text_block(f"{sid}_Text", "There's a worn stone handle in the roots. You pull it...", width=30)
+                      + text_block(f"{sid}_TextFar", "Somewhere off in the trees, stone grinds on stone.", width=30))
         elif k == "item_ball" and free(e.y, e.x):
             n["ball"] += 1
             flag = f"FLAG_ARK_{cname}_BALL_{n['ball']:02d}"
@@ -458,8 +479,12 @@ def debug_image(route: Route, scale: int = 8, zones: bool = True) -> Image.Image
                 d.rectangle([min(xs) * scale, min(ys) * scale, (max(xs) + 1) * scale, (max(ys) + 1) * scale],
                             outline=ZONE_COLORS["special"] + (255,), width=2)
                 d.text((min(xs) * scale + 2, min(ys) * scale - 11), z.name, fill=(255, 255, 255, 255))
+    for wall in route.__dict__.get("false_walls") or []:
+        for (y, x) in wall:  # walk-through trees: drawn as trees in the tiled map
+            d.rectangle([x * scale + 1, y * scale + 1, (x + 1) * scale - 2, (y + 1) * scale - 2], outline=(150, 110, 255, 255))
     for e in route.events:
-        col = {"hidden_item": (255, 60, 60), "cut_tree": (60, 255, 60), "rock_smash": (200, 200, 200)}.get(e.kind, (255, 255, 0))
+        col = {"hidden_item": (255, 60, 60), "cut_tree": (60, 255, 60), "rock_smash": (200, 200, 200),
+               "sealed_gate": (150, 110, 255), "gate_switch": (150, 110, 255)}.get(e.kind, (255, 255, 0))
         cx, cy = e.x * scale + scale // 2, e.y * scale + scale // 2
         d.ellipse([cx - 3, cy - 3, cx + 3, cy + 3], fill=col + (255,), outline=(0, 0, 0, 255))
     return im

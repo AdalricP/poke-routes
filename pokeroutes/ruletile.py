@@ -229,7 +229,9 @@ def tile_route(tiler: ArkTiler, route) -> Layout:
             fixed[c] = int(mid)
             col = getattr(res, "collision", {}).get(c)
             coll[c] = int(col) if col is not None else (1 if str(route.cls[c]) in "ofr" else 0)
-    layout = tiler.tile(cls)
+    from .ground import tile_with_false_walls
+
+    layout = tile_with_false_walls(route, tiler.tile, cls)
     for (y, x), mid in fixed.items():
         layout.metatile[y, x] = mid
         layout.collision[y, x] = coll[(y, x)]

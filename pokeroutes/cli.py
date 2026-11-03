@@ -46,7 +46,10 @@ def _generate_and_write(spec, a, route=None, offsets=None):
         grade_for_biome(layout.render(tiler.pair()), spec.biome).save(out / "emerald.png")
     elif model.exists() and EMERALD.exists():
         tiler = Autotiler.load(model)
-        layout = texture_open_ground(tiler.tile(route.cls, seed=spec.seed), route.cls, spec.seed)
+        from .ground import tile_with_false_walls
+
+        layout = texture_open_ground(tile_with_false_walls(route, lambda c: tiler.tile(c, seed=spec.seed)),
+                                     route.cls, spec.seed)
         write_emerald(route, layout, out / "emerald", primary, secondary, offsets=offsets,
                       borders=tiler.m.get("borders"))
         img = layout.render(load_pair(EMERALD / "data/tilesets", primary, secondary))
