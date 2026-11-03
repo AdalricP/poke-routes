@@ -9,7 +9,7 @@ also put in the map as a sign, an NPC or props, so a player can see the reason t
 """
 from __future__ import annotations
 
-from typing import List, Optional, Set, Tuple
+from typing import List, Set, Tuple
 
 import numpy as np
 
