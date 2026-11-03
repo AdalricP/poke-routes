@@ -145,7 +145,7 @@
       req.title = "Show this run's log";
       req.onclick = () => showLog(j.id);
       const meta = el("div", "meta");
-      meta.append(el("span", "st " + j.status, j.status), el("span", "", j.kind === "undo" ? "undo" : (j.mode === "agent" ? "agent, " : "") + j.target_label));
+      meta.append(el("span", "st " + j.status, j.status), el("span", "", j.kind === "undo" ? "undo" : (j.fix_of ? "fix, " : "") + (j.mode === "agent" ? "agent, " : "") + j.target_label));
       if (j.commit) meta.append(el("code", "", j.commit.slice(0, 8)));
       if (j.attempt > 1) meta.append(el("span", "", "re-run"));
       if (j.held_by) meta.append(el("span", "", "held by " + j.held_by));
@@ -156,6 +156,11 @@
         u.title = j.target === "rom" ? "git revert on arklarna, rebuild, recopy the release ROM" : "git revert this commit";
         u.onclick = () => undo(j, u);
         meta.append(u);
+        const f = el("button", "undo", "Fix");
+        f.type = "button";
+        f.title = "Tell it what's wrong; runs as a new job on top of this one";
+        f.onclick = () => toggleFixForm(j, li);
+        meta.append(f);
       }
       if ((j.status === "queued" || j.status === "running") && !j.held_by) {
         const c = el("button", "undo", "Cancel");
@@ -274,6 +279,43 @@
       $("impErr").textContent = e.message;
       b.disabled = false;
     }
+  }
+
+  // inline "what's wrong?" box under a done job; submits as a new job on top of it
+  function toggleFixForm(j, li) {
+    const existing = li.querySelector(".imp-fix-form");
+    if (existing) { existing.remove(); return; }
+    const form = el("div", "imp-fix-form");
+    const ta = document.createElement("textarea");
+    ta.placeholder = "What's wrong, or what to change about this one?";
+    ta.rows = 2;
+    const row = el("div", "imp-row");
+    const send = el("button", "primary", "Send fix");
+    send.type = "button";
+    const err = el("p", "imp-err");
+    send.onclick = async () => {
+      const text = ta.value.trim();
+      if (!text) { ta.focus(); return; }
+      send.disabled = true;
+      try {
+        const nj = await api(`/api/improve/${j.id}/fix`, { request: text });
+        form.remove();
+        state.shown = nj.id;
+        state.logFor = null;
+        await refresh();
+      } catch (e) {
+        err.textContent = e.message;
+        send.disabled = false;
+      }
+    };
+    ta.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send.click(); }
+    });
+    row.append(send);
+    form.append(ta, row, err);
+    li.append(form);
+    ta.focus();
   }
 
   function showLog(id) {

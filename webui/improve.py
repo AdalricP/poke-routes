@@ -8,6 +8,8 @@ and a headless Claude Code run implements it as exactly one git commit.
     GET  /api/improve              history (newest first), worker slots, owner, targets, usage
     GET  /api/improve/<id>?since=N status and log lines from N on
     POST /api/improve/<id>/undo    queue a git revert of that job's commit
+    POST /api/improve/<id>/fix     {"request": "..."}  queue a follow-up job on top of a done one,
+                                    for when the agent got it wrong or incomplete
     POST /api/improve/<id>/cancel  cancel a queued or running job
     POST /api/improve/workers      {"workers": n}  how many jobs run at once (1-6)
 
@@ -428,16 +430,33 @@ say exactly what the owner has to do. Stock Emerald art doesn't count as a new t
 """
 
 
+def describe_fix_context_for_prompt(job) -> str:
+    """A fix job's prompt gets a note about the done job it is correcting, so the agent knows
+    this is a follow-up on top of current main rather than a fresh request."""
+    src = _jobs.get(job.get("fix_of") or "")
+    if not src:
+        return ""
+    bits = [f"\nThis is a fix to an earlier improvement (job {job['fix_of']}) that the owner found wrong or "
+            "incomplete; their instruction below is what to change about it, on top of the current code "
+            "(which already includes that earlier work)."]
+    if src.get("request"):
+        bits.append(f"Its original request was: {' '.join(src['request'].split())[:300]}")
+    if src.get("subject"):
+        bits.append(f"Its commit: {src['subject']}")
+    return "\n".join(bits) + "\n"
+
+
 def build_prompt(job, wt=None, port=None) -> str:
     jid, target = job["id"], job["target"]
     req = job["request"].strip() + describe_attached_screenshot_for_prompt(job)
+    fix_note = describe_fix_context_for_prompt(job)
     agent = AGENT_TASK if job.get("mode") == "agent" else ""
     if target == "poke-routes":
         wt = Path(wt or REPO)
         port = port or PORT_BASE
         br = job.get("branch") or f"improve/job-{jid}"
         return f"""You are implementing an improvement the owner typed into the "Improve" box of the poke-routes web UI.
-
+{fix_note}
 Owner's request:
 <<<
 {req}
@@ -474,7 +493,7 @@ Last message: 1-3 sentences on what changed and how you verified it.
     wt = ARK / "rom-wt" / f"improve-{jid}"
     br = f"arklarna/improve-{jid}"
     return f"""You are implementing an improvement the owner typed into the "Improve" box, targeting the Arklarna ROM hack.
-
+{fix_note}
 Owner's request:
 <<<
 {req}
@@ -1363,6 +1382,36 @@ def undo(jid: str) -> dict:
     return public(job)
 
 
+def fix(jid: str, request: str) -> dict:
+    """A follow-up job on top of a done one, for when the agent got it wrong or incomplete:
+    a normal improve job (own worktree, own commit, own merge) with context about what it's
+    correcting. The job it fixes stays "done"; this is independent, not a revert."""
+    request = (request or "").strip()
+    if not request:
+        raise ValueError("request is empty")
+    if len(request) > 4000:
+        raise ValueError("request is longer than 4000 characters")
+    with _cv:
+        src = _jobs.get(jid)
+        if not src or src["kind"] != "improve":
+            raise KeyError(jid)
+        if src["status"] != "done" or not src.get("commit"):
+            raise ValueError(f"nothing to fix (status {src['status']})")
+        fid = jid + "-fix"
+        n = 1
+        while fid in _jobs:
+            n += 1
+            fid = f"{jid}-fix{n}"
+        job = {"id": fid, "kind": "improve", "fix_of": jid, "request": request, "target": src["target"],
+               "status": "queued", "created": time.time(), "owner": _me}
+        if src.get("mode") == "agent":
+            job["mode"] = "agent"
+        _jobs[fid] = job
+        _cv.notify_all()
+    _save()
+    return public(job)
+
+
 def cancel(jid: str) -> dict:
     with _lock:
         job = _jobs.get(jid)
@@ -1522,6 +1571,8 @@ def handle(h, method: str, u) -> None:
             return h._json(set_workers(body.get("workers")))
         if len(parts) == 2 and parts[1] == "undo":
             return h._json(undo(parts[0]), 202)
+        if len(parts) == 2 and parts[1] == "fix":
+            return h._json(fix(parts[0], str(body.get("request", ""))), 202)
         if len(parts) == 2 and parts[1] == "cancel":
             return h._json(cancel(parts[0]))
         return h._json({"error": "not found"}, 404)
