@@ -643,7 +643,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if u.path in ("/api/atlas", "/api/atlas.png"):
                 ts = parse_qs(u.query).get("ts", [TILESET])[0]
-                if not (ts.replace("_", "").isalnum() and (MODELS / f"{ts}.json").is_file()):
+                if not ("_" in ts and ts.replace("_", "").isalnum() and (MODELS / f"{ts}.json").is_file()):
                     return self._json({"error": "unknown tileset"}, 404)
                 a = atlas(ts)
                 return self._json(a[1]) if u.path == "/api/atlas" else self._send(200, a[0], "image/png")
