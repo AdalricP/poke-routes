@@ -274,6 +274,29 @@ test("landmark move carries the pillar and the gate", () => {
   assert.deepStrictEqual(d.meta.den_gate, [22, 19]);
 });
 
+test("moveBeat swaps route gates along with the beats", () => {
+  const d = makeDoc();
+  d.story = [{ name: "a", at: "Ahlen", unlocks: "" }, { name: "b", at: "Ahlen", unlocks: "" }];
+  d.routes[0].gate = { after: 0 };
+  d.routes[1].gate = { after: 1 };
+  assert.ok(ED.moveBeat(d, 0, 1));
+  assert.deepStrictEqual(d.story.map((b) => b.name), ["b", "a"]);
+  assert.strictEqual(d.routes[0].gate.after, 1);
+  assert.strictEqual(d.routes[1].gate.after, 0);
+  assert.ok(!ED.moveBeat(d, 0, -1), "out of range move is rejected");
+});
+
+test("removeBeat renumbers or clears route gates", () => {
+  const d = makeDoc();
+  d.story = [{ name: "a", at: "Ahlen", unlocks: "" }, { name: "b", at: "Ahlen", unlocks: "" }, { name: "c", at: "Ahlen", unlocks: "" }];
+  d.routes[0].gate = { after: 1 }; // points at "b", the one being removed
+  d.routes[1].gate = { after: 2 }; // points at "c", which shifts down to index 1
+  assert.ok(ED.removeBeat(d, 1));
+  assert.deepStrictEqual(d.story.map((b) => b.name), ["a", "c"]);
+  assert.ok(!("gate" in d.routes[0]), "gate on the removed beat is cleared");
+  assert.strictEqual(d.routes[1].gate.after, 1);
+});
+
 test("landmark move clamped at the map edge keeps its footprint attached", () => {
   const d = makeDoc();
   const l = d.landmarks[0]; // romowe at (20, 22), W=40 H=30

@@ -658,6 +658,32 @@
     }
     return seen;
   }
+  // swap two story beats, keeping every route gate pointed at the beat it opened after
+  function moveBeat(doc, i, j) {
+    const story = doc.story || [];
+    if (j < 0 || j >= story.length || i < 0 || i >= story.length) return false;
+    [story[i], story[j]] = [story[j], story[i]];
+    for (const r of doc.routes || []) {
+      const after = (r.gate || {}).after;
+      if (after === i) r.gate.after = j;
+      else if (after === j) r.gate.after = i;
+    }
+    return true;
+  }
+  // remove a story beat, keeping every route gate pointed at the right beat
+  function removeBeat(doc, i) {
+    const story = doc.story || [];
+    if (i < 0 || i >= story.length) return false;
+    story.splice(i, 1);
+    for (const r of doc.routes || []) {
+      const after = (r.gate || {}).after;
+      if (after == null) continue;
+      if (after === i) delete r.gate.after;
+      else if (after > i) r.gate.after = after - 1;
+      if (r.gate && !Object.keys(r.gate).length) delete r.gate;
+    }
+    return true;
+  }
   // beats whose place you can't reach with what the beats before them gave you
   function storyWarnings(doc) {
     const out = [];
@@ -694,7 +720,7 @@
     shadeGrid, cellColor, renderBase,
     asciiId, routeByName, nodeRect, placeAt, refOf, renameRoute, renamePlace, moveCity, moveLandmark,
     exitAlong, sideRange, edgeCell, mirrorExit, moveExit, sizeOk, resizeRoute, deleteRoute, routeWarnings,
-    setSpecField, benchParams, HMS, routeNeeds, reachableAt, storyWarnings,
+    setSpecField, benchParams, HMS, routeNeeds, reachableAt, storyWarnings, moveBeat, removeBeat,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.ED = api;

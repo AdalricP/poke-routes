@@ -1192,17 +1192,13 @@
       const hm = hm_select(b.unlocks || "");
       hm.title = "field move this beat gives";
       hm.onchange = () => edit("set beat move", () => { b.unlocks = hm.value; });
-      const mv = (dk) => () => edit("move beat", () => {
-        const j = i + dk;
-        if (j < 0 || j >= story.length) return false;
-        [story[i], story[j]] = [story[j], story[i]];
-      });
+      const mv = (dk) => () => edit("move beat", () => ED.moveBeat(st.doc, i, i + dk));
       const up = el("button", { type: "button", class: "small", title: "earlier" }, "↑");
       up.onclick = mv(-1);
       const dn = el("button", { type: "button", class: "small", title: "later" }, "↓");
       dn.onclick = mv(1);
       const rm = el("button", { type: "button", class: "small", title: "remove" }, "×");
-      rm.onclick = () => edit("remove beat", () => { story.splice(i, 1); });
+      rm.onclick = () => edit("remove beat", () => ED.removeBeat(st.doc, i));
       const at = el("span", { class: "at" }, "at " + b.at);
       li.append(nm, hm, up, dn, rm, at);
       ol.append(li);
