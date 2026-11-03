@@ -382,7 +382,7 @@ def _inside_reach(route: Route, res) -> float:
         y, x = q.popleft()
         for dy, dx in DIRS4:
             c = (y + dy, x + dx)
-            if c not in seen and y0 <= c[0] < y0 + h and x0 <= c[1] < x0 + w and route.cls[c] in "gtp":
+            if c not in seen and y0 <= c[0] < y0 + h and x0 <= c[1] < x0 + w and route.cls[c] in stamps.WALK:
                 seen.add(c)
                 q.append(c)
     return len(opens & seen) / len(opens)
@@ -393,22 +393,25 @@ def _build_reachable(route: Route, api, area: dict, origin):
     (some compositions wall themselves off from one side with their big pieces)."""
     cls0, prot0 = route.cls.copy(), route.protect.copy()
     best = None
-    for door in ("auto", "s", "e", "w", "n"):
+    own_door = (area.get("recipe") or {}).get("door", "auto")
+    for door in dict.fromkeys((own_door, "auto", "s", "e", "w", "n")):
         a = dict(area, recipe=dict(area.get("recipe") or {}, door=door))
         try:
             res = api.build(route, a, origin)
         except Exception as e:
             route.log.append(f"areas.build failed for {area.get('id')} ({type(e).__name__}: {e})")
+            route.cls[:], route.protect[:] = cls0, prot0
             return None
         share = _inside_reach(route, res)
         if best is None or share > best[0]:
-            best = (share, door)
+            best = (share, door, res, route.cls.copy(), route.protect.copy())
         if share >= 0.9:
             return res
         route.cls[:], route.protect[:] = cls0, prot0
-    door = best[1]
+    _, door, res, best_cls, best_prot = best
     route.log.append(f"special: {area.get('id')} inside only {best[0]:.0%} reachable (door {door})")
-    return api.build(route, dict(area, recipe=dict(area.get("recipe") or {}, door=door)), origin)
+    route.cls[:], route.protect[:] = best_cls, best_prot
+    return res
 
 
 def _place_specials_legacy(route: Route) -> None:
