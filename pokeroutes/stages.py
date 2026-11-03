@@ -215,7 +215,7 @@ def stage_clearings(route: Route) -> None:
                 if z.kind == "clearing" and z.meta.get("center") == (n.y, n.x):
                     z.meta["purpose"] = rec
             if kind == "rest_stop":
-                route.props.append({"kind": "bench", "y": n.y + n.hy - 1, "x": n.x + n.hx - 2, "why": kind})
+                route.props.append({"kind": "bench", "y": n.y + n.oy + n.hy - 1, "x": n.x + n.ox + n.hx - 2, "why": kind})
     lane_purposes(route, p, carve, ground_class(route), grass_class(route), _item)
     for k, end in enumerate(p.endings):
         kind = "secret_exit" if end["kind"] == "secret" else "road"
