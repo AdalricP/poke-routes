@@ -22,6 +22,7 @@ ZONE_COLORS = {
 BIOME_HABITATS = {
     "forest": {"forest", "deep_forest", "tall_grass", "meadow"},
     "meadow": {"meadow", "tall_grass", "flower_field", "farmland"},
+    "plains": {"meadow", "tall_grass", "farmland"},
     "riverland": {"riverbank", "lake", "marsh", "meadow"},
 }
 RARITY_WEIGHT = {"common": 40, "uncommon": 14, "rare": 4, "very_rare": 1}

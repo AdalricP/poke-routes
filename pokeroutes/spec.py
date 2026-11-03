@@ -8,10 +8,11 @@ from typing import List, Optional
 import yaml
 
 
-BIOMES = ("forest", "meadow", "riverland", "beach", "desert", "mountain", "volcanic")
+BIOMES = ("forest", "meadow", "plains", "riverland", "beach", "desert", "mountain", "volcanic")
 # Emerald routes that look like each biome: General + their secondary tileset
 BIOME_TILESET = {
-    "forest": "general_fortree", "meadow": "general_fortree", "riverland": "general_fortree",
+    "forest": "general_fortree", "meadow": "general_fortree", "plains": "general_fortree",
+    "riverland": "general_fortree",
     "beach": "general_slateport",  # Route 109
     "desert": "general_mauville",  # Route 111
     "mountain": "general_lavaridge",  # Route 112

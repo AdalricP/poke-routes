@@ -29,7 +29,7 @@
     loop: [130, 255, 160], sea: [150, 220, 255],
   };
   const ROLES = Object.keys(ROLE_RGB);
-  const SPEC_BIOMES = ["forest", "meadow", "riverland", "beach", "desert", "mountain", "volcanic"];
+  const SPEC_BIOMES = ["forest", "meadow", "plains", "riverland", "beach", "desert", "mountain", "volcanic"];
   const SIDES = ["north", "east", "south", "west"];
   const DELTA = { east: [1, 0], west: [-1, 0], south: [0, 1], north: [0, -1] };
   const OPP = { east: "west", west: "east", north: "south", south: "north" };

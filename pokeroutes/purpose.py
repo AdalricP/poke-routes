@@ -33,6 +33,7 @@ PURPOSES = {
     "bend": ("bend", "The road turns here, keeping to the dry ground.", False),
     "fishing_spot": ("fishing spot", "The road runs along a pond; someone is always fishing here.", False),
     "field": ("hayfield", "A hedged hayfield; the gap in the hedge is the farmer's gate.", False),
+    "plains_plot": ("grazing plot", "A fenced plot; the rise of ground behind it keeps stock from wandering off.", False),
     "road": ("road", "The road on to the next place.", False),
     "secret_exit": ("hidden way out", "An overgrown way out that only locals know.", False),
 }

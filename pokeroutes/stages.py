@@ -45,6 +45,9 @@ TREE_BIOMES = ("forest", "meadow", "riverland")
 BIOME_CODES = {
     "forest": ("f", "g", "g", "p", "t"),
     "meadow": ("f", "g", "g", "p", "t"),  # dirt only on the main road; side lanes stay grass
+    # like meadow, but the packed-off ground between lanes is a low hill (cliff rim,
+    # jump-down ledge at the gate) instead of a tree mass: open plains, not a forest cut
+    "plains": (("CLIFF", "r"), "g", "g", "p", "t"),
     "riverland": ("f", "g", "g", "p", "t"),
     "beach": ("f", ("SAND", "p"), ("SAND", "p"), ("SAND", "p"), "t"),
     "desert": (("CLIFF", "r"), ("SAND", "p"), ("SAND", "p"), ("SAND", "p"), ("SAND", "p")),
@@ -803,7 +806,7 @@ def stage_road(route: Route) -> None:
 
 def stage_tall_grass(route: Route) -> None:
     b = route.spec.biome
-    if b == "meadow":
+    if b in ("meadow", "plains"):
         _fields(route)
     _lane_patches(route)
     route.snap("tall grass")
@@ -858,16 +861,18 @@ def _lane_patches(route: Route) -> None:
 
 
 def _fields(route: Route) -> None:
-    """Meadow: the space between lanes is farmland, not forest. Rectangular fields of
-    tall and short grass, each fenced by a hedge (2 trees deep) along the lanes,
-    entered through a gate, or dropped into from a lane over a ledge."""
+    """Meadow/plains: the space between lanes is farmland, not forest. Rectangular
+    fields of tall and short grass, each fenced along the lanes by whatever the
+    biome's wall is (a hedge for meadow, a hill's cliff rim for plains), entered
+    through a gate, or dropped into from a lane over a ledge."""
     p, rng = plan_of(route), route.rng
     from scipy.ndimage import distance_transform_cdt, label
 
+    wc = wall_class(route)
     walk = np.isin(route.cls, list("gpts"))
     water = route.cls == "w"
     d = distance_transform_cdt(~(walk | water), metric="chessboard")
-    room = (d >= 3) & (route.cls == "f")
+    room = (d >= 3) & (route.cls == wc)
     room[:3, :] = room[-3:, :] = False
     room[:, :3] = room[:, -3:] = False
     n_fields = 0
@@ -897,14 +902,15 @@ def _fields(route: Route) -> None:
         for y in range(y0, y1 + 1):
             for x in range(x0, x1 + 1):
                 route.cls[y, x] = "t" if n[y, x] > 0.42 else "g"
-        # lone trees (2x2) in bigger fields
+        # a lone 2x2 obstacle (tree, or hill nub for plains) in bigger fields
         if (y1 - y0) >= 6 and (x1 - x0) >= 6:
             ty, tx = int(rng.integers(y0 + 2, y1 - 2)), int(rng.integers(x0 + 2, x1 - 2))
-            route.cls[ty:ty + 2, tx:tx + 2] = "f"
+            route.cls[ty:ty + 2, tx:tx + 2] = wc
         cells = [(y, x) for y in range(y0, y1 + 1) for x in range(x0, x1 + 1)]
         from .purpose import record
 
-        rec = record(route, "field", ((y0 + y1) // 2, (x0 + x1) // 2))
+        rec = record(route, "plains_plot" if route.spec.biome == "plains" else "field",
+                      ((y0 + y1) // 2, (x0 + x1) // 2))
         route.zones.append(Zone("clearing", cells, f"field {n_fields + 1}", {"center": ((y0 + y1) // 2, (x0 + x1) // 2),
                                                                             "field": True, "purpose": rec}))
         _gate(route, rect)
@@ -934,8 +940,10 @@ def _max_rect(mask: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
 
 def _gate(route: Route, rect) -> None:
     """Open the field to its nearest lane: a ledge if the lane is right above it
-    (jump down into the field), otherwise a 2-wide gap in the hedge."""
+    (jump down into the field), otherwise a 2-wide gap in the wall around it
+    (the hedge, for meadow; the hill's rim, for plains)."""
     y0, y1, x0, x1 = rect
+    wc = wall_class(route)
     walk = np.isin(route.cls, list("gpt"))
     best = None
     for side in ("n", "s", "w", "e"):
@@ -974,7 +982,7 @@ def _gate(route: Route, rect) -> None:
         yy = y0 - 1 if side == "n" else y1 + 1
         cells = [(yy + dy * i, a + j) for i in range(k - 1) for j in (0, 1)]
         if side == "n" and k - 1 >= 2:
-            # lane is north of the field: the hedge row next to the field becomes a ledge
+            # lane is north of the field: the wall row next to the field becomes a ledge
             for j in (0, 1):
                 route.cls[y0 - 1, a + j] = "s"
             cells = [c for c in cells if c[0] != y0 - 1]
@@ -984,7 +992,7 @@ def _gate(route: Route, rect) -> None:
         xx = x0 - 1 if side == "w" else x1 + 1
         cells = [(a + j, xx + dx * i) for i in range(k - 1) for j in (0, 1)]
     for (y, x) in cells:
-        if route.cls[y, x] == "f":
+        if route.cls[y, x] == wc:
             route.cls[y, x] = "g"
         route.protect[y, x] = True
 
