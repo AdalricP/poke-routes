@@ -941,7 +941,7 @@ def stage_ledges(route: Route) -> None:
             if ly - yb >= 1 and rng.random() < 0.5:
                 route.events.append(Event("item_ball", ly - 1, x, {"item": _item(rng), "why": "on the ledge, seen from below"}))
         else:
-            loops = forks or [l for l in lanes if l.kind == "loop" and l.fate in ("full", "merge")]
+            loops = forks or [lane for lane in lanes if lane.kind == "loop" and lane.fate in ("full", "merge")]
             if not loops:
                 continue
             l = loops[int(rng.integers(0, len(loops)))]
