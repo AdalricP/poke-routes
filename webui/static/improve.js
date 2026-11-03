@@ -63,7 +63,11 @@
         <div class="imp-sec" id="impLogBox"><p class="imp-cur" id="impCur"></p><pre class="imp-log" id="impLog"></pre></div>
       </section>
       <section>
-        <h2>Queue &amp; history</h2>
+        <h2 class="imp-tabs" id="impHistTabs">
+          <button type="button" class="imp-tab" data-tab="all">Queue &amp; history</button>
+          <button type="button" class="imp-tab imp-tab-done" data-tab="done">Done</button>
+          <button type="button" class="imp-tab imp-tab-error" data-tab="error">Error<b id="impErrCount"></b></button>
+        </h2>
         <div class="imp-sec"><ul class="imp-hist" id="impHist"><li class="muted">nothing yet</li></ul></div>
       </section>
       <section>
@@ -100,7 +104,11 @@
         <div class="imp-usage" id="impUsage"></div>
       </section>
       <section>
-        <h2>History</h2>
+        <h2 class="imp-tabs" id="impHistTabs">
+          <button type="button" class="imp-tab" data-tab="all">History</button>
+          <button type="button" class="imp-tab imp-tab-done" data-tab="done">Done</button>
+          <button type="button" class="imp-tab imp-tab-error" data-tab="error">Error<b id="impErrCount"></b></button>
+        </h2>
         <ul class="imp-hist" id="impHist"><li class="muted">nothing yet</li></ul>
       </section>
     </div>`;
@@ -110,7 +118,7 @@
   const isOpen = () => (dock ? !!dock.offsetParent : !panel.hidden);
   const $ = (id) => panel.querySelector("#" + id);
 
-  const state = { jobs: [], running: [], shown: null, logNext: 0, logFor: null, timer: null, prev: {}, h: null, screenshots: [] };
+  const state = { jobs: [], running: [], shown: null, logNext: 0, logFor: null, timer: null, prev: {}, h: null, screenshots: [], histTab: "all" };
   const ACTIVE = ["queued", "running", "merging"];
   const BAD = ["failed", "timeout", "cancelled", "conflict"];
   const maximum_screenshot_width_in_pixels = 1920;
@@ -137,11 +145,26 @@
     return new Date(t * 1000).toLocaleDateString();
   };
 
+  // the "Done" and "Error" tabs are filtered views of the same job list, not a separate store
+  function jobsForTab(tab) {
+    if (tab === "done") return state.jobs.filter((j) => j.status === "done");
+    if (tab === "error") return state.jobs.filter((j) => BAD.includes(j.status));
+    return state.jobs;
+  }
+
+  function renderHistTabs() {
+    const bar = $("impHistTabs");
+    if (!bar) return;
+    for (const b of bar.querySelectorAll(".imp-tab")) b.classList.toggle("on", b.dataset.tab === state.histTab);
+    const errCount = jobsForTab("error").length;
+    $("impErrCount").textContent = errCount ? ` (${errCount})` : "";
+  }
+
   function renderHist() {
     const ul = $("impHist");
     ul.innerHTML = "";
-    const jobs = state.jobs;
-    if (!jobs.length) { ul.append(el("li", "muted", "nothing yet")); return; }
+    const jobs = jobsForTab(state.histTab);
+    if (!jobs.length) { ul.append(el("li", "muted", state.histTab === "all" ? "nothing yet" : `nothing ${state.histTab} yet`)); return; }
     for (const j of jobs) {
       const li = el("li", current() === j.id ? "on" : "");
       const req = el("button", "req", j.request);
@@ -165,6 +188,11 @@
         f.title = "Tell it what's wrong; runs as a new job on top of this one";
         f.onclick = () => toggleFixForm(j, li);
         meta.append(f);
+        const a = el("button", "undo", "Added");
+        a.type = "button";
+        a.title = "List exactly what this job touched";
+        a.onclick = () => toggleAddedForm(j, li);
+        meta.append(a);
       }
       if ((j.status === "queued" || j.status === "running") && !j.held_by) {
         const c = el("button", "undo", "Cancel");
@@ -274,7 +302,10 @@
   }
 
   async function undo(j, b) {
-    if (!confirm(`Revert "${j.subject || j.request}"?`)) return;
+    if (!confirm(`Revert "${j.subject || j.request}"? Are you sure?`)) return;
+    b.classList.add("imp-shift");
+    await new Promise((r) => setTimeout(r, 120));  // let the button actually move before the next dialog
+    if (!confirm("Are you really really sure?")) { b.classList.remove("imp-shift"); return; }
     b.disabled = true;
     try {
       const u = await api(`/api/improve/${j.id}/undo`, {});
@@ -283,7 +314,21 @@
     } catch (e) {
       $("impErr").textContent = e.message;
       b.disabled = false;
+      b.classList.remove("imp-shift");
     }
+  }
+
+  // inline, read-only: exactly which files this job's commit touched
+  function toggleAddedForm(j, li) {
+    const existing = li.querySelector(".imp-added");
+    if (existing) { existing.remove(); return; }
+    const box = el("div", "imp-added");
+    if (j.files && j.files.length) {
+      const list = el("ul", "imp-added-list");
+      for (const f of j.files) list.append(el("li", "", "+ " + f));
+      box.append(list);
+    } else box.append(el("p", "imp-note", "no file list recorded for this job"));
+    li.append(box);
   }
 
   // inline "what's wrong?" box under a done job; submits as a new job on top of it
@@ -376,7 +421,7 @@
     state.running = h.running || [];
     state.h = h;
     dot.hidden = !state.running.length && !h.queued;
-    if (isOpen()) { renderSlots(h); renderHist(); pollLog(); pollUsage(); } else renderUsage(h.usage);
+    if (isOpen()) { renderSlots(h); renderHistTabs(); renderHist(); pollLog(); pollUsage(); } else renderUsage(h.usage);
     schedule();
   }
 
@@ -583,6 +628,9 @@
   $("impShotBtn").onclick = () => capture_and_attach_screenshot("box");
   $("impPenBtn").onclick = () => capture_and_attach_screenshot("pen");
   $("impSubmit").onclick = submit;
+  for (const b of $("impHistTabs").querySelectorAll(".imp-tab")) {
+    b.onclick = () => { state.histTab = b.dataset.tab; renderHistTabs(); renderHist(); };
+  }
   for (const b of $("impWctl").querySelectorAll("button")) b.onclick = () => setWorkers(Number(b.dataset.d));
   $("impText").addEventListener("keydown", (e) => {
     e.stopPropagation(); // keep page shortcuts out of the textarea

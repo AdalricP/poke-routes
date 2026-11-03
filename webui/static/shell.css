@@ -332,6 +332,14 @@ table.enc .pct { display: inline-block; height: 6px; margin-right: 6px; backgrou
 .imp-docked > section { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
 .imp-docked > section:last-child { border-right: 0; }
 .imp-docked h2 { flex: none; margin: 0; height: 22px; padding: 0 8px; line-height: 22px; font-size: 11px; font-weight: 600; color: var(--text-2); background: #333; border-bottom: 1px solid var(--line); }
+.imp-docked h2.imp-tabs { display: flex; gap: 10px; align-items: center; padding: 0 8px; }
+.imp-docked .imp-tab { border: 0; background: none; padding: 0 3px; border-radius: 2px; height: 16px; font: inherit; font-size: 11px; font-weight: 600; color: var(--text-3); cursor: pointer; }
+.imp-docked .imp-tab.on { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+.imp-docked .imp-tab-done { background: rgba(191, 227, 178, 0.1); }
+.imp-docked .imp-tab-error { background: rgba(255, 201, 196, 0.1); }
+.imp-docked .imp-tab-done.on { background: rgba(191, 227, 178, 0.2); }
+.imp-docked .imp-tab-error.on { background: rgba(255, 201, 196, 0.2); }
+.imp-docked .imp-tab-error b:empty { display: none; }
 .imp-docked .imp-sec { flex: 1; min-height: 0; overflow: auto; padding: 6px 8px; }
 .imp-docked textarea { width: 100%; min-height: 64px; }
 .imp-docked .imp-row { display: flex; gap: 4px; margin-top: 4px; }
@@ -379,7 +387,11 @@ table.enc .pct { display: inline-block; height: 6px; margin-right: 6px; backgrou
 .imp-docked #impOwner:empty { display: none; }
 .imp-docked .meta .undo { height: 16px; padding: 0 6px; background: #474747; border: 1px solid #222; border-radius: 2px; color: var(--text); font-size: 11px; cursor: default; }
 .imp-docked .meta .undo:hover:not(:disabled) { background: #555; }
+.imp-docked .meta .undo.imp-shift { transform: translate(12px, -2px); transition: transform 0.15s ease; }
 .imp-docked .sum { margin: 2px 0 0; color: var(--text-3); font-size: 11px; }
+.imp-docked .imp-added { margin: 3px 0 0; }
+.imp-docked .imp-added-list { list-style: none; margin: 0; padding: 0; font: 11px var(--mono); }
+.imp-docked .imp-added-list li { color: #bfe3b2; }
 
 /* ------------------------------------------------------------ status bar */
 .statusbar { display: flex; align-items: center; gap: 12px; padding: 0 8px; background: var(--chrome); border-top: 1px solid var(--line); color: var(--text-2); font-size: 11px; }
