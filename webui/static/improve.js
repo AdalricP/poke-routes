@@ -171,6 +171,7 @@
   const state = { jobs: [], running: [], shown: null, logNext: 0, logFor: null, timer: null, prev: {}, h: null, screenshots: [], histTab: "all" };
   const ACTIVE = ["queued", "running", "merging"];
   const BAD = ["failed", "timeout", "conflict"];
+  const RETRYABLE = ["failed", "timeout", "conflict", "cancelled"];
   const maximum_screenshot_width_in_pixels = 1920;
   const maximum_screenshots_per_request = 6;     // same cap as improve.py
   const red_pen_colour = "#e3201b";
@@ -253,7 +254,7 @@
         c.onclick = () => api(`/api/improve/${j.id}/cancel`, {}).then(refresh).catch((e) => ($("impErr").textContent = e.message));
         meta.append(c);
       }
-      if (j.kind === "improve" && BAD.includes(j.status) && !(state.h && state.h.readonly && !state.h.owner.port)) {
+      if (j.kind === "improve" && RETRYABLE.includes(j.status) && !(state.h && state.h.readonly && !state.h.owner.port)) {
         const rt = el("button", "undo", "Retry");
         rt.type = "button";
         rt.title = "Queue a fresh job with the same request";

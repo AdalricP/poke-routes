@@ -10,7 +10,7 @@ and a headless Claude Code run implements it as exactly one git commit.
     POST /api/improve/<id>/undo    queue a git revert of that job's commit
     POST /api/improve/<id>/fix     {"request": "..."}  queue a follow-up job on top of a done one,
                                     for when the agent got it wrong or incomplete
-    POST /api/improve/<id>/retry   queue a fresh job with the same request, for a failed/timeout/conflict one
+    POST /api/improve/<id>/retry   queue a fresh job with the same request, for a failed/timeout/conflict/cancelled one
     POST /api/improve/<id>/cancel  cancel a queued or running job
     POST /api/improve/workers      {"workers": n}  how many jobs run at once (1-6)
 
@@ -1460,13 +1460,13 @@ def fix(jid: str, request: str) -> dict:
 
 
 def retry(jid: str) -> dict:
-    """A one-click do-over for a failed/timeout/conflict job: a new job with the same request,
-    target, mode and screenshots. The old job is left alone, same as fix()."""
+    """A one-click do-over for a failed/timeout/conflict/cancelled job: a new job with the same
+    request, target, mode and screenshots. The old job is left alone, same as fix()."""
     with _cv:
         src = _jobs.get(jid)
         if not src or src["kind"] != "improve":
             raise KeyError(jid)
-        if src["status"] not in ("failed", "timeout", "conflict"):
+        if src["status"] not in ("failed", "timeout", "conflict", "cancelled"):
             raise ValueError(f"nothing to retry (status {src['status']})")
         rid = jid + "-retry"
         n = 1
