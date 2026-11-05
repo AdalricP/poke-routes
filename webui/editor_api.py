@@ -194,4 +194,7 @@ def retile_class_grid_with_route_tiler(srv, gid, route, final, painted_class_gri
     fixed_metatiles = np.where(unchanged_neighbourhoods, final.metatile.astype(np.int64), -1)
     route_seed = int(getattr(route.spec, "seed", 0))
     learned_layout = srv.tiler(srv.route_tileset(route.spec)).tile(painted_class_grid, seed=route_seed, fixed=fixed_metatiles)
+    # newly (re)tiled grass lands on the plain metatile; texture it like a fresh
+    # generate() does, or a painted island's grass stays a flat, untextured block
+    learned_layout = srv.G().ground.texture_open_ground(learned_layout, painted_class_grid, route_seed)
     return learned_layout
