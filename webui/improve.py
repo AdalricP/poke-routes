@@ -386,17 +386,16 @@ def _advance_main(repo, old, new, log, root_wait):
 
 RESOLVER_MODEL = os.environ.get("IMPROVE_RESOLVER_MODEL", "claude-opus-5-5")
 RESOLVER_EFFORT = os.environ.get("IMPROVE_RESOLVER_EFFORT", "medium")
-RESOLVE_PROMPT = """A git rebase in this worktree stopped with merge conflicts in: {files}.
-Two independent changes touched the same lines. The incoming side (the commit being rebased) is one
-job's change; the other side is what is already on main.
+RESOLVE_PROMPT = """A git merge in this worktree stopped with merge conflicts in: {files}.
+Two independent changes touched the same lines. One side is a job's branch being merged; the other
+side is what is already on main.
 
 Resolve ONLY the conflicts: edit the conflict regions so both changes' intent is kept, and touch no
 other lines. When every conflict marker is gone, run:
   git add {files}
-  GIT_EDITOR=true git rebase --continue
-Repeat if the rebase stops again. Never run git rebase --abort, git reset, git push or anything that
-rewrites main. If the two changes truly cannot both be kept, stop without continuing the rebase and
-say why in one sentence."""
+  git commit --no-edit
+Never run git merge --abort, git reset, git push or anything that rewrites main. If the two changes
+truly cannot both be kept, stop without committing and say why in one sentence."""
 
 
 def resolve_conflict(wt, files, log=lambda s: None):
@@ -416,45 +415,62 @@ def resolve_conflict(wt, files, log=lambda s: None):
         log("[resolve] timed out")
         return False
     in_rebase = any(Path(_git(wt, "rev-parse", "--git-path", d, check=False)).exists()
-                    for d in ("rebase-merge", "rebase-apply"))
+                    for d in ("rebase-merge", "rebase-apply", "MERGE_HEAD"))
     markers = _gitr(wt, "grep", "-l", "-E", "^(<<<<<<<|>>>>>>>) ", "--", ".").stdout.strip()
     if in_rebase or markers:
         log(f"[resolve] not resolved ({'rebase still paused' if in_rebase else 'markers left: ' + markers}); "
             f"{(r.stdout or '').strip()[-200:]}")
         return False
-    log("[resolve] resolved; rebase completed")
+    log("[resolve] resolved; merge completed")
     return True
 
 
 def merge_onto_main(repo, wt, base, log=lambda s: None, root_wait=None):
-    """Put the job's commit(s) base..HEAD of worktree wt on top of the latest main and fast-forward
-    main to them. Never forces, never rewrites commits already on main.
+    """Land the job's branch (base..HEAD of worktree wt) on main as one merge commit, so the session
+    graph shows the branch forking and joining. Never forces, never rewrites commits already on main.
     Returns {"ok", "head", "commits", "root_synced", "note"} or {"ok": False, "conflict": True,
     "files", "details"}."""
     root_wait = ROOT_WAIT if root_wait is None else root_wait
+    job_branch = _git(wt, "symbolic-ref", "-q", "--short", "HEAD", check=False)
+    job_tip = _git(wt, "rev-parse", "HEAD")
+    job_subject = _git(wt, "log", "-1", "--format=%s", job_tip)
     with _merge_lock:
         for _ in range(10):
             old = _git(repo, "rev-parse", f"refs/heads/{MAIN}")
-            if not _is_ancestor(wt, old, "HEAD"):
-                log(f"> git rebase --onto {old[:10]} {base[:10]}")
-                r = _gitr(wt, "rebase", "--onto", old, base, env=_committer_env())
-                if r.returncode:
-                    files = _git(wt, "diff", "--name-only", "--diff-filter=U", check=False).split()
-                    if files and resolve_conflict(wt, files, log):
-                        base = old
-                        continue          # rebase finished with the conflicts resolved; fast-forward below
-                    _gitr(wt, "rebase", "--abort")
-                    details = " ".join((r.stdout + " " + r.stderr).split())[:800]
-                    return {"ok": False, "conflict": True, "files": files, "details": details}
-                base = old
-            new = _git(wt, "rev-parse", "HEAD")
-            commits = _git(wt, "rev-list", "--reverse", f"{old}..{new}").split()
+            merged = create_merge_commit_of_job_branch(wt, old, job_tip, job_branch, job_subject, log)
+            if not merged["ok"]:
+                restore_job_branch_checkout(wt, job_branch, job_tip)
+                return merged
+            new = merged["merge_commit"]
             moved, synced, note = _advance_main(repo, old, new, log, root_wait)
+            restore_job_branch_checkout(wt, job_branch, job_tip)
             if moved:
-                log(f"[merge] {MAIN} {old[:10]} -> {new[:10]}")
-                return {"ok": True, "head": new, "commits": commits, "root_synced": synced, "note": note}
-            log(f"[merge] {MAIN} moved while merging; rebasing again")
+                log(f"[merge] {MAIN} {old[:10]} -> {new[:10]} (merge of {job_branch or job_tip[:10]})")
+                return {"ok": True, "head": new, "commits": [new], "root_synced": synced, "note": note}
+            log(f"[merge] {MAIN} moved while merging; merging again")
         raise RuntimeError(f"{MAIN} kept moving; gave up merging")
+
+
+def create_merge_commit_of_job_branch(wt, main_head, job_tip, job_branch, job_subject, log) -> dict:
+    merge_message = f"Merge {job_branch or job_tip[:10]}: {job_subject}"
+    _git(wt, "checkout", "-q", "--detach", main_head)
+    log(f"> git merge --no-ff {job_branch or job_tip[:10]} onto {MAIN} {main_head[:10]}")
+    merge_run = _gitr(wt, "merge", "--no-ff", "-q", "-m", merge_message, job_tip, env=_committer_env())
+    if merge_run.returncode:
+        conflicted_files = _git(wt, "diff", "--name-only", "--diff-filter=U", check=False).split()
+        if not (conflicted_files and resolve_conflict(wt, conflicted_files, log)):
+            _gitr(wt, "merge", "--abort")
+            details = " ".join((merge_run.stdout + " " + merge_run.stderr).split())[:800]
+            return {"ok": False, "conflict": True, "files": conflicted_files, "details": details}
+    merge_result = {"ok": True, "merge_commit": _git(wt, "rev-parse", "HEAD")}
+    return merge_result
+
+
+def restore_job_branch_checkout(wt, job_branch, job_tip):
+    if job_branch:
+        _gitr(wt, "checkout", "-q", job_branch)
+        return
+    _gitr(wt, "checkout", "-q", "--detach", job_tip)
 
 
 def _make_worktree(job):
@@ -981,8 +997,10 @@ def _produce_revert(job, wt):
             raise RuntimeError(f"{c[:10]} is not on {MAIN}; nothing to revert")
     env = _git_env()
     for c in reversed(commits):
-        _log(job["id"], f"> git revert --no-commit {c[:10]}")
-        r = _gitr(wt, "revert", "--no-commit", c, env=env)
+        is_merge_commit = len(_git(REPO, "rev-list", "--parents", "-n", "1", c).split()) > 2
+        revert_arguments = ["revert", "--no-commit", *(["-m", "1"] if is_merge_commit else []), c]
+        _log(job["id"], f"> git {' '.join(revert_arguments[:-1])} {c[:10]}")
+        r = _gitr(wt, *revert_arguments, env=env)
         if r.returncode:
             files = _git(wt, "diff", "--name-only", "--diff-filter=U", check=False).split()
             _gitr(wt, "revert", "--abort")
@@ -1866,6 +1884,117 @@ def history() -> dict:
             "targets": {k: v["label"] for k, v in TARGETS.items()}, "usage": _usage()}
 
 
+# ------------------------------------------------------------------ sessions (the Improve tab's graph)
+
+maximum_commits_in_session_graph = 400
+graph_field_separator = "\x1f"
+
+
+def main_head_commit() -> str:
+    main_head = _git(REPO, "rev-parse", f"refs/heads/{MAIN}")
+    return main_head
+
+
+def current_session() -> dict:
+    session = _meta.get("session")
+    if session and session.get("root"):
+        return session
+    session = {"number": len(_meta.get("sessions") or []) + 1, "root": main_head_commit(), "started": time.time()}
+    if not _st["owner"]:
+        return session
+    _meta["session"] = session
+    _save_meta()
+    return session
+
+
+def merged_job_subjects_since(session_root: str, main_head: str) -> list:
+    merge_subjects = _git(REPO, "log", "--first-parent", "--merges", "--format=%s", f"{session_root}..{main_head}").splitlines()
+    return merge_subjects
+
+
+def finish_session(session_message: str = "") -> dict:
+    with _merge_lock:
+        active_job_ids = [job["id"] for job in _jobs.values() if job.get("status") in ACTIVE]
+        if active_job_ids:
+            raise ValueError(f"wait until the running jobs finish first ({', '.join(active_job_ids)})")
+        session = current_session()
+        old_main_head = main_head_commit()
+        if old_main_head == session["root"]:
+            raise ValueError("nothing has landed in this session yet")
+        merged_subjects = merged_job_subjects_since(session["root"], old_main_head)
+        session_commit = squash_session_into_one_commit(session, old_main_head, session_message, merged_subjects)
+        archive_reference = f"refs/sessions/{session['number']}"
+        _git(REPO, "update-ref", archive_reference, old_main_head)
+        _git(REPO, "update-ref", f"refs/heads/{MAIN}", session_commit, old_main_head)
+        finished_session = {**session, "finished": time.time(), "archive": archive_reference, "commit": session_commit,
+                            "merged_jobs": len(merged_subjects)}
+        _meta["sessions"] = (_meta.get("sessions") or []) + [finished_session]
+        _meta["session"] = {"number": session["number"] + 1, "root": session_commit, "started": time.time()}
+        _save_meta()
+    return {"finished": finished_session, "session": _meta["session"]}
+
+
+def squash_session_into_one_commit(session, old_main_head, session_message, merged_subjects) -> str:
+    session_tree = _git(REPO, "rev-parse", f"{old_main_head}^{{tree}}")
+    headline = session_message.strip() or f"session {session['number']}: {len(merged_subjects)} change(s)"
+    listed_changes = "".join(f"- {merged_subject}\n" for merged_subject in merged_subjects)
+    full_message = f"{headline}\n\n{listed_changes}\nFull history: refs/sessions/{session['number']}\n"
+    session_commit = _git(REPO, "commit-tree", session_tree, "-p", session["root"], "-m", full_message, env=_git_env())
+    return session_commit
+
+
+def job_branch_references() -> list:
+    job_branches = _git(REPO, "for-each-ref", "--format=%(refname)", "refs/heads/improve/").splitlines()
+    return job_branches
+
+
+def parse_graph_log_line(log_line: str):
+    fields = log_line.split(graph_field_separator)
+    if len(fields) != 8:
+        return None
+    boundary_mark, sha, short_sha, parents, author, timestamp, subject, decorations = fields
+    graph_commit = {"sha": sha, "short": short_sha, "parents": parents.split() if parents else [], "author": author,
+                    "time": int(timestamp or 0), "subject": subject, "boundary": boundary_mark == "-",
+                    "refs": [decoration.strip() for decoration in decorations.split(",") if decoration.strip()]}
+    return graph_commit
+
+
+def commits_between(session_root: str, tip_references: list) -> list:
+    log_format = graph_field_separator.join(["%m", "%H", "%h", "%P", "%an", "%at", "%s", "%D"])
+    log_run = _gitr(REPO, "log", "--topo-order", "--boundary", f"-{maximum_commits_in_session_graph}", f"--format={log_format}",
+                    *tip_references, f"^{session_root}")
+    graph_commits = [graph_commit for graph_commit in map(parse_graph_log_line, log_run.stdout.splitlines()) if graph_commit]
+    if not any(graph_commit["sha"] == session_root for graph_commit in graph_commits):
+        root_line = _gitr(REPO, "log", "-1", f"--format=-{graph_field_separator}" + log_format.split(graph_field_separator, 1)[1], session_root).stdout.strip()
+        root_commit = parse_graph_log_line(root_line)
+        graph_commits += [root_commit] if root_commit else []
+    return graph_commits
+
+
+def describe_active_job_for_graph(job) -> dict:
+    branch_tip = _git(REPO, "rev-parse", "-q", "--verify", f"refs/heads/{job['branch']}", check=False) if job.get("branch") else ""
+    active_job = {"id": job["id"], "status": job.get("status"), "slot": job.get("slot"), "mode": job.get("mode", "improve"),
+                  "request": job.get("request", "")[:120], "branch": job.get("branch"), "tip": branch_tip or job.get("base")}
+    return active_job
+
+
+def session_graph(viewed_session_number=None) -> dict:
+    if not _st["owner"]:
+        _load_meta()
+    past_sessions = _meta.get("sessions") or []
+    viewed_past_session = next((past for past in past_sessions if past.get("number") == viewed_session_number), None)
+    if viewed_past_session:
+        graph_commits = commits_between(viewed_past_session["root"], [viewed_past_session["archive"]])
+        return {"session": viewed_past_session, "live": False, "commits": graph_commits, "active_jobs": [],
+                "past_sessions": past_sessions}
+    session = current_session()
+    graph_commits = commits_between(session["root"], [f"refs/heads/{MAIN}", *job_branch_references()])
+    active_jobs = [describe_active_job_for_graph(job) for job in _view_jobs().values() if job.get("status") in ACTIVE]
+    live_graph = {"session": session, "live": True, "commits": graph_commits, "active_jobs": active_jobs,
+                  "past_sessions": past_sessions, "main": main_head_commit()}
+    return live_graph
+
+
 # ------------------------------------------------------------------ http glue
 
 _HOSTS = {"127.0.0.1", "localhost", "[::1]"}
@@ -1920,6 +2049,10 @@ def handle(h, method: str, u) -> None:
                 return h._json(history())
             if parts == ["features"]:
                 return h._json(features())
+            if parts == ["session"]:
+                from urllib.parse import parse_qs
+                viewed_session_text = (parse_qs(u.query).get("number") or [""])[0]
+                return h._json(session_graph(int(viewed_session_text) if viewed_session_text.isdigit() else None))
             if parts == ["usage"]:
                 if not is_improve_box_enabled():
                     return h._json({"error": "the Improve box is turned off in this checkout"}, 404)
@@ -1945,6 +2078,8 @@ def handle(h, method: str, u) -> None:
                                   body.get("screenshots") or [], body.get("editor_context")), 202)
         if parts == ["workers"]:
             return h._json(set_workers(body.get("workers")))
+        if parts == ["session", "finish"]:
+            return h._json(finish_session(str(body.get("message") or "")))
         if parts == ["clear"]:
             return h._json(clear(str(body.get("status", ""))))
         if len(parts) == 2 and parts[1] == "undo":

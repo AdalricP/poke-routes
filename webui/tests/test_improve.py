@@ -344,7 +344,8 @@ class Merge(Base):
         self.assertTrue(res["ok"])
         self.assertEqual(git(self.repo, "rev-parse", "main~1"), other)    # others' commit untouched, below ours
         self.assertEqual(len(res["commits"]), 1)
-        self.assertEqual(git(self.repo, "log", "-1", "--format=%an", "main"), "t")   # author kept
+        self.assertEqual(git(self.repo, "log", "-1", "--format=%an", "main^2"), "t")   # job commit's author kept
+        self.assertEqual(len(git(self.repo, "rev-list", "--parents", "-n", "1", "main").split()), 3)   # a real merge
         self.assertEqual((self.repo / "a.txt").read_text(), "one\ntwo\nthree\nfour\n")
         self.assertEqual((self.repo / "b.txt").read_text(), "bee 2\n")
 
@@ -387,6 +388,36 @@ class Merge(Base):
         self.assertTrue(res["ok"])
         self.assertEqual(git(self.repo, "rev-parse", "main"), res["head"])
         self.assertEqual(git(self.repo, "branch", "--show-current"), "side")
+
+
+    def test_session_graph_and_finish_squashes_keeping_history(self):
+        previous_owner = improve._st["owner"]
+        improve._st["owner"] = True
+        self.addCleanup(improve._st.__setitem__, "owner", previous_owner)
+        improve._meta.pop("session", None)
+        improve._meta.pop("sessions", None)
+        session_root = git(self.repo, "rev-parse", "main")
+        self.assertEqual(improve.current_session()["root"], session_root)
+        wt, base = self.job_wt("a", {"b.txt": "bee 2\n"})
+        self.assertTrue(improve.merge_onto_main(self.repo, wt, base)["ok"])
+        merged_main = git(self.repo, "rev-parse", "main")
+
+        graph = improve.session_graph()
+        graph_shas = {graph_commit["sha"] for graph_commit in graph["commits"]}
+        self.assertIn(session_root, graph_shas)
+        self.assertIn(merged_main, graph_shas)
+        self.assertTrue(any(len(graph_commit["parents"]) == 2 for graph_commit in graph["commits"]))
+
+        finished = improve.finish_session("session one")
+        squashed = git(self.repo, "rev-parse", "main")
+        self.assertEqual(git(self.repo, "rev-parse", "main^"), session_root)
+        self.assertEqual(git(self.repo, "rev-parse", "main^{tree}"), git(self.repo, "rev-parse", merged_main + "^{tree}"))
+        self.assertEqual(git(self.repo, "rev-parse", "refs/sessions/1"), merged_main)
+        self.assertEqual(finished["session"]["root"], squashed)
+        self.assertEqual(git(self.repo, "status", "--porcelain"), "")
+        self.assertEqual(improve.session_graph(1)["live"], False)
+        with self.assertRaises(ValueError):
+            improve.finish_session()
 
 
 class MemoryGuard(Base):
@@ -506,7 +537,7 @@ class Jobs(Base):
         self.assertEqual(improve._jobs[u["id"]]["status"], "done")
         self.assertEqual(improve._jobs[j["id"]]["status"], "undone")
         self.assertEqual((self.repo / "b.txt").read_text(), "bee\n")
-        self.assertTrue(git(self.repo, "log", "-1", "--format=%s", "main").startswith("Revert \"improve: write b.txt"))
+        self.assertTrue(git(self.repo, "log", "-1", "--no-merges", "--format=%s", "main").startswith("Revert \"improve: write b.txt"))
 
     def test_undo_of_an_agent_job_keeps_mode_agent(self):
         improve.try_acquire_lock(1)

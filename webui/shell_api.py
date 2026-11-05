@@ -11,7 +11,6 @@ API
     GET  /api/tilers             which tilers this server can use
     GET  /api/scene?id=ID        scene.json of a generated route (attachment)
     GET  /api/region-specs.zip?seed=N   region.json + routes/*.yaml of a region
-    GET  /api/commits            recent git log of this repo, for the Commits dock tab
     POST /api/spec-parse {text}  parse a spec file (YAML or JSON) into an object
     POST /api/retile             refused for Ark-tiled routes (the paint backend re-tiles
                                  with the learned tiler only); everything else passes through
@@ -20,7 +19,6 @@ from __future__ import annotations
 
 import io
 import json
-import subprocess
 import threading
 import traceback
 import zipfile
@@ -31,8 +29,6 @@ HERE = Path(__file__).resolve().parent
 STATIC = HERE / "static"
 ROOT = HERE.parent
 MAX_SPEC = 512 * 1024
-MAX_COMMITS = 200
-COMMIT_SEP = "\x1f"
 
 _ark = None
 _ark_atlas = None
@@ -111,29 +107,6 @@ def _redirect(h, where: str):
     h.end_headers()
 
 
-# ------------------------------------------------------------------ commits (Commits dock tab)
-# A small, local stand-in for github.com/AdalricP/See-Thy-Commits' commit graph: just
-# `git log` on this checkout, parsed into nodes the Commits panel lays out into lanes itself.
-
-def commits():
-    fmt = COMMIT_SEP.join(["%H", "%h", "%P", "%an", "%at", "%s"])
-    r = subprocess.run(["git", "-C", str(ROOT), "log", f"-{MAX_COMMITS}", "--date-order",
-                        f"--format={fmt}"], capture_output=True, text=True)
-    if r.returncode != 0:
-        return {"error": r.stderr.strip() or "git log failed", "commits": []}
-    out = []
-    for line in r.stdout.splitlines():
-        parts = line.split(COMMIT_SEP)
-        if len(parts) != 6:
-            continue
-        sha, short, parents, author, ts, subject = parts
-        out.append({"sha": sha, "short": short, "parents": parents.split() if parents else [],
-                    "author": author, "time": int(ts), "subject": subject})
-    branch = subprocess.run(["git", "-C", str(ROOT), "branch", "--show-current"],
-                            capture_output=True, text=True).stdout.strip()
-    return {"commits": out, "branch": branch}
-
-
 # ------------------------------------------------------------------ routing
 
 def handle(h, method: str, u, srv) -> bool:
@@ -169,8 +142,6 @@ def handle(h, method: str, u, srv) -> bool:
             scene = srv.G().export.scene_dict(route)
             body = json.dumps(scene, separators=(",", ":"), default=int).encode()
             return _attachment(h, f"{route.spec.id}_scene.json", body, "application/json") or True
-        if u.path == "/api/commits":
-            return h._json(commits()) or True
         if u.path == "/api/region-specs.zip":
             import region_api
 
