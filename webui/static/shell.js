@@ -62,7 +62,6 @@
     });
     $("paneConsole").hidden = layout.bottom.tab !== "console";
     $("paneImprove").hidden = layout.bottom.tab !== "improve";
-    $("paneCommits").hidden = layout.bottom.tab !== "commits";
     $("paneAgent").hidden = layout.bottom.tab !== "agent";
     resizeCbs.forEach((f) => f(rects));
   }

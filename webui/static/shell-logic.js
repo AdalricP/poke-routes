@@ -210,7 +210,7 @@
   // ------------------------------------------------------------ dock layout
   const LAYOUT_KEY = "pokeroutes-shell-layout-v1";
   const CHROME = { menu: 26, toolbar: 34, status: 22, collapsed: 24, head: 26, splitter: 4 };
-  const BOTTOM_TABS = ["console", "improve", "commits", "agent"];
+  const BOTTOM_TABS = ["console", "improve", "agent"];
   const CENTER_TABS = ["scene", "geography", "region", "story", "gates"];
   const DEFAULT_LAYOUT = {
     v: 1,
