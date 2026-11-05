@@ -109,7 +109,7 @@ function skeleton() {
     { label: "Window", items: ids(["w-scene", "w-reset"]) },
     { label: "Help", items: ids(["keys", "about"]) },
   ];
-  const extra = ids(["tool-select", "tool-pan", "tool-paint", "tool-stamp", "tool-tile", "x-zin", "x-zout", "x-zfit", "x-help"]);
+  const extra = ids(["tool-select", "tool-pan", "tool-paint", "tool-stamp", "tool-tile", "x-zin", "x-zout", "x-zfit", "x-help", "x-ledge-rot"]);
   SL.attachShortcuts(menus, extra);
   return { menus, extra };
 }

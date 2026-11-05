@@ -188,6 +188,7 @@
     keys: "Mod+/",
     // not in a menu: scene tools and plain-key zoom
     "tool-select": "v", "tool-pan": "h", "tool-paint": "b", "tool-stamp": "s", "tool-tile": "t", "x-zin": "=", "x-zout": "-", "x-zfit": "0", "x-help": "?",
+    "x-ledge-rot": "r",
   };
   const ALT_SHORTCUTS = { redo: "Mod+y", zin: "Mod+Shift+=" };
   // Modifier shortcuts that still must not fire while typing.
