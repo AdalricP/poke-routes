@@ -911,6 +911,7 @@ def _run_agent(job, cwd, wt=None, port=None):
                 _note_usage(ev)
             if ev.get("type") == "result":
                 final = str(ev.get("result") or "")
+                close_agent_input_after_result(jid, proc, lock)
             for line in _fmt_event(ev):
                 _log(jid, line)
         proc.wait()
@@ -925,6 +926,16 @@ def _run_agent(job, cwd, wt=None, port=None):
         except (OSError, ValueError):
             pass
     return proc.returncode, final
+
+
+def close_agent_input_after_result(jid, proc, stdin_lock):
+    with _lock:
+        _stdin_locks.pop(jid, None)
+    with stdin_lock:
+        try:
+            proc.stdin.close()
+        except (OSError, ValueError):
+            pass
 
 
 def steer(jid: str, text: str) -> dict:

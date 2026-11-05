@@ -58,3 +58,5 @@ if m:
     say(f"wrote {name}")
 print(json.dumps({"type": "result", "subtype": "success", "duration_ms": 10, "num_turns": 1,
                   "result": "fake run finished"}), flush=True)
+for later_stdin_line in sys.stdin:
+    pass
