@@ -54,10 +54,11 @@
     "model": "general_mauville",
     "tileset": "general_mauville",
     "layouts": [
-      "Route111_Layout"
+      "Route111_Layout",
+      "Route110_Layout"
     ],
-    "note": "Route 111: deep sand, boulders, rock walls",
-    "classes": "abdefghknprstuvwxz"
+    "note": "Route 111: deep sand, boulders, rock walls; Route 110 adds its wooden river bridge",
+    "classes": "abdefghknpqrstuvwxz"
   },
   "mountain": {
     "model": "general_lavaridge",

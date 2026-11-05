@@ -17,7 +17,9 @@
   const REGION_KEY = "pokeroutes-region-spec";    // region block of a route opened from a region
   const PREFS_KEY = "pokeroutes-shell-prefs-v1";
   const VIEW_KEY = "pokeroutes-shell-view-v1";
-  const PAINT_CLASSES = "fgptwrsexaq";
+  const PAINT_CLASSES = "fgptwrsaq";
+  const LEDGE_CLASS = "s";           // one brush for all ledge directions; state.ledgeDir picks s/e/x
+  const LEDGE_DIRS = ["s", "e", "x"];
   const store = Shell.store;
 
   const sget = (k) => { try { return JSON.parse(store.getItem(k) || "null"); } catch (e) { return null; } };
@@ -46,7 +48,7 @@
     hover: null, hoverArea: null, sel: null,
     playing: false, timer: null, busy: false,
     specials: [], exits: [], tab: "dex",
-    tool: "select", paint: { cells: new Map(), busy: false }, selected_metatile_id: 1,
+    tool: "select", paint: { cells: new Map(), busy: false }, selected_metatile_id: 1, ledgeDir: "s",
     region: sget(REGION_KEY),      // {name, region, endings} or null
     file: { handle: null, name: "" },
     saved: "", generated: "",
@@ -896,6 +898,19 @@
     if (!r) { if (loud) log("warn", "Generate a route before painting."); return false; }
     return true;
   }
+  // One ledge brush, rotated with the toolbar widget or the R key, instead of a
+  // separate tile per direction.
+  function updateLedgeUI() {
+    const active = $("paintClass").value === LEDGE_CLASS;
+    $("ledgeRot").hidden = !active;
+    $("ledgeRot").querySelectorAll(".ledge-dir-btn").forEach((b) => b.classList.toggle("on", b.dataset.dir === state.ledgeDir));
+  }
+  function rotateLedgeDir() {
+    const i = LEDGE_DIRS.indexOf(state.ledgeDir);
+    state.ledgeDir = LEDGE_DIRS[(i + 1) % LEDGE_DIRS.length];
+    updateLedgeUI();
+    if (!$("leftTiles").hidden) render_terrain_brushes();
+  }
   function paintAt(sx, sy) {
     const r = state.result;
     const c = cellOf(sx, sy);
@@ -908,7 +923,8 @@
       for (const [x, y, k] of SL.stampCells($("stampKind").value, c.x, c.y, r.width, r.height)) state.paint.cells.set(`${x},${y}`, k);
     } else {
       const pts = state.paint.last ? SL.lineCells(state.paint.last, c).slice(1) : [c];
-      const k = $("paintClass").value, size = SL.TWO_WIDE.includes(k) ? Math.max(2, +$("brushSize").value) : +$("brushSize").value;
+      const chosen = $("paintClass").value, k = chosen === LEDGE_CLASS ? state.ledgeDir : chosen;
+      const size = SL.TWO_WIDE.includes(k) ? Math.max(2, +$("brushSize").value) : +$("brushSize").value;
       for (const p of pts) for (const [x, y] of SL.brushCells(p.x, p.y, size, k, r.width, r.height)) state.paint.cells.set(`${x},${y}`, k);
     }
     state.paint.last = c;
@@ -1007,6 +1023,7 @@
     $("tileOpts").hidden = t !== "tile";
     wrap.className = "view scene tool-" + t;
     if (t === "paint" || t === "stamp" || t === "tile") { canPaint(true); updatePaintCount(); }
+    if (t === "paint") updateLedgeUI();
     if (t === "paint") show_left_tab("tiles");
     if (t === "tile") { render_selected_metatile_swatch(); show_left_tab("tiles"); }
     hideTip();
@@ -1855,6 +1872,8 @@
     { id: "x-zout", label: "Zoom out", group: "Scene view", enabled: sceneRoute, run: () => zoomBy(-1) },
     { id: "x-zfit", label: "Fit to view", group: "Scene view", enabled: sceneRoute, run: fit },
     { id: "x-help", label: "Keyboard shortcuts", group: "Help", enabled: isScene, run: () => Shell.showShortcuts() },
+    { id: "x-ledge-rot", label: "Rotate ledge direction", group: "Scene tools",
+      enabled: () => isScene() && state.tool === "paint" && $("paintClass").value === LEDGE_CLASS, run: rotateLedgeDir },
   ];
 
   // ------------------------------------------------------------ wiring
@@ -1874,7 +1893,7 @@
     $("tbFit").onclick = fitView;
     $("tbTiler").onchange = () => setTiler($("tbTiler").value);
     $("tileSwatchButton").onclick = () => show_left_tab("tiles");
-    $("paintClass").addEventListener("change", () => { if (!$("leftTiles").hidden) render_terrain_brushes(); });
+    $("paintClass").addEventListener("change", () => { updateLedgeUI(); if (!$("leftTiles").hidden) render_terrain_brushes(); });
     document.querySelectorAll("[data-left-tab]").forEach((tab_button) => { tab_button.onclick = () => show_left_tab(tab_button.dataset.leftTab); });
     $("tilePaletteCanvas").onclick = pick_metatile_from_palette;
     $("dice").onclick = doRegenerate;
@@ -1886,8 +1905,9 @@
     $("exitAdd").onclick = () => { if (state.exits.length < 4) { state.exits.push({ side: "west", at: 0.5, width: 3 }); renderExits(); edited("exits"); } };
     $("paintClear").onclick = clearPaint;
     const pc = $("paintClass");
-    for (const k of PAINT_CLASSES) pc.append(Object.assign(el("option", "", PR.CLASS_NAMES[k] || k), { value: k }));
+    for (const k of PAINT_CLASSES) pc.append(Object.assign(el("option", "", k === LEDGE_CLASS ? "ledge" : (PR.CLASS_NAMES[k] || k)), { value: k }));
     pc.value = "g";
+    $("ledgeRot").querySelectorAll(".ledge-dir-btn").forEach((b) => { b.onclick = () => { state.ledgeDir = b.dataset.dir; updateLedgeUI(); if (!$("leftTiles").hidden) render_terrain_brushes(); }; });
     const sk = $("stampKind");
     for (const [k, s] of Object.entries(SL.STAMPS)) sk.append(Object.assign(el("option", "", s.label), { value: k }));
     setTool("select");
@@ -2042,6 +2062,7 @@
   function choose_terrain_brush(class_code) {
     $("paintClass").value = class_code;
     if (state.tool !== "paint") setTool("paint");
+    updateLedgeUI();
     render_terrain_brushes();
   }
 
@@ -2049,12 +2070,14 @@
     const terrain_grid = $("terrainGrid");
     terrain_grid.innerHTML = "";
     for (const class_code of PAINT_CLASSES) {
+      const sample_code = class_code === LEDGE_CLASS ? state.ledgeDir : class_code;
+      const label = PR.CLASS_NAMES[sample_code] || sample_code;
       const terrain_button = el("button", "terrain-brush" + (state.tool === "paint" && $("paintClass").value === class_code ? " on" : ""));
       terrain_button.type = "button";
-      terrain_button.title = `Paint ${PR.CLASS_NAMES[class_code] || class_code}`;
+      terrain_button.title = class_code === LEDGE_CLASS ? `Paint ${label} — R or the direction buttons rotate it` : `Paint ${label}`;
       const preview_canvas = Object.assign(el("canvas"), { width: terrain_preview_size_in_pixels, height: terrain_preview_size_in_pixels });
-      draw_terrain_preview(preview_canvas, class_code);
-      terrain_button.append(preview_canvas, el("span", "", PR.CLASS_NAMES[class_code] || class_code));
+      draw_terrain_preview(preview_canvas, sample_code);
+      terrain_button.append(preview_canvas, el("span", "", label));
       terrain_button.onclick = () => choose_terrain_brush(class_code);
       terrain_grid.append(terrain_button);
     }
