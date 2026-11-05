@@ -926,9 +926,11 @@
       cells.push([x, y, cls]);
       old.push([x, y, previous_metatile]);
     }
+    const remembered_paint = savedPaint(r);
     for (const [x, y, cls] of class_stroke.concat(SL.tidyPaint(fin.cls, class_stroke))) {
       const was = fin.cls[y][x];
-      if (was === cls) continue;
+      const has_exact_tile_here = String(remembered_paint[`${x},${y}`] || "").startsWith("#");
+      if (was === cls && !has_exact_tile_here) continue;
       cells.push([x, y, cls]);
       old.push([x, y, PAINT_CLASSES.includes(was) ? was : "g"]);
     }

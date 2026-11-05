@@ -149,6 +149,8 @@ def retile(srv, b: dict) -> dict:
         painted_class_grid[cell_y, cell_x] = class_code
     layout = retile_class_grid_with_route_tiler(srv, gid, route, final, painted_class_grid)
     metatile_overrides = metatile_overrides_by_route_id.setdefault(gid, {})
+    for cell_x, cell_y, _class_code in class_cells:
+        metatile_overrides.pop((cell_x, cell_y), None)
     metatile_overrides.update({(cell_x, cell_y): metatile_id for cell_x, cell_y, metatile_id in metatile_cells})
     for (cell_x, cell_y), metatile_id in metatile_overrides.items():
         layout.metatile[cell_y, cell_x] = metatile_id
