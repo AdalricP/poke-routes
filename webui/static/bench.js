@@ -48,7 +48,7 @@
     hover: null, hoverArea: null, sel: null,
     playing: false, timer: null, busy: false,
     specials: [], exits: [], tab: "dex",
-    tool: "select", paint: { cells: new Map(), busy: false }, selected_metatile_id: 1, ledgeDir: "s",
+    tool: "select", paintMode: "class", paint: { cells: new Map(), busy: false }, selected_metatile_id: 1, ledgeDir: "s",
     region: sget(REGION_KEY),      // {name, region, endings} or null
     file: { handle: null, name: "" },
     saved: "", generated: "",
@@ -563,12 +563,12 @@
     const { sx, sy } = pt(ev);
     const panBtn = ev.button === 1 || ev.button === 2 || spaceDown || state.tool === "pan";
     wrap.setPointerCapture(ev.pointerId);
-    if (!panBtn && state.tool === "tile" && ev.button === 0 && ev.altKey) {
+    if (!panBtn && state.tool === "paint" && ev.button === 0 && ev.altKey) {
       pick_metatile_under_cursor(sx, sy);
       drag = null;
       return;
     }
-    if (!panBtn && (state.tool === "paint" || state.tool === "stamp" || state.tool === "tile") && ev.button === 0) {
+    if (!panBtn && (state.tool === "paint" || state.tool === "stamp") && ev.button === 0) {
       if (!canPaint(true) || state.paint.busy) { drag = null; return; }
       drag = { mode: "paint" };
       if (state.stage !== state.result.stages.length - 1) { stopPlay(); setStage(state.result.stages.length - 1, false); }
@@ -771,6 +771,7 @@
 
   function hoverCells() {
     const h = state.hover, r = state.result;
+    if (state.tool === "paint" && state.paintMode === "tile") return [[h.x, h.y]];
     if (state.tool === "paint") return SL.brushCells(h.x, h.y, +$("brushSize").value, "g", r.width, r.height);
     if (state.tool === "stamp") return SL.stampCells($("stampKind").value, h.x, h.y, r.width, r.height);
     return [[h.x, h.y]];
@@ -915,7 +916,7 @@
     const r = state.result;
     const c = cellOf(sx, sy);
     if (!c) { state.paint.last = null; return; }
-    if (state.tool === "tile") {
+    if (state.tool === "paint" && state.paintMode === "tile") {
       const stroke_points = state.paint.last ? SL.lineCells(state.paint.last, c).slice(1) : [c];
       for (const stroke_point of stroke_points) state.paint.cells.set(`${stroke_point.x},${stroke_point.y}`, "#" + state.selected_metatile_id);
     } else if (state.tool === "stamp") {
@@ -1020,12 +1021,9 @@
     document.querySelectorAll("[data-tool]").forEach((b) => { b.classList.toggle("on", b.dataset.tool === t); b.setAttribute("aria-pressed", b.dataset.tool === t); });
     $("paintOpts").hidden = t !== "paint";
     $("stampOpts").hidden = t !== "stamp";
-    $("tileOpts").hidden = t !== "tile";
     wrap.className = "view scene tool-" + t;
-    if (t === "paint" || t === "stamp" || t === "tile") { canPaint(true); updatePaintCount(); }
-    if (t === "paint") updateLedgeUI();
-    if (t === "paint") show_left_tab("tiles");
-    if (t === "tile") { render_selected_metatile_swatch(); show_left_tab("tiles"); }
+    if (t === "paint" || t === "stamp") { canPaint(true); updatePaintCount(); }
+    if (t === "paint") { updateLedgeUI(); render_selected_metatile_swatch(); show_left_tab("tiles"); }
     hideTip();
     draw();
   }
@@ -1867,7 +1865,7 @@
   // plain-letter keys belong to whichever view is open: outside Scene the map editor has its own (V R L F S B W A, ?)
   const toolKey = (t, label) => ({ id: "tool-" + t, label, group: "Scene tools", enabled: isScene, run: () => setTool(t) });
   const extras = [
-    toolKey("select", "Select tool"), toolKey("pan", "Pan tool"), toolKey("paint", "Paint tool"), toolKey("stamp", "Stamp tool"), toolKey("tile", "Tile tool"),
+    toolKey("select", "Select tool"), toolKey("pan", "Pan tool"), toolKey("paint", "Paint tool"), toolKey("stamp", "Stamp tool"),
     { id: "x-zin", label: "Zoom in", group: "Scene view", enabled: sceneRoute, run: () => zoomBy(1) },
     { id: "x-zout", label: "Zoom out", group: "Scene view", enabled: sceneRoute, run: () => zoomBy(-1) },
     { id: "x-zfit", label: "Fit to view", group: "Scene view", enabled: sceneRoute, run: fit },
@@ -1892,8 +1890,8 @@
     $("tbZoomOut").onclick = zoomOutView;
     $("tbFit").onclick = fitView;
     $("tbTiler").onchange = () => setTiler($("tbTiler").value);
-    $("tileSwatchButton").onclick = () => show_left_tab("tiles");
-    $("paintClass").addEventListener("change", () => { updateLedgeUI(); if (!$("leftTiles").hidden) render_terrain_brushes(); });
+    $("tileSwatchButton").onclick = () => { if (state.tool !== "paint") setTool("paint"); show_left_tab("tiles"); };
+    $("paintClass").addEventListener("change", () => { choose_terrain_brush($("paintClass").value); });
     document.querySelectorAll("[data-left-tab]").forEach((tab_button) => { tab_button.onclick = () => show_left_tab(tab_button.dataset.leftTab); });
     $("tilePaletteCanvas").onclick = pick_metatile_from_palette;
     $("dice").onclick = doRegenerate;
@@ -1985,7 +1983,11 @@
 
   function select_metatile(metatile_id) {
     state.selected_metatile_id = metatile_id;
+    state.paintMode = "tile";
+    if (state.tool !== "paint") setTool("paint");
     render_selected_metatile_swatch();
+    $("tileSwatchButton").classList.add("on");
+    render_terrain_brushes();
     if (!$("leftTiles").hidden) render_metatile_palette();
   }
 
@@ -2061,9 +2063,11 @@
 
   function choose_terrain_brush(class_code) {
     $("paintClass").value = class_code;
+    state.paintMode = "class";
     if (state.tool !== "paint") setTool("paint");
     updateLedgeUI();
     render_terrain_brushes();
+    $("tileSwatchButton").classList.remove("on");
   }
 
   function render_terrain_brushes() {
@@ -2072,7 +2076,7 @@
     for (const class_code of PAINT_CLASSES) {
       const sample_code = class_code === LEDGE_CLASS ? state.ledgeDir : class_code;
       const label = PR.CLASS_NAMES[sample_code] || sample_code;
-      const terrain_button = el("button", "terrain-brush" + (state.tool === "paint" && $("paintClass").value === class_code ? " on" : ""));
+      const terrain_button = el("button", "terrain-brush" + (state.tool === "paint" && state.paintMode === "class" && $("paintClass").value === class_code ? " on" : ""));
       terrain_button.type = "button";
       terrain_button.title = class_code === LEDGE_CLASS ? `Paint ${label} — R or the direction buttons rotate it` : `Paint ${label}`;
       const preview_canvas = Object.assign(el("canvas"), { width: terrain_preview_size_in_pixels, height: terrain_preview_size_in_pixels });

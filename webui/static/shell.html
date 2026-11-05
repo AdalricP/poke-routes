@@ -51,10 +51,8 @@
       <button type="button" class="tb-btn" data-tool="stamp" title="Stamp (S)" aria-label="Stamp">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2h4v4.5l2.5 1.5V10h-9V8L6 6.5zM2.5 11.5h11V14h-11z" fill="currentColor"/></svg>
       </button>
-      <button type="button" class="tb-btn" data-tool="tile" title="Place exact tiles (T)" aria-label="Tile">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2z" fill="currentColor"/><path d="M9 9h5v5H9z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
-      </button>
       <span class="tb-opts" id="paintOpts" hidden>
+        <button type="button" class="btn tile-swatch" id="tileSwatchButton" title="Painting an exact tile; show the Tiles tab"><canvas id="tileSwatch" width="16" height="16"></canvas></button>
         <select id="paintClass" aria-label="Paint class" title="Class to paint"></select>
         <span class="ledge-rot" id="ledgeRot" hidden title="Ledge direction (R rotates)">
           <button type="button" class="ledge-dir-btn" data-dir="s" title="Faces south (R)" aria-label="Ledge faces south">
@@ -72,10 +70,6 @@
         </select>
         <span class="tb-count" id="paintN"></span>
         <button type="button" class="btn" id="paintClear" title="Forget every painted cell on this route and regenerate">Clear paint</button>
-      </span>
-      <span class="tb-opts" id="tileOpts" hidden>
-        <button type="button" class="btn tile-swatch" id="tileSwatchButton" title="Show the Tiles tab"><canvas id="tileSwatch" width="16" height="16"></canvas>Tiles</button>
-        <span class="tb-count">Alt+click picks a tile from the map</span>
       </span>
       <span class="tb-opts" id="stampOpts" hidden>
         <select id="stampKind" aria-label="Stamp" title="Stamp"></select>
@@ -135,7 +129,7 @@
   <section class="dock" id="dockLeft" data-dock="left" aria-label="Hierarchy">
     <header class="dock-head">
       <button type="button" class="dock-tab on" data-left-tab="hierarchy">Hierarchy</button>
-      <button type="button" class="dock-tab" data-left-tab="tiles" title="Every tile of the current tileset; pick one for the Tile tool (T)">Tiles</button>
+      <button type="button" class="dock-tab" data-left-tab="tiles" title="Every tile of the current tileset; pick one to paint it exactly with the Paint tool">Tiles</button>
       <button type="button" class="dock-collapse" data-collapse="left" aria-label="Collapse Hierarchy" title="Collapse"></button>
     </header>
     <div class="dock-strip" data-expand="left" title="Show Hierarchy"><span>Hierarchy</span></div>
@@ -150,7 +144,7 @@
         <div class="terrain-grid" id="terrainGrid"></div>
         <details class="single-tiles">
           <summary>Single tiles (exact, no auto-fix) <span id="tileId"></span></summary>
-          <p class="tiles-note">Click one, then paint with the Tile tool (T). Alt+click on the map picks one up.</p>
+          <p class="tiles-note">Click one, then paint with the Paint tool (B). Alt+click on the map picks one up.</p>
           <canvas id="tilePaletteCanvas"></canvas>
         </details>
       </div>
