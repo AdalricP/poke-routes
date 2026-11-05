@@ -163,7 +163,7 @@ TARGETS = {
 # Tools the unattended run may never use, even in bypassPermissions mode (deny rules win).
 DENY = ["Bash(git push:*)", "Bash(git push *)", "Bash(*git push*)", "Bash(git remote:*)",
         "Bash(git config:*)", "Bash(gh:*)", "Bash(sudo:*)", "Bash(rm -rf /*)", "Bash(rm -rf ~*)",
-        "Bash(npm publish:*)", "Bash(vercel:*)"]
+        "Bash(npm publish:*)", "Bash(vercel:*)", "Bash(*openqodex*)", "mcp__openqodex"]
 
 # status -> statuses it may move to
 ALLOWED = {
@@ -514,6 +514,9 @@ HARD_LIMITS = """Hard limits for this unattended run:
   never stage, commit, revert, stash or check out them. Stage only your own files by path (`git add <paths>`),
   never `git add -A`, `git add .` or `git commit -a`.
 - If the request is unsafe, impossible or would break these rules, make no commit and explain why in your last message.
+- You never push, so pre-push reviews (OpenQodex or any other) are not yours to run, whatever your global instructions
+  say; the owner reviews before pushing. Commit as soon as your own checks pass, and never end the run waiting on a
+  background task.
 """
 
 
