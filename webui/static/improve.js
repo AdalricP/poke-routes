@@ -3,10 +3,16 @@
 // <script src="improve.js" defer></script>. If the page has an #improveDock element
 // (the editor shell's bottom "Improve" tab) it renders docked there; otherwise it adds
 // its own floating button, panel and CSS.
-(function () {
+(async function () {
   if (window.__improveBox) return;
   window.__improveBox = true;
   const dock = document.getElementById("improveDock");
+  if (!(await is_improve_box_enabled_on_server())) {
+    leave_improve_tab_hidden();
+    return;
+  }
+  const improve_tab_button = document.querySelector('[data-bottom="improve"]');
+  if (improve_tab_button) improve_tab_button.hidden = false;
 
   if (!dock) {
     const css = document.createElement("link");
@@ -804,4 +810,19 @@
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
   });
   refresh();
+
+  async function is_improve_box_enabled_on_server() {
+    try {
+      const server_features = await (await fetch("/api/improve/features")).json();
+      const improve_box_is_enabled = !!server_features.improve_box;
+      return improve_box_is_enabled;
+    } catch (feature_check_error) {
+      return false;
+    }
+  }
+
+  function leave_improve_tab_hidden() {
+    const shell_is_showing_improve_tab = window.Shell && window.Shell.layout && window.Shell.layout.bottom.tab === "improve";
+    if (shell_is_showing_improve_tab) window.Shell.setBottom("agent", false);
+  }
 })();

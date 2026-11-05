@@ -51,6 +51,9 @@
       <button type="button" class="tb-btn" data-tool="stamp" title="Stamp (S)" aria-label="Stamp">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2h4v4.5l2.5 1.5V10h-9V8L6 6.5zM2.5 11.5h11V14h-11z" fill="currentColor"/></svg>
       </button>
+      <button type="button" class="tb-btn" data-tool="tile" title="Place exact tiles (T)" aria-label="Tile">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2z" fill="currentColor"/><path d="M9 9h5v5H9z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+      </button>
       <span class="tb-opts" id="paintOpts" hidden>
         <select id="paintClass" aria-label="Paint class" title="Class to paint"></select>
         <select id="brushSize" aria-label="Brush size" title="Brush size">
@@ -58,6 +61,10 @@
         </select>
         <span class="tb-count" id="paintN"></span>
         <button type="button" class="btn" id="paintClear" title="Forget every painted cell on this route and regenerate">Clear paint</button>
+      </span>
+      <span class="tb-opts" id="tileOpts" hidden>
+        <button type="button" class="btn tile-swatch" id="tileSwatchButton" title="Show the Tiles tab"><canvas id="tileSwatch" width="16" height="16"></canvas>Tiles</button>
+        <span class="tb-count">Alt+click picks a tile from the map</span>
       </span>
       <span class="tb-opts" id="stampOpts" hidden>
         <select id="stampKind" aria-label="Stamp" title="Stamp"></select>
@@ -116,14 +123,26 @@
   <!-- left: hierarchy -->
   <section class="dock" id="dockLeft" data-dock="left" aria-label="Hierarchy">
     <header class="dock-head">
-      <span class="dock-tab on">Hierarchy</span>
+      <button type="button" class="dock-tab on" data-left-tab="hierarchy">Hierarchy</button>
+      <button type="button" class="dock-tab" data-left-tab="tiles" title="Every tile of the current tileset; pick one for the Tile tool (T)">Tiles</button>
       <button type="button" class="dock-collapse" data-collapse="left" aria-label="Collapse Hierarchy" title="Collapse"></button>
     </header>
     <div class="dock-strip" data-expand="left" title="Show Hierarchy"><span>Hierarchy</span></div>
     <div class="dock-body">
-      <div class="search"><input id="hierFilter" type="search" placeholder="Search" aria-label="Filter hierarchy"></div>
-      <ul class="tree" id="tree" role="tree" aria-label="Route parts"></ul>
-      <ul class="tree" id="mapTree" role="tree" aria-label="Places and layers" hidden></ul>
+      <div id="leftHierarchy">
+        <div class="search"><input id="hierFilter" type="search" placeholder="Search" aria-label="Filter hierarchy"></div>
+        <ul class="tree" id="tree" role="tree" aria-label="Route parts"></ul>
+        <ul class="tree" id="mapTree" role="tree" aria-label="Places and layers" hidden></ul>
+      </div>
+      <div id="leftTiles" class="tiles-pane" hidden>
+        <p class="tiles-note">Pick a terrain and paint it on the map; edges, corners and trees fix themselves like the generator's own.</p>
+        <div class="terrain-grid" id="terrainGrid"></div>
+        <details class="single-tiles">
+          <summary>Single tiles (exact, no auto-fix) <span id="tileId"></span></summary>
+          <p class="tiles-note">Click one, then paint with the Tile tool (T). Alt+click on the map picks one up.</p>
+          <canvas id="tilePaletteCanvas"></canvas>
+        </details>
+      </div>
     </div>
     <div class="dock-extra imp-docked" id="dockLeftExtra" hidden></div>
   </section>
@@ -222,13 +241,12 @@
     <div class="dock-extra imp-docked" id="dockRightExtra" hidden></div>
   </section>
 
-  <!-- bottom: console / timeline / improve / agent -->
-  <section class="dock" id="dockBottom" data-dock="bottom" aria-label="Console, Timeline, Improve, Commits, Agent">
+  <!-- bottom: console / improve / commits / agent -->
+  <section class="dock" id="dockBottom" data-dock="bottom" aria-label="Console, Improve, Commits, Agent">
     <header class="dock-head">
       <div class="tabs" role="tablist">
         <button type="button" class="dock-tab" data-bottom="console" role="tab">Console <span class="count" id="consoleCount" hidden></span></button>
-        <button type="button" class="dock-tab" data-bottom="timeline" role="tab">Timeline</button>
-        <button type="button" class="dock-tab" data-bottom="improve" role="tab">Improve <span class="dot" id="improveDot" hidden></span></button>
+        <button type="button" class="dock-tab" data-bottom="improve" role="tab" hidden>Improve <span class="dot" id="improveDot" hidden></span></button>
         <button type="button" class="dock-tab" data-bottom="commits" role="tab">Commits</button>
         <button type="button" class="dock-tab" data-bottom="agent" role="tab">Agent</button>
       </div>
@@ -246,24 +264,6 @@
         <div class="con-split">
           <ol class="con-list" id="conList" tabindex="0" aria-label="Console messages"></ol>
           <pre class="con-detail" id="conDetail" aria-label="Message detail"></pre>
-        </div>
-      </div>
-      <div class="pane timeline" id="paneTimeline" hidden>
-        <div class="pane-bar">
-          <button type="button" class="tb-btn play" id="tlPlay" aria-label="Play stages" title="Play (Space)">
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path class="i-play" d="M4.5 2.5v11l9-5.5z" fill="currentColor"/><g class="i-pause"><rect x="4" y="3" width="2.6" height="10" fill="currentColor"/><rect x="9.4" y="3" width="2.6" height="10" fill="currentColor"/></g></svg>
-          </button>
-          <span class="tl-cur" id="tlCur">no route</span>
-          <span class="grow"></span>
-          <label class="tb-label">Speed
-            <select id="tlSpeed" aria-label="Stage duration">
-              <option value="1600">0.5x</option><option value="900">1x</option><option value="450">2x</option><option value="220">4x</option>
-            </select>
-          </label>
-          <label class="check"><input type="checkbox" id="tlLoop"> Loop</label>
-        </div>
-        <div class="tl" id="tl">
-          <div class="tl-tracks" id="tlTracks" title="Click or drag to scrub through the generator stages"></div>
         </div>
       </div>
       <div class="pane improve" id="paneImprove" hidden><div id="improveDock"></div></div>

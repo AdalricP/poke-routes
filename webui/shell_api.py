@@ -203,18 +203,6 @@ def handle(h, method: str, u, srv) -> bool:
             except Exception as e:
                 return h._json({"error": f"could not read the spec: {e}"}, 400) or True
             return h._json(spec) or True
-        if u.path == "/api/retile":
-            # peek at the id without consuming the body for the real handler
-            n = int(h.headers.get("Content-Length") or 0)
-            raw = h.rfile.read(n) if n else b""
-            try:
-                gid = str(json.loads(raw or b"{}").get("id", ""))
-            except (ValueError, AttributeError):
-                gid = ""
-            if gid in srv._ark_ids:
-                return h._json({"error": "painting an Ark-tiled route isn't supported yet; switch the tiler to Learned"}, 400) or True
-            h.rfile = io.BytesIO(raw)
-            return False
         return False
     return False
 

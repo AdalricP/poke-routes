@@ -41,3 +41,6 @@ webui/improvements.json.lock
 webui/improvements.meta.json
 webui/.improvements*.tmp
 webui/improve-logs/
+
+# owner-only settings for the Improve box and ROM target (see webui/README.md)
+webui/local-settings.json

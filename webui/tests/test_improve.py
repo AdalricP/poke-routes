@@ -17,6 +17,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 os.environ["IMPROVE_WORKLOG"] = "0"
+os.environ["POKEROUTES_IMPROVE_BOX"] = "1"
+os.environ["POKEROUTES_LOCAL_SETTINGS"] = str(HERE / "no-local-settings-in-tests.json")
 os.environ["IMPROVE_CLAUDE"] = str(HERE / "fake_claude.py")
 os.environ.pop("IMPROVE_WORKERS", None)
 _TMP0 = tempfile.mkdtemp(prefix="improve-test-")

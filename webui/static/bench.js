@@ -1,5 +1,5 @@
 /* Route bench inside the editor shell: spec inspector -> /api/generate -> stage canvases
-   drawn from the metatile atlas, plus the hierarchy, timeline, the geography / region editor,
+   drawn from the metatile atlas, plus the hierarchy, the geography / region editor,
    file operations and the menu model. Shell services come from shell.js (window.Shell),
    pure helpers from logic.js (window.PR) and shell-logic.js (window.SL). */
 (function () {
@@ -17,7 +17,7 @@
   const REGION_KEY = "pokeroutes-region-spec";    // region block of a route opened from a region
   const PREFS_KEY = "pokeroutes-shell-prefs-v1";
   const VIEW_KEY = "pokeroutes-shell-view-v1";
-  const PAINT_CLASSES = "fgptwrsexa";
+  const PAINT_CLASSES = "fgptwrsexaq";
   const store = Shell.store;
 
   const sget = (k) => { try { return JSON.parse(store.getItem(k) || "null"); } catch (e) { return null; } };
@@ -31,9 +31,6 @@
   function savePrefs() { sset(PREFS_KEY, prefs); }
   function applyPrefs() {
     document.documentElement.dataset.ui = prefs.ui === "13" ? "13" : "12";
-    $("tlSpeed").value = String(prefs.stageMs);
-    if (!$("tlSpeed").value) $("tlSpeed").value = "900";
-    $("tlLoop").checked = !!prefs.loop;
     $("tbTiler").value = prefs.tiler;
   }
 
@@ -49,7 +46,7 @@
     hover: null, hoverArea: null, sel: null,
     playing: false, timer: null, busy: false,
     specials: [], exits: [], tab: "dex",
-    tool: "select", paint: { cells: new Map(), busy: false },
+    tool: "select", paint: { cells: new Map(), busy: false }, selected_metatile_id: 1,
     region: sget(REGION_KEY),      // {name, region, endings} or null
     file: { handle: null, name: "" },
     saved: "", generated: "",
@@ -380,12 +377,12 @@
       const resized = !state.result || state.result.width !== res.width || state.result.height !== res.height;
       state.result = res;
       state.atlas = atlas;
+      if (!$("leftTiles").hidden) { render_terrain_brushes(); render_metatile_palette(); }
       state.sel = null;
       undoStack.filter((e) => e.kind !== "paint");
       buildCanvases();
       state.stage = res.stages.length - 1;
       state.prevStage = null;
-      buildTimeline();
       renderInfo();
       renderTree();
       renderSelection();
@@ -564,7 +561,12 @@
     const { sx, sy } = pt(ev);
     const panBtn = ev.button === 1 || ev.button === 2 || spaceDown || state.tool === "pan";
     wrap.setPointerCapture(ev.pointerId);
-    if (!panBtn && (state.tool === "paint" || state.tool === "stamp") && ev.button === 0) {
+    if (!panBtn && state.tool === "tile" && ev.button === 0 && ev.altKey) {
+      pick_metatile_under_cursor(sx, sy);
+      drag = null;
+      return;
+    }
+    if (!panBtn && (state.tool === "paint" || state.tool === "stamp" || state.tool === "tile") && ev.button === 0) {
       if (!canPaint(true) || state.paint.busy) { drag = null; return; }
       drag = { mode: "paint" };
       if (state.stage !== state.result.stages.length - 1) { stopPlay(); setStage(state.result.stages.length - 1, false); }
@@ -751,6 +753,7 @@
       g.globalAlpha = 0.7;
       for (const [k, cls] of state.paint.cells) {
         const [x, y] = k.split(",").map(Number);
+        if (cls.startsWith("#")) { draw_metatile(g, +cls.slice(1), ox + x * s, oy + y * s, s); continue; }
         g.fillStyle = PR.CLASS_COLORS[cls] || "#f0f";
         g.fillRect(ox + x * s, oy + y * s, s, s);
       }
@@ -891,14 +894,16 @@
   function canPaint(loud) {
     const r = state.result;
     if (!r) { if (loud) log("warn", "Generate a route before painting."); return false; }
-    if (r.tiler === "ark") { if (loud) log("warn", "Painting re-tiles with the learned tiler; switch Generate > Tiler to Learned to paint."); return false; }
     return true;
   }
   function paintAt(sx, sy) {
     const r = state.result;
     const c = cellOf(sx, sy);
     if (!c) { state.paint.last = null; return; }
-    if (state.tool === "stamp") {
+    if (state.tool === "tile") {
+      const stroke_points = state.paint.last ? SL.lineCells(state.paint.last, c).slice(1) : [c];
+      for (const stroke_point of stroke_points) state.paint.cells.set(`${stroke_point.x},${stroke_point.y}`, "#" + state.selected_metatile_id);
+    } else if (state.tool === "stamp") {
       if (state.paint.last && state.paint.last.x === c.x && state.paint.last.y === c.y) return;
       for (const [x, y, k] of SL.stampCells($("stampKind").value, c.x, c.y, r.width, r.height)) state.paint.cells.set(`${x},${y}`, k);
     } else {
@@ -914,7 +919,14 @@
     const fin = r.stages[r.stages.length - 1];
     const stroke = [...state.paint.cells].map(([k, cls]) => [...k.split(",").map(Number), cls]);
     const cells = [], old = [];
-    for (const [x, y, cls] of stroke.concat(SL.tidyPaint(fin.cls, stroke))) {
+    const class_stroke = stroke.filter(is_class_paint_cell);
+    for (const [x, y, cls] of stroke.filter(is_metatile_paint_cell)) {
+      const previous_metatile = "#" + fin.tiles[y * r.width + x];
+      if (previous_metatile === cls) continue;
+      cells.push([x, y, cls]);
+      old.push([x, y, previous_metatile]);
+    }
+    for (const [x, y, cls] of class_stroke.concat(SL.tidyPaint(fin.cls, class_stroke))) {
       const was = fin.cls[y][x];
       if (was === cls) continue;
       cells.push([x, y, cls]);
@@ -959,7 +971,6 @@
     const r = state.result;
     const cells = SL.paintList(savedPaint(r));
     if (!cells.length) return;
-    if (r.tiler === "ark") { log("warn", `${cells.length} painted cells are remembered for ${r.name}, but Ark-tiled routes can't be painted; switch the tiler to Learned to see them`); return; }
     if (await retile(cells, true)) log("info", `Put back ${cells.length} painted cells on ${r.name} (Edit > Clear painted cells drops them)`);
   }
   async function retile(cells, quiet) {
@@ -991,8 +1002,11 @@
     document.querySelectorAll("[data-tool]").forEach((b) => { b.classList.toggle("on", b.dataset.tool === t); b.setAttribute("aria-pressed", b.dataset.tool === t); });
     $("paintOpts").hidden = t !== "paint";
     $("stampOpts").hidden = t !== "stamp";
+    $("tileOpts").hidden = t !== "tile";
     wrap.className = "view scene tool-" + t;
-    if (t === "paint" || t === "stamp") { canPaint(true); updatePaintCount(); }
+    if (t === "paint" || t === "stamp" || t === "tile") { canPaint(true); updatePaintCount(); }
+    if (t === "paint") show_left_tab("tiles");
+    if (t === "tile") { render_selected_metatile_swatch(); show_left_tab("tiles"); }
     hideTip();
     draw();
   }
@@ -1253,70 +1267,8 @@
     document.querySelectorAll("[data-ov]").forEach((b) => { const on = !!state.ov[b.dataset.ov]; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); });
   }
 
-  // ------------------------------------------------------------ timeline
-  // One block per generator stage: what it added (cells / zones / items), a yellow bar
-  // scaled to the cells it changed, and a fill that runs across the block while playing.
-  const tracks = $("tlTracks");
   const isEmpty = (i) => { const f = state.stageInfo[i] || {}; return i > 0 && !f.changed && !(f.zones > 0) && !(f.events > 0); };
   const flashLeft = () => Math.max(0, 1 - (performance.now() - state.flashStart) / Math.min(FLASH_MS, prefs.stageMs * 1.2));
-  function buildTimeline() {
-    const r = state.result;
-    tracks.innerHTML = "";
-    if (!r) return;
-    const maxC = Math.max(1, ...state.stageInfo.slice(1).map((s) => s.changed));
-    r.stages.forEach((st, i) => {
-      const info = state.stageInfo[i] || {};
-      const bits = [];
-      if (i === 0) bits.push("start");
-      else if (info.changed) bits.push(`${info.changed} cells`);
-      if (info.zones > 0) bits.push(`+${info.zones} zone${info.zones > 1 ? "s" : ""}`);
-      if (info.events > 0) bits.push(`+${info.events} item${info.events > 1 ? "s" : ""}`);
-      const dt = bits.join(" · ") || "no change";
-      const seg = el("div", "tl-seg" + (isEmpty(i) ? " empty" : ""));
-      seg.append(el("span", "fill"));
-      const nm = el("span", "nm");
-      nm.append(el("b", "", String(i + 1)), document.createTextNode(st.name));
-      seg.append(nm, el("span", "dt", dt));
-      if (i > 0 && info.changed) {
-        const amt = el("span", "amt");
-        amt.style.width = Math.max(4, Math.round((info.changed / maxC) * 100)) + "%";
-        seg.append(amt);
-      }
-      seg.title = `${i + 1}. ${st.name}: ${dt}`;
-      tracks.append(seg);
-    });
-    syncTimeline();
-  }
-  function syncTimeline() {
-    tracks.querySelectorAll(".tl-seg").forEach((t, k) => {
-      t.classList.toggle("on", k === state.stage);
-      t.classList.toggle("past", k < state.stage);
-      t.classList.remove("run");
-    });
-    const cur = tracks.children[state.stage];
-    if (cur && state.playing) {
-      void cur.offsetWidth; // restart the fill animation
-      cur.style.setProperty("--dur", prefs.stageMs + "ms");
-      cur.classList.add("run");
-    }
-  }
-  function stageFromX(clientX) {
-    const segs = [...tracks.children];
-    if (!segs.length) return 0;
-    const k = segs.findIndex((t) => clientX < t.getBoundingClientRect().right);
-    return k < 0 ? segs.length - 1 : k;
-  }
-  tracks.addEventListener("pointerdown", (ev) => {
-    if (!state.result || ev.button !== 0) return;
-    stopPlay();
-    tracks.setPointerCapture(ev.pointerId);
-    setStage(stageFromX(ev.clientX), true);
-    const move = (e) => { const i = stageFromX(e.clientX); if (i !== state.stage) setStage(i, true); };
-    const up = () => { tracks.removeEventListener("pointermove", move); tracks.removeEventListener("pointerup", up); tracks.removeEventListener("pointercancel", up); };
-    tracks.addEventListener("pointermove", move);
-    tracks.addEventListener("pointerup", up);
-    tracks.addEventListener("pointercancel", up);
-  });
 
   function setStage(i, fade) {
     const r = state.result;
@@ -1328,8 +1280,6 @@
     const label = `${i + 1} / ${r.stages.length} · ${r.stages[i].name}`;
     $("tbStage").textContent = label;
     $("tbStage").title = label;
-    $("tlCur").textContent = `Stage ${label}`;
-    syncTimeline();
     renderTree();
     draw();
   }
@@ -1340,7 +1290,6 @@
     if (state.stage >= r.stages.length - 1) setStage(0, false);
     state.playing = true;
     syncPlay();
-    syncTimeline();
     clearInterval(state.timer);
     state.timer = setInterval(() => {
       const last = state.result.stages.length - 1;
@@ -1357,11 +1306,10 @@
     state.playing = false;
     clearInterval(state.timer);
     syncPlay();
-    syncTimeline();
   }
   function togglePlay() { state.playing ? stopPlay() : startPlay(); }
   function syncPlay() {
-    for (const b of [$("tbPlay"), $("tlPlay")]) {
+    for (const b of [$("tbPlay")]) {
       b.classList.toggle("playing", state.playing);
       b.setAttribute("aria-label", state.playing ? "Pause" : "Play stages");
     }
@@ -1885,9 +1833,8 @@
       { id: "w-gates", label: "Route design B", radio: true, checked: () => Shell.layout.center === "gates", run: () => Shell.setCenter("gates") },
       { sep: true },
       { id: "w-console", label: "Console", run: () => Shell.setBottom("console") },
-      { id: "w-timeline", label: "Timeline", run: () => Shell.setBottom("timeline") },
-      { id: "w-improve", label: "Improve queue", run: () => { Shell.setBottom("improve"); const t = document.getElementById("impText"); if (t) t.focus(); } },
-      { id: "w-agent", label: "Agent (tilesets etc.)", run: () => { Shell.setBottom("agent"); const t = document.getElementById("agText"); if (t) t.focus(); } },
+      { id: "w-improve", label: "Improve queue", enabled: is_improve_tab_shown, run: () => { Shell.setBottom("improve"); const t = document.getElementById("impText"); if (t) t.focus(); } },
+      { id: "w-agent", label: "Agent", run: () => { Shell.setBottom("agent"); const t = document.getElementById("agText"); if (t) t.focus(); } },
       { sep: true },
       { id: "w-reset", label: "Reset layout", run: () => Shell.resetLayout() },
     ] },
@@ -1901,7 +1848,7 @@
   // plain-letter keys belong to whichever view is open: outside Scene the map editor has its own (V R L F S B W A, ?)
   const toolKey = (t, label) => ({ id: "tool-" + t, label, group: "Scene tools", enabled: isScene, run: () => setTool(t) });
   const extras = [
-    toolKey("select", "Select tool"), toolKey("pan", "Pan tool"), toolKey("paint", "Paint tool"), toolKey("stamp", "Stamp tool"),
+    toolKey("select", "Select tool"), toolKey("pan", "Pan tool"), toolKey("paint", "Paint tool"), toolKey("stamp", "Stamp tool"), toolKey("tile", "Tile tool"),
     { id: "x-zin", label: "Zoom in", group: "Scene view", enabled: sceneRoute, run: () => zoomBy(1) },
     { id: "x-zout", label: "Zoom out", group: "Scene view", enabled: sceneRoute, run: () => zoomBy(-1) },
     { id: "x-zfit", label: "Fit to view", group: "Scene view", enabled: sceneRoute, run: fit },
@@ -1918,15 +1865,16 @@
     $("tbNext").onclick = () => step(1);
     $("tbLast").onclick = () => stageEnd(true);
     $("tbPlay").onclick = togglePlay;
-    $("tlPlay").onclick = togglePlay;
     $("tbGenerate").onclick = doGenerate;
     $("tbGenerate").title = "Generate";
     $("tbZoomIn").onclick = zoomInView;
     $("tbZoomOut").onclick = zoomOutView;
     $("tbFit").onclick = fitView;
     $("tbTiler").onchange = () => setTiler($("tbTiler").value);
-    $("tlSpeed").onchange = () => { prefs.stageMs = +$("tlSpeed").value; savePrefs(); if (state.playing) startPlay(); };
-    $("tlLoop").onchange = () => { prefs.loop = $("tlLoop").checked; savePrefs(); };
+    $("tileSwatchButton").onclick = () => show_left_tab("tiles");
+    $("paintClass").addEventListener("change", () => { if (!$("leftTiles").hidden) render_terrain_brushes(); });
+    document.querySelectorAll("[data-left-tab]").forEach((tab_button) => { tab_button.onclick = () => show_left_tab(tab_button.dataset.leftTab); });
+    $("tilePaletteCanvas").onclick = pick_metatile_from_palette;
     $("dice").onclick = doRegenerate;
     $("name").addEventListener("change", () => edited("name"));
     $("seed").addEventListener("change", () => edited("seed"));
@@ -1978,6 +1926,155 @@
     generate();
   }
 
-  window.Bench = { generate, state, params, setParams, undoStack, menus, extras };
+  function is_class_paint_cell(painted_cell) {
+    const is_class_cell = !String(painted_cell[2]).startsWith("#");
+    return is_class_cell;
+  }
+
+  function is_metatile_paint_cell(painted_cell) {
+    const is_metatile_cell = String(painted_cell[2]).startsWith("#");
+    return is_metatile_cell;
+  }
+
+  function draw_metatile(graphics_context, metatile_id, screen_x, screen_y, cell_size_on_screen) {
+    if (!state.atlas) return;
+    const { meta, img } = state.atlas;
+    const atlas_position = meta.index[metatile_id];
+    if (atlas_position == null) { graphics_context.fillStyle = "#ff00ff"; graphics_context.fillRect(screen_x, screen_y, cell_size_on_screen, cell_size_on_screen); return; }
+    graphics_context.imageSmoothingEnabled = false;
+    graphics_context.drawImage(img, (atlas_position % meta.columns) * CELL, Math.floor(atlas_position / meta.columns) * CELL, CELL, CELL,
+      screen_x, screen_y, cell_size_on_screen, cell_size_on_screen);
+  }
+
+  function metatile_ids_in_atlas_order() {
+    const atlas_index = state.atlas.meta.index;
+    const metatile_ids = Object.keys(atlas_index).map(Number).filter((metatile_id) => atlas_index[metatile_id] != null)
+      .sort((first_id, second_id) => atlas_index[first_id] - atlas_index[second_id]);
+    return metatile_ids;
+  }
+
+  function render_selected_metatile_swatch() {
+    const swatch_canvas = $("tileSwatch");
+    const swatch_context = swatch_canvas.getContext("2d");
+    swatch_context.clearRect(0, 0, swatch_canvas.width, swatch_canvas.height);
+    draw_metatile(swatch_context, state.selected_metatile_id, 0, 0, swatch_canvas.width);
+    $("tileId").textContent = `#${state.selected_metatile_id}`;
+  }
+
+  function select_metatile(metatile_id) {
+    state.selected_metatile_id = metatile_id;
+    render_selected_metatile_swatch();
+    if (!$("leftTiles").hidden) render_metatile_palette();
+  }
+
+  function pick_metatile_under_cursor(screen_x, screen_y) {
+    const cell_under_cursor = cellOf(screen_x, screen_y);
+    const route_result = state.result;
+    if (!cell_under_cursor || !route_result) return;
+    const final_stage = route_result.stages[route_result.stages.length - 1];
+    select_metatile(final_stage.tiles[cell_under_cursor.y * route_result.width + cell_under_cursor.x]);
+    log("info", `Picked metatile #${state.selected_metatile_id}`);
+  }
+
+  const palette_cell_size_in_pixels = 24;
+  const palette_columns = 8;
+
+  function render_metatile_palette() {
+    const palette_canvas = $("tilePaletteCanvas");
+    if (!state.atlas) return;
+    const metatile_ids = metatile_ids_in_atlas_order();
+    palette_canvas.width = palette_columns * palette_cell_size_in_pixels;
+    palette_canvas.height = Math.ceil(metatile_ids.length / palette_columns) * palette_cell_size_in_pixels;
+    const palette_context = palette_canvas.getContext("2d");
+    metatile_ids.forEach((metatile_id, palette_position) => {
+      const cell_left = (palette_position % palette_columns) * palette_cell_size_in_pixels;
+      const cell_top = Math.floor(palette_position / palette_columns) * palette_cell_size_in_pixels;
+      draw_metatile(palette_context, metatile_id, cell_left, cell_top, palette_cell_size_in_pixels);
+      if (metatile_id !== state.selected_metatile_id) return;
+      palette_context.strokeStyle = "#ffde59";
+      palette_context.lineWidth = 2;
+      palette_context.strokeRect(cell_left + 1, cell_top + 1, palette_cell_size_in_pixels - 2, palette_cell_size_in_pixels - 2);
+    });
+    palette_canvas.dataset.ids = metatile_ids.join(",");
+  }
+
+  function show_left_tab(left_tab_name) {
+    document.querySelectorAll("[data-left-tab]").forEach((tab_button) => tab_button.classList.toggle("on", tab_button.dataset.leftTab === left_tab_name));
+    $("leftHierarchy").hidden = left_tab_name !== "hierarchy";
+    $("leftTiles").hidden = left_tab_name !== "tiles";
+    if (left_tab_name === "tiles") { render_terrain_brushes(); render_metatile_palette(); }
+  }
+
+  const terrain_preview_size_in_pixels = 40;
+
+  function sample_block_of_class(class_code) {
+    const route_result = state.result;
+    if (!route_result) return null;
+    const final_stage = route_result.stages[route_result.stages.length - 1];
+    const is_class_at = (cell_x, cell_y) => cell_y >= 0 && cell_x >= 0 && cell_y < route_result.height && cell_x < route_result.width && final_stage.cls[cell_y][cell_x] === class_code;
+    let fallback_block = null;
+    for (let cell_y = 0; cell_y < route_result.height - 1; cell_y++) {
+      for (let cell_x = 0; cell_x < route_result.width - 1; cell_x++) {
+        if (!(is_class_at(cell_x, cell_y) && is_class_at(cell_x + 1, cell_y) && is_class_at(cell_x, cell_y + 1) && is_class_at(cell_x + 1, cell_y + 1))) continue;
+        const block_tiles = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([offset_x, offset_y]) => final_stage.tiles[(cell_y + offset_y) * route_result.width + cell_x + offset_x]);
+        const is_surrounded = [-1, 2].every((offset) => is_class_at(cell_x + offset, cell_y) && is_class_at(cell_x, cell_y + offset));
+        if (is_surrounded) return block_tiles;
+        fallback_block = fallback_block || block_tiles;
+      }
+    }
+    return fallback_block;
+  }
+
+  function draw_terrain_preview(preview_canvas, class_code) {
+    const preview_context = preview_canvas.getContext("2d");
+    const half_size = terrain_preview_size_in_pixels / 2;
+    const block_tiles = state.atlas ? sample_block_of_class(class_code) : null;
+    if (!block_tiles) {
+      preview_context.fillStyle = PR.CLASS_COLORS[class_code] || "#f0f";
+      preview_context.fillRect(0, 0, terrain_preview_size_in_pixels, terrain_preview_size_in_pixels);
+      return;
+    }
+    block_tiles.forEach((metatile_id, block_position) => draw_metatile(preview_context, metatile_id, (block_position % 2) * half_size, Math.floor(block_position / 2) * half_size, half_size));
+  }
+
+  function choose_terrain_brush(class_code) {
+    $("paintClass").value = class_code;
+    if (state.tool !== "paint") setTool("paint");
+    render_terrain_brushes();
+  }
+
+  function render_terrain_brushes() {
+    const terrain_grid = $("terrainGrid");
+    terrain_grid.innerHTML = "";
+    for (const class_code of PAINT_CLASSES) {
+      const terrain_button = el("button", "terrain-brush" + (state.tool === "paint" && $("paintClass").value === class_code ? " on" : ""));
+      terrain_button.type = "button";
+      terrain_button.title = `Paint ${PR.CLASS_NAMES[class_code] || class_code}`;
+      const preview_canvas = Object.assign(el("canvas"), { width: terrain_preview_size_in_pixels, height: terrain_preview_size_in_pixels });
+      draw_terrain_preview(preview_canvas, class_code);
+      terrain_button.append(preview_canvas, el("span", "", PR.CLASS_NAMES[class_code] || class_code));
+      terrain_button.onclick = () => choose_terrain_brush(class_code);
+      terrain_grid.append(terrain_button);
+    }
+  }
+
+  function pick_metatile_from_palette(click_event) {
+    const palette_canvas = $("tilePaletteCanvas");
+    const canvas_box = palette_canvas.getBoundingClientRect();
+    const palette_column = Math.floor((click_event.clientX - canvas_box.left) / (canvas_box.width / palette_columns));
+    const palette_row = Math.floor((click_event.clientY - canvas_box.top) / (canvas_box.width / palette_columns));
+    const metatile_ids = (palette_canvas.dataset.ids || "").split(",").map(Number);
+    const picked_metatile_id = metatile_ids[palette_row * palette_columns + palette_column];
+    if (picked_metatile_id == null || Number.isNaN(picked_metatile_id)) return;
+    select_metatile(picked_metatile_id);
+  }
+
+  function is_improve_tab_shown() {
+    const improve_tab_button = document.querySelector('[data-bottom="improve"]');
+    const improve_tab_is_shown = !!improve_tab_button && !improve_tab_button.hidden;
+    return improve_tab_is_shown;
+  }
+
+  window.Bench = { generate, state, params, setParams, undoStack, menus, extras, loadSpecText };
   boot();
 })();

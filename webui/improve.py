@@ -64,13 +64,61 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 POKE = HERE.parent
-ARK = Path("/Users/aryan/Desktop/experiments/arklarna")
-ROM = ARK / "rom"
+
+
+def read_local_settings_of_this_checkout(local_settings_path: Path) -> dict:
+    if not local_settings_path.is_file():
+        return {}
+    try:
+        local_settings = json.loads(local_settings_path.read_text())
+    except (OSError, ValueError) as read_error:
+        print(f"improve: ignoring {local_settings_path}: {read_error}", flush=True)
+        return {}
+    if not isinstance(local_settings, dict):
+        print(f"improve: ignoring {local_settings_path}: not a JSON object", flush=True)
+        return {}
+    return local_settings
+
+
+def optional_path_from_local_settings(setting_name: str):
+    configured_path_text = LOCAL_SETTINGS.get(setting_name)
+    if not configured_path_text:
+        return None
+    configured_path = Path(os.path.expanduser(str(configured_path_text)))
+    return configured_path
+
+
+def commit_author_from_local_settings():
+    configured_author = LOCAL_SETTINGS.get("commit_author")
+    if not (isinstance(configured_author, list) and len(configured_author) == 2):
+        return None
+    commit_author_name_and_email = (str(configured_author[0]), str(configured_author[1]))
+    return commit_author_name_and_email
+
+
+LOCAL_SETTINGS_PATH = Path(os.environ.get("POKEROUTES_LOCAL_SETTINGS") or HERE / "local-settings.json")
+LOCAL_SETTINGS = read_local_settings_of_this_checkout(LOCAL_SETTINGS_PATH)
+ARK = optional_path_from_local_settings("rom_project_dir")
+ROM = ARK / "rom" if ARK else None
 ROM_BRANCH = "arklarna"
-RELEASE_ROM = ARK / "release/v1/arklarna-v1.gba"
-TOOLCHAIN = Path.home() / "toolchains/arm-gnu-toolchain-14.2.rel1-darwin-arm64-arm-none-eabi/bin"
-DOCS = ARK / "documenting-agent-work"
-AUTHOR = ("AdalricP", "78260488+AdalricP@users.noreply.github.com")
+RELEASE_ROM = ARK / "release/v1/arklarna-v1.gba" if ARK else None
+TOOLCHAIN = optional_path_from_local_settings("arm_toolchain_bin_dir")
+DOCS = ARK / "documenting-agent-work" if ARK else None
+AUTHOR = commit_author_from_local_settings()
+OWNER_RULES = str(LOCAL_SETTINGS.get("owner_rules") or "")
+
+
+def is_improve_box_enabled() -> bool:
+    improve_box_switch_from_environment = os.environ.get("POKEROUTES_IMPROVE_BOX", "")
+    if improve_box_switch_from_environment:
+        return improve_box_switch_from_environment == "1"
+    improve_box_switch_from_local_settings = bool(LOCAL_SETTINGS.get("improve_box"))
+    return improve_box_switch_from_local_settings
+
+
+def is_rom_target_available() -> bool:
+    rom_target_is_available = bool(ROM and ROM.is_dir())
+    return rom_target_is_available
 
 
 def _env_int(name, default):
@@ -104,12 +152,12 @@ MEM_MIN_MB = _env_int("IMPROVE_MEM_MIN_MB", 800)
 ROOT_WAIT = _env_int("IMPROVE_ROOT_WAIT", 120)    # seconds to wait for the root checkout to be clean
 LEGACY_GRACE = _env_int("IMPROVE_LEGACY_GRACE", 20)
 START_GAP = 5                    # seconds between job starts, so the last agent has allocated before we measure
-WORKLOG = os.environ.get("IMPROVE_WORKLOG", "1") != "0"
+WORKLOG = os.environ.get("IMPROVE_WORKLOG", "1") != "0" and bool(DOCS and DOCS.is_dir())
 LOST_ERR = "server restarted while the job was queued or running"
 
 TARGETS = {
     "poke-routes": {"label": "Generator & web UI", "repo": REPO, "branch": None},
-    "rom": {"label": "ROM (Arklarna)", "repo": ROM, "branch": ROM_BRANCH},
+    **({"rom": {"label": "ROM (Arklarna)", "repo": ROM, "branch": ROM_BRANCH}} if is_rom_target_available() else {}),
 }
 
 # Tools the unattended run may never use, even in bypassPermissions mode (deny rules win).
@@ -261,15 +309,17 @@ def _head(target):
 
 def _git_env():
     env = dict(os.environ)
-    env.update(GIT_AUTHOR_NAME=AUTHOR[0], GIT_AUTHOR_EMAIL=AUTHOR[1],
-               GIT_COMMITTER_NAME=AUTHOR[0], GIT_COMMITTER_EMAIL=AUTHOR[1])
+    if AUTHOR:
+        env.update(GIT_AUTHOR_NAME=AUTHOR[0], GIT_AUTHOR_EMAIL=AUTHOR[1],
+                   GIT_COMMITTER_NAME=AUTHOR[0], GIT_COMMITTER_EMAIL=AUTHOR[1])
     return env
 
 
 def _committer_env():
     """Rebases and fast-forwards keep the job commit's author; only the committer is set."""
-    env = dict(os.environ)
-    env.update(GIT_COMMITTER_NAME=AUTHOR[0], GIT_COMMITTER_EMAIL=AUTHOR[1], GIT_EDITOR="true")
+    env = dict(os.environ, GIT_EDITOR="true")
+    if AUTHOR:
+        env.update(GIT_COMMITTER_NAME=AUTHOR[0], GIT_COMMITTER_EMAIL=AUTHOR[1])
     return env
 
 
@@ -436,27 +486,33 @@ def _drop_worktree(wt, br=None, keep_branch=False):
 
 # ------------------------------------------------------------------ prompts
 
-RULES = f"""Standing rules from the owner (obey them):
-- Read {DOCS}/decisions.md and {DOCS}/AGENT_BRIEF.md first. Later entries override earlier ones.
-- Route design: linear and branching (split -> lanes -> converge), straight orthogonal paths for a d-pad,
-  special Pokemon areas rare and hidden, never next to the start village or route entrances. Every feature has a reason.
-- Art direction: must read as Pokemon (DS/Unbound look). No LPC/RPG-Maker art, no stock Emerald look, no ripping
-  assets from other hacks' ROMs, never download ROMs. Credit any third-party art in a CREDITS.md.
-- Less is more. Make the smallest change that does what was asked, and look at the result yourself.
-
-Hard limits for this unattended run:
-- Only touch files inside the working directory {{scope}}. Do not read or write secrets, credentials or dotfiles
+HARD_LIMITS = """Hard limits for this unattended run:
+- Only touch files inside the working directory {scope}. Do not read or write secrets, credentials or dotfiles
   in the home directory. Do not touch other repos, other branches or other worktrees.
 - No network-facing changes: do not bind anything to 0.0.0.0, open ports, add remote calls or telemetry.
 - Never push, never add or change git remotes, never change git config, never delete the repo or its history,
   never rewrite history (no reset --hard of commits you did not make, no force anything), never commit secrets.
 - Do not stop or restart the web UI server on port 8790; it is running this job.
-- Don't sign up for accounts or install global software.
+- Don't sign up for accounts, accept terms pages, or install global software.
 - Other agents may be working at the same time. Run `git status` first and leave changes you did not make alone:
   never stage, commit, revert, stash or check out them. Stage only your own files by path (`git add <paths>`),
   never `git add -A`, `git add .` or `git commit -a`.
 - If the request is unsafe, impossible or would break these rules, make no commit and explain why in your last message.
 """
+
+
+def describe_owner_rules_for_prompt() -> str:
+    owner_docs_note = (f"- Read {DOCS}/decisions.md and {DOCS}/AGENT_BRIEF.md first. Later entries override earlier ones.\n"
+                       if DOCS and DOCS.is_dir() else "")
+    if not (owner_docs_note or OWNER_RULES.strip()):
+        return ""
+    owner_rules_section = f"Standing rules from the owner (obey them):\n{owner_docs_note}{OWNER_RULES.strip()}\n\n"
+    return owner_rules_section
+
+
+def describe_rules_for_prompt(scope) -> str:
+    rules_for_prompt = describe_owner_rules_for_prompt() + HARD_LIMITS.format(scope=scope)
+    return rules_for_prompt
 
 
 def describe_attached_screenshot_for_prompt(job) -> str:
@@ -471,26 +527,13 @@ def describe_attached_screenshot_for_prompt(job) -> str:
             "Read them all (they are PNGs) before starting; the red marks show what the request is about.\n")
 
 
-AGENT_TASK = f"""This came from the Agent tab, not the Improve box: the owner wants a task done for them in
-the tool so they don't have to learn it (typically finding a tileset, or applying / switching one). Do the
-task itself; don't build a UI feature for it unless they asked for one.
-Tilesets: routes are tiled either with the learned Emerald General + secondary models (pokeroutes/models/,
-pokeroutes/learn.py, `python3 -m pokeroutes learn`) or with the Ark rule tiler (pokeroutes/ruletile.py: ArkOutdoor +
-ArkWoodland from {ROM}, built by tools/arklarna_tiles/build.py there; the web UI picks it via Generate > Tiler).
-Getting a new tileset: only art its authors released for hacks (see AGENT_BRIEF.md), downloaded from them with
-their stated terms (fetching that file is fine; adding network calls to the code is not). Keep it next to where
-it is used with a CREDITS.md (author, URL, terms). Unclear terms, a login, or a terms page to accept: stop and
-say exactly what the owner has to do. Stock Emerald art doesn't count as a new tileset.
-"""
-
-
 def describe_fix_context_for_prompt(job) -> str:
     """A fix job's prompt gets a note about the done job it is correcting, so the agent knows
     this is a follow-up on top of current main rather than a fresh request."""
     src = _jobs.get(job.get("fix_of") or "")
     if not src:
         return ""
-    bits = [f"\nThis is a fix to an earlier improvement (job {job['fix_of']}) that the owner found wrong or "
+    bits = [f"\nThis is a follow-up to an earlier job ({job['fix_of']}) that the user found wrong or "
             "incomplete; their instruction below is what to change about it, on top of the current code "
             "(which already includes that earlier work)."]
     if src.get("request"):
@@ -500,11 +543,95 @@ def describe_fix_context_for_prompt(job) -> str:
     return "\n".join(bits) + "\n"
 
 
+def describe_commit_command_for_prompt() -> str:
+    if AUTHOR:
+        return f'git -c user.name="{AUTHOR[0]}" -c user.email="{AUTHOR[1]}" commit -m "..."'
+    return 'git commit -m "..."'
+
+
+def describe_editor_context_for_prompt(job) -> str:
+    editor_context_path = job.get("editor_context")
+    if not editor_context_path:
+        return "The editor sent no context with this task.\n"
+    editor_context_note = (f"What the user has open in the editor right now: {editor_context_path} (JSON: `params` is the "
+                           "route spec as the editor holds it, `tiler`, `route` is the generated route's name/size/seed if "
+                           "any, `region_seed` if a region is open). Read it when the task says \"this route\", \"my route\" "
+                           "or \"it\", and start from it.\n")
+    return editor_context_note
+
+
+AGENT_PROMPT = """You are the poke-routes Agent. The user typed a task into the Agent tab of the poke-routes editor
+(a procedural Pokemon Emerald route and region generator with a web editor) so that you do it for them.
+Nobody watches you live and nobody answers questions: if the task is ambiguous, take the most useful reading,
+do it, and say which reading you took.
+{fix_note}
+Task:
+<<<
+{request}
+>>>
+{editor_context}
+Where you are: {worktree} is a git worktree of the user's checkout ({repo}) on branch `{branch}`, made from the
+latest main for this task. Work only there. When you commit, the queue rebases your commit onto main and the
+user's editor (it serves {repo} on port 8790) picks it up. Generator modules hot-reload; webui/*.py needs a restart.
+
+Skills (.claude/skills/, load the ones that fit before starting, they save you the code search):
+- codebase-map: where every stage, tiler, endpoint and test lives. Load it before reading or changing code.
+- route-design: what every spec field does to the map, which biomes are solid, recipes for well-known route styles.
+- tilesets: how tiling works, switching tilesets, adding one the user brings, credits.
+
+Tools: the MCP server "routes" (this worktree's code, re-imported on every call) is loaded, call it directly:
+- generate_route(spec | spec_object, seed, seeds, overrides, tiler): one route or a few seeds of it; returns PNG paths
+  (Read them), the report and an id per route. spec_object takes the editor's `params` as they are.
+- route_stats(id), crop_route_image(id, x0, y0, x1, y1, scale), route_grid(id, ...), paint_route(id, cells, rects).
+- save_spec(path, spec_object | from_id): writes a validated YAML spec under specs/. show_in_editor(path, note): puts
+  an "Open in editor" button for that spec in the user's Agent tab. Use both for every route the user should see.
+- generate_world(seed): a whole region (terrain, towns, route network) with its map PNG and per-route specs.
+- tilers(), spec_fields(), list_specs(), check_examples().
+- check_web_ui(paths): starts this job's own server copy on port {port}, checks the API and the pages, stops it.
+  screenshot_web_ui(path, width, height): the same, plus a headless browser screenshot you can Read.
+Use these instead of shell scripts, sleeps, curl and killing servers by hand.
+
+How to work:
+- Making or tuning routes or regions: start from the editor context or a spec, generate 2-4 seeds, Read the PNGs,
+  adjust the spec, repeat until it looks right (usually 2-4 rounds), then save_spec + show_in_editor the best ones.
+- Tileset tasks: load the tilesets skill first.
+- Changes to the generator or editor: load codebase-map, make the smallest change that does it, verify with
+  check_examples and check_web_ui (screenshot_web_ui if the change is visible), and look at the result.
+- Look at every image you produce before you say it is done.
+
+{rules}
+Finish with exactly one git commit on `{branch}` holding all the files you want kept (specs you saved, code,
+docs), message "agent: <short summary of the task>". Commit with: {commit_command}
+If the task only produced specs shown with show_in_editor, still commit them so they stay in specs/.
+Do not commit files under out/, region_out/, vendor/, webui/improvements.json or webui/improve-logs/.
+Last message (the user reads it in the Agent tab): 2-4 plain sentences: what you made or changed, which specs
+are waiting under "Open in editor", and anything they have to do themselves.
+"""
+
+
+def build_agent_prompt_for_poke_routes(job, wt=None, port=None) -> str:
+    worktree_path = Path(wt or REPO)
+    job_server_port = port or PORT_BASE
+    job_branch = job.get("branch") or f"improve/job-{job['id']}"
+
+    agent_prompt = AGENT_PROMPT.format(
+        fix_note=describe_fix_context_for_prompt(job),
+        request=job["request"].strip() + describe_attached_screenshot_for_prompt(job),
+        editor_context=describe_editor_context_for_prompt(job),
+        worktree=worktree_path, repo=REPO, branch=job_branch, port=job_server_port,
+        rules=describe_rules_for_prompt(worktree_path),
+        commit_command=describe_commit_command_for_prompt())
+    return agent_prompt
+
+
 def build_prompt(job, wt=None, port=None) -> str:
     jid, target = job["id"], job["target"]
+    if target == "poke-routes" and job.get("mode") == "agent":
+        return build_agent_prompt_for_poke_routes(job, wt, port)
     req = job["request"].strip() + describe_attached_screenshot_for_prompt(job)
     fix_note = describe_fix_context_for_prompt(job)
-    agent = AGENT_TASK if job.get("mode") == "agent" else ""
+    agent = ("This came from the Agent tab, not the Improve box: do the task itself for the owner; don't build a "
+             "feature for it unless they asked for one.\n") if job.get("mode") == "agent" else ""
     if target == "poke-routes":
         wt = Path(wt or REPO)
         port = port or PORT_BASE
@@ -515,32 +642,28 @@ Owner's request:
 <<<
 {req}
 >>>
-{agent}
 Context: {wt} is a git worktree of poke-routes ({REPO}) on branch `{br}`, made for this job from the latest main.
 Work and commit only in {wt}. Other improve jobs run in parallel in their own worktrees; once you commit,
 the queue rebases your commit onto main and the owner's server (it serves {REPO} on port 8790) picks it up.
 poke-routes is a rough procedural Pokemon Emerald route generator (Python, package pokeroutes/)
 with a stdlib web UI in webui/ (server.py; an editor shell: static/shell.html, shell.js, bench.js, shell-logic.js, shell.css).
-It is an experiment log, not a product: keep the lab-notebook tone in any docs you touch (see ../AGENTS.md).
 The generator modules are hot-reloaded by the running server; static files are read per request. If you change
 webui/*.py, say in your last message that the server needs a restart.
-Route tools (MCP server "routes", webui/route_tools.py, on this worktree's code): list_specs, spec_fields,
-generate_route (spec + seed + overrides -> tiled/plan PNGs, report, an id), route_grid, paint_route (fix cells and
-re-tile), generate_region, check_examples. Use them instead of hand-written scripts where they fit.
+Route tools (MCP server "routes", webui/route_tools.py, on this worktree's code, already loaded): generate_route,
+route_stats, crop_route_image, route_grid, paint_route, save_spec, generate_world, generate_region, tilers,
+spec_fields, list_specs, check_examples, check_web_ui (this job's server copy on port {port}: API and pages checked,
+then stopped) and screenshot_web_ui (the same plus a headless browser PNG). Use them instead of hand-written
+scripts, sleeps, curl and killing servers by hand. Skills in .claude/skills/: codebase-map, route-design, tilesets.
 
-{RULES.format(scope=wt)}
+{describe_rules_for_prompt(wt)}
 How to verify before committing (do all that apply, and fix what breaks), all inside {wt}:
 - python3 -m pokeroutes generate examples/bernsteinweg.yaml (and erlenbruch.yaml, kiefernheide.yaml) all succeed.
-- Web UI checks: `node --check` on every changed .js file; start this job's own copy of the server with
-  `IMPROVE_WORKERS=0 PORT={port} python3 webui/server.py` in the background (port {port} is this job's), then
-  `curl -s 127.0.0.1:{port}/api/spec-schema` and
-  `curl -s -X POST -H 'Content-Type: application/json' -d '{{"seed":7}}' 127.0.0.1:{port}/api/generate`
-  must return JSON without "error"; then kill that copy (only the one on {port}).
-- If the change is visual, render or screenshot it and look at it.
+- Web UI checks: `node --check` on every changed .js file, then the check_web_ui tool.
+- If the change is visual, screenshot it (screenshot_web_ui, or generate_route for maps) and look at it.
 
 Finish with exactly one git commit on `{br}` containing all your changes (no other commits), message starting with
 "improve: " followed by a short summary of the request, e.g. "improve: show walkable percentage in stats".
-Commit with: git -c user.name="{AUTHOR[0]}" -c user.email="{AUTHOR[1]}" commit ...
+Commit with: {describe_commit_command_for_prompt()}
 Do not commit files under out/, region_out/, vendor/, webui/improvements.json or webui/improve-logs/.
 Last message: 1-3 sentences on what changed and how you verified it.
 """
@@ -557,7 +680,7 @@ Context: {ROM} is Arklarna, a Pokemon ROM hack on pokeemerald-expansion (decomp)
 Current phase is ASSETS ONLY: maps, NPCs, tilesets, sprites, text. No engine/C logic changes. If the request
 needs engine logic, make no commit and say so.
 
-{RULES.format(scope=f"{wt} (and, for the final merge only, {ROM} plus copying the ROM to {RELEASE_ROM})")}
+{describe_rules_for_prompt(f"{wt} (and, for the final merge only, {ROM} plus copying the ROM to {RELEASE_ROM})")}
 Workflow:
 1. cd {ROM} && git worktree add {wt} -b {br} {ROM_BRANCH}   then work only in {wt}.
 2. Build: export PATH="{TOOLCHAIN}:$PATH"; make -j10   (in {wt}). Fix errors until it builds.
@@ -626,7 +749,7 @@ def route_model(job):
         return MODELS["sonnet"], f"router failed ({type(e).__name__}), default"
 
 
-def claude_cmd(cwd_target, wt=None, model=None):
+def claude_cmd(cwd_target, wt=None, model=None, port=None, jid=None):
     # the job's worktree is the cwd; the log dir holds an attached screenshot
     # stdin stays open (stream-json in/out) so a running job can be steered with extra instructions
     add = [str(ARK / "rom-wt"), str(DOCS), str(RELEASE_ROM.parent), str(ARK / "tools"), str(LOGDIR)] \
@@ -636,7 +759,11 @@ def claude_cmd(cwd_target, wt=None, model=None):
            "--model", model or os.environ.get("IMPROVE_MODEL", MODELS["sonnet"])]
     tools = Path(wt or REPO) / "webui" / "route_tools.py"
     if cwd_target == "poke-routes" and tools.exists():   # route tools, run on the worktree's own code
-        cmd += ["--mcp-config", json.dumps({"mcpServers": {"routes": {"command": sys.executable, "args": [str(tools)]}}})]
+        route_tools_environment = {"POKEROUTES_JOB_SERVER_PORT": str(port or PORT_BASE)}
+        if jid:
+            route_tools_environment["POKEROUTES_EDITOR_SPECS_FILE"] = str(editor_specs_file_for_job(jid))
+        cmd += ["--mcp-config", json.dumps({"mcpServers": {"routes": {"command": sys.executable, "args": [str(tools)],
+                                                                      "env": route_tools_environment}}})]
     cmd += ["--disallowedTools", *DENY]
     for d in add:
         cmd += ["--add-dir", d]
@@ -650,10 +777,12 @@ def _child_env(target):
                    or (k.startswith("CLAUDE_CODE_") and "TOKEN" not in k and not k.startswith("CLAUDE_CODE_USE_"))
                    or k == "CLAUDE_CODE_MESSAGING_TOKEN")}
     env["IMPROVE_WORKERS"] = "0"     # a server copy started by the job never runs the queue
-    if target == "poke-routes":
+    env["ENABLE_TOOL_SEARCH"] = "false"
+    if target == "poke-routes" and AUTHOR:
         env.update(GIT_AUTHOR_NAME=AUTHOR[0], GIT_AUTHOR_EMAIL=AUTHOR[1],
                    GIT_COMMITTER_NAME=AUTHOR[0], GIT_COMMITTER_EMAIL=AUTHOR[1])
-    env["PATH"] = f"{TOOLCHAIN}:{env.get('PATH', '')}"
+    if TOOLCHAIN:
+        env["PATH"] = f"{TOOLCHAIN}:{env.get('PATH', '')}"
     return env
 
 
@@ -738,7 +867,7 @@ def _run_agent(job, cwd, wt=None, port=None):
     _log(jid, f"[router] {job['model']} ({job.get('model_reason', '')})")
     if job.get("killed"):   # cancelled while routing the model, still before any process exists
         return -1, ""
-    cmd = claude_cmd(target, wt, model=job["model"])
+    cmd = claude_cmd(target, wt, model=job["model"], port=port, jid=jid)
     _log(jid, f"[run] {Path(cmd[0]).name} " + " ".join(cmd[1:]) + f"  (cwd {cwd})")
     proc = subprocess.Popen(cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             stdin=subprocess.PIPE, text=True, env=_child_env(target), start_new_session=True)
@@ -997,7 +1126,7 @@ def _do_undo_rom(job):
     with _lock:
         set_status(src, "undone", undone_by=jid)
     _log(jid, "> make -j10 (rebuilding the ROM after the revert)")
-    env = dict(os.environ, PATH=f"{TOOLCHAIN}:{os.environ.get('PATH', '')}")
+    env = dict(os.environ, PATH=f"{TOOLCHAIN}:{os.environ.get('PATH', '')}" if TOOLCHAIN else os.environ.get("PATH", ""))
     r = subprocess.run(["make", "-j10"], cwd=str(repo), env=env, capture_output=True, text=True, timeout=TIMEOUT)
     for line in (r.stdout + r.stderr).splitlines()[-15:]:
         _log(jid, line)
@@ -1434,8 +1563,57 @@ def decode_all_screenshots(screenshot_data_urls) -> list:
     return all_png_bytes
 
 
+maximum_editor_context_size_in_bytes = 256 * 1024
+
+
+def save_editor_context_for_job(jid: str, editor_context) -> str:
+    if not isinstance(editor_context, dict):
+        raise ValueError("editor_context must be a JSON object")
+    editor_context_text = json.dumps(editor_context, indent=1, default=str)
+    if len(editor_context_text) > maximum_editor_context_size_in_bytes:
+        raise ValueError("editor_context is larger than 256 KB")
+    LOGDIR.mkdir(parents=True, exist_ok=True)
+    editor_context_path = LOGDIR / f"{jid}.editor-context.json"
+    editor_context_path.write_text(editor_context_text)
+    return str(editor_context_path)
+
+
+def editor_specs_file_for_job(jid: str) -> Path:
+    editor_specs_path = LOGDIR / f"{jid}.editor-specs.json"
+    return editor_specs_path
+
+
+def read_editor_specs_offered_by_job(jid: str) -> list:
+    editor_specs_path = editor_specs_file_for_job(jid)
+    if not editor_specs_path.is_file():
+        return []
+    try:
+        offered_editor_specs = json.loads(editor_specs_path.read_text())
+    except (OSError, ValueError):
+        return []
+    if not isinstance(offered_editor_specs, list):
+        return []
+    well_formed_editor_specs = [offered_spec for offered_spec in offered_editor_specs if is_well_formed_offered_spec(offered_spec)]
+    return well_formed_editor_specs
+
+
+def is_well_formed_offered_spec(offered_spec) -> bool:
+    has_path_and_text = isinstance(offered_spec, dict) and isinstance(offered_spec.get("path"), str) \
+        and isinstance(offered_spec.get("text"), str)
+    return has_path_and_text
+
+
+def features() -> dict:
+    claude_executable_path = _claude()
+    is_claude_installed = bool(shutil.which(claude_executable_path) or Path(claude_executable_path).is_file())
+    available_features = {"improve_box": is_improve_box_enabled(), "agent": is_claude_installed,
+                          "claude": claude_executable_path if is_claude_installed else None,
+                          "targets": {name: target["label"] for name, target in TARGETS.items()}}
+    return available_features
+
+
 def submit(request: str, target: str, screenshot_data_url: str = "", mode: str = "improve",
-           screenshot_data_urls=()) -> dict:
+           screenshot_data_urls=(), editor_context=None) -> dict:
     request = (request or "").strip()
     if not request:
         raise ValueError("request is empty")
@@ -1445,6 +1623,8 @@ def submit(request: str, target: str, screenshot_data_url: str = "", mode: str =
         raise ValueError(f"target must be one of {', '.join(TARGETS)}")
     if mode not in ("improve", "agent"):
         raise ValueError("mode must be improve or agent")
+    if mode == "improve" and not is_improve_box_enabled():
+        raise ValueError("the Improve box is turned off in this checkout; use the Agent tab")
     if not isinstance(screenshot_data_urls, (list, tuple)) or not all(isinstance(u, str) for u in screenshot_data_urls):
         raise ValueError("screenshots must be a list of data URLs")
     # the old single "screenshot" field and the "screenshots" list both work; together they add up
@@ -1455,6 +1635,8 @@ def submit(request: str, target: str, screenshot_data_url: str = "", mode: str =
            "created": time.time(), "owner": _me}
     if mode == "agent":
         job["mode"] = "agent"
+    if editor_context:
+        job["editor_context"] = save_editor_context_for_job(jid, editor_context)
     if all_png_bytes:
         job["screenshots"] = [save_screenshot_for_job(jid, png_bytes, number)
                               for number, png_bytes in enumerate(all_png_bytes, 1)]
@@ -1623,6 +1805,10 @@ def public(job, since=None) -> dict:
     if _st["owner"] and not job.get("owner") and job.get("status") in ("queued",) + ACTIVE:
         lp = _st["legacy"]
         d["held_by"] = f"older server pid {', '.join(map(str, lp))}" if lp else "older server (adopting soon)"
+    offered_editor_specs = read_editor_specs_offered_by_job(job["id"]) if job.get("mode") == "agent" else []
+    if offered_editor_specs:
+        d["editor_specs"] = offered_editor_specs if since is not None else \
+            [{"path": offered_spec["path"], "note": offered_spec.get("note", "")} for offered_spec in offered_editor_specs]
     if since is not None:
         lines = _lines(job["id"])
         d["log"] = lines[since:]
@@ -1732,7 +1918,11 @@ def handle(h, method: str, u) -> None:
         if method == "GET":
             if not parts:
                 return h._json(history())
+            if parts == ["features"]:
+                return h._json(features())
             if parts == ["usage"]:
+                if not is_improve_box_enabled():
+                    return h._json({"error": "the Improve box is turned off in this checkout"}, 404)
                 return h._json(__import__("usage").current())  # webui/usage.py: on-demand 5-hour reading
             job = _view_jobs().get(parts[0])
             if not job:
@@ -1752,7 +1942,7 @@ def handle(h, method: str, u) -> None:
         if not parts:
             return h._json(submit(str(body.get("request", "")), str(body.get("target", "poke-routes")),
                                   str(body.get("screenshot") or ""), str(body.get("mode") or "improve"),
-                                  body.get("screenshots") or []), 202)
+                                  body.get("screenshots") or [], body.get("editor_context")), 202)
         if parts == ["workers"]:
             return h._json(set_workers(body.get("workers")))
         if parts == ["clear"]:

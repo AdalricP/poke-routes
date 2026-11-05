@@ -17,6 +17,7 @@ POST /api/retile            {id, cells: [[x, y, cls], ...]}
 """
 from __future__ import annotations
 
+import copy
 import io
 import json
 import re
@@ -32,7 +33,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 OUT = ROOT / "region_out"
 MAX_BODY = 48 * 1024 * 1024
-PAINT_CLASSES = set("fgptwrsexa")
+PAINT_CLASSES = set("fgptwrsexaq")
+highest_metatile_id = 1023
+metatile_overrides_by_route_id: dict = {}
 _lock = threading.Lock()
 
 
@@ -135,26 +138,58 @@ def post(h, u, srv) -> None:
 
 
 def retile(srv, b: dict) -> dict:
-    """Paint classes onto a generated route (the bench's last result) and re-tile.
-    Cells whose 3x3 class neighbourhood didn't change keep their metatile."""
-    from fasttile import keys
-
     gid = str(b.get("id", ""))
     if gid not in srv._results:
         raise ValueError("unknown or expired route id; generate again")
     route, final = srv._results[gid]
-    cls = route.cls.copy()
-    n = 0
-    for c in (b.get("cells") or [])[:20000]:
-        x, y, k = int(c[0]), int(c[1]), str(c[2])
-        if 0 <= y < cls.shape[0] and 0 <= x < cls.shape[1] and k in PAINT_CLASSES:
-            cls[y, x] = k
-            n += 1
-    same = np.array(keys(cls)) == np.array(keys(route.cls))
-    fixed = np.where(same, final.metatile.astype(np.int64), -1)
-    seed = int(getattr(route.spec, "seed", 0))
-    lay = srv.tiler(srv.route_tileset(route.spec)).tile(cls, seed=seed, fixed=fixed)
-    route.cls = cls
-    srv._results[gid] = (route, lay)
-    return {"id": gid, "painted": n, "cls": ["".join(r) for r in cls],
-            "tiles": lay.metatile.astype(int).ravel().tolist(), "retiled": int((~same).sum())}
+    class_cells, metatile_cells = split_painted_cells_into_classes_and_metatiles(b.get("cells") or [], route.cls.shape)
+
+    painted_class_grid = route.cls.copy()
+    for cell_x, cell_y, class_code in class_cells:
+        painted_class_grid[cell_y, cell_x] = class_code
+    layout = retile_class_grid_with_route_tiler(srv, gid, route, final, painted_class_grid)
+    metatile_overrides = metatile_overrides_by_route_id.setdefault(gid, {})
+    metatile_overrides.update({(cell_x, cell_y): metatile_id for cell_x, cell_y, metatile_id in metatile_cells})
+    for (cell_x, cell_y), metatile_id in metatile_overrides.items():
+        layout.metatile[cell_y, cell_x] = metatile_id
+    retiled_cell_count = int((layout.metatile != final.metatile).sum())
+    route.cls = painted_class_grid
+    srv._results[gid] = (route, layout)
+
+    retile_result = {"id": gid, "painted": len(class_cells) + len(metatile_cells), "cls": ["".join(row) for row in painted_class_grid],
+                     "tiles": layout.metatile.astype(int).ravel().tolist(), "retiled": retiled_cell_count}
+    return retile_result
+
+
+def split_painted_cells_into_classes_and_metatiles(painted_cells, grid_shape) -> tuple:
+    grid_height, grid_width = grid_shape
+    class_cells, metatile_cells = [], []
+    for painted_cell in painted_cells[:20000]:
+        cell_x, cell_y, painted_value = int(painted_cell[0]), int(painted_cell[1]), str(painted_cell[2])
+        if not (0 <= cell_y < grid_height and 0 <= cell_x < grid_width):
+            continue
+        if painted_value in PAINT_CLASSES:
+            class_cells.append((cell_x, cell_y, painted_value))
+            continue
+        if painted_value.startswith("#") and painted_value[1:].isdigit() and int(painted_value[1:]) <= highest_metatile_id:
+            metatile_cells.append((cell_x, cell_y, int(painted_value[1:])))
+    painted_cells_by_kind = (class_cells, metatile_cells)
+    return painted_cells_by_kind
+
+
+def retile_class_grid_with_route_tiler(srv, gid, route, final, painted_class_grid):
+    from fasttile import keys
+
+    if gid in srv._ark_ids:
+        import shell_api
+        from pokeroutes.ruletile import tile_route
+
+        route_with_painted_classes = copy.copy(route)
+        route_with_painted_classes.cls = painted_class_grid
+        ark_layout = tile_route(shell_api.ark_tiler(), route_with_painted_classes)
+        return ark_layout
+    unchanged_neighbourhoods = np.array(keys(painted_class_grid)) == np.array(keys(route.cls))
+    fixed_metatiles = np.where(unchanged_neighbourhoods, final.metatile.astype(np.int64), -1)
+    route_seed = int(getattr(route.spec, "seed", 0))
+    learned_layout = srv.tiler(srv.route_tileset(route.spec)).tile(painted_class_grid, seed=route_seed, fixed=fixed_metatiles)
+    return learned_layout

@@ -61,7 +61,6 @@
       b.setAttribute("aria-selected", on);
     });
     $("paneConsole").hidden = layout.bottom.tab !== "console";
-    $("paneTimeline").hidden = layout.bottom.tab !== "timeline";
     $("paneImprove").hidden = layout.bottom.tab !== "improve";
     $("paneCommits").hidden = layout.bottom.tab !== "commits";
     $("paneAgent").hidden = layout.bottom.tab !== "agent";

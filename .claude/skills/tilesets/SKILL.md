@@ -1,0 +1,87 @@
+---
+name: tilesets
+description: How poke-routes turns class grids into metatiles and how to find, add, switch or apply a tileset or tiling model (learned models from pokeemerald layouts, the rule tiler for hand-made tilesets, bring-your-own-assets, credits). Load when a task mentions tilesets, tiles, art style, a tiling model, or "make it look like" a specific game.
+---
+
+# Tilesets and tilers
+
+The generator never draws pixels itself. It produces a class grid (see the `codebase-map` skill for the codes). A tiler then maps that grid to metatile ids of a real tileset, and the PNG is rendered from the tileset's own `tiles.png`, palettes and `metatiles.bin` (`pokeroutes/tileset.py`, `load_pair(root/data/tilesets, primary, secondary)` → `primary/<name>`, `secondary/<name>`).
+
+## Bring your own assets (read this first)
+
+- No Pokémon art ships in this repo. The learned tiler reads tilesets and maps from the user's own pret/pokeemerald checkout in `vendor/pokeemerald` (`pokeroutes/cli.py`, `EMERALD`). If it is missing, routes still generate, but no `emerald.png` or tiled export is written.
+- Any new tileset is the user's asset. Third-party art is allowed only from authors who released it for ROM hacks, downloaded from the author's own page under their stated terms.
+- Keep a `CREDITS.md` next to the art with the author, source URL and licence or terms text.
+- If the terms are unclear, or getting the art needs a login, an account, a purchase or accepting a terms page, **stop** and tell the user exactly what they need to do. Never pull assets out of other hacks' ROMs, and never download ROMs.
+- Fetching the art file as a one-off is fine. Do not add network calls to the code.
+
+## Learned tiler (Emerald-style tilesets that real maps already use)
+
+- **Training**: `pokeroutes/learn.py`, `learn(emerald, primary, secondary, out, layouts=..., weight=...)`.
+  - It reads every layout in `vendor/pokeemerald/data/layouts/layouts.json` whose primary tileset matches (`corpus_layouts`).
+  - It classifies each cell from its metatile plus its collision bit (`classify.classify_cell`).
+  - It counts 3x3 and 5-cell contexts and neighbour pairs.
+  - `--layouts` pools specific maps for the secondary tileset, weighted by `--weight`.
+- **Tiling**: `pokeroutes/autotile.py`, `Autotiler.tile`. It samples from a softmax over context counts plus a pair score (temperature 0.35, 3 sweeps). Classes with fewer than 20 corpus cells use `classify.FALLBACK`.
+- **Models**: `pokeroutes/models/<primary>_<secondary>.json`. `models/index.json` maps biome → model.
+
+  | Biome(s) | Model | Learned from |
+  |---|---|---|
+  | forest, meadow, riverland | general_fortree | |
+  | beach | general_slateport | Routes 108 and 109 |
+  | sea | general_dewford | Routes 105 to 107 |
+  | ocean_currents | general_pacifidlog | |
+  | desert | general_mauville | Route 111 |
+  | mountain | general_lavaridge | Route 112, Jagged Pass |
+  | volcanic | general_fallarbor | Route 113 |
+
+- **Which model a route uses**: `spec.tileset`, which defaults to `spec.BIOME_TILESET[biome]`. The web UI checks the model exists (`webui/server.py`, `route_tileset`).
+  - Volcanic deliberately maps to `general_lavaridge`, because the fallarbor model draws cliff interiors as brick.
+- **Commands**:
+  - `python3 -m pokeroutes learn --biomes [--only desert volcanic]` retrains the biome models and rewrites `index.json`.
+  - `python3 -m pokeroutes learn PRIMARY SECONDARY --layouts Route119_Layout ...` writes `models/PRIMARY_SECONDARY.json`.
+  - `python3 -m pokeroutes atlas PRIMARY SECONDARY` dumps labelled metatile sheets so you can look up ids.
+
+### Switch a route to another learned tileset
+
+1. Check the model exists (`tilers` tool, or `ls pokeroutes/models`). If not, train it with `learn PRIMARY SECONDARY --layouts <maps that use it>`.
+2. Set the spec's `tileset: <primary>_<secondary>` (for example `general_mauville`), or the biome default in `BIOME_TILESET`. Then `generate_route` and look at the PNG.
+3. A tileset only covers classes that its corpus maps contain (`index.json` has a `classes` field for each biome). Missing classes fall back, so check the render for wrong-looking art.
+
+### Use a custom tileset that the user's own maps already use
+
+Put it in a pokeemerald-format tree: `data/tilesets/{primary,secondary}/<name>/` (`tiles.png`, `palettes/`, `metatiles.bin`, `metatile_attributes.bin`), with the maps listed in `data/layouts/layouts.json`. Learning reads `vendor/pokeemerald`, so the tileset and maps have to be there, or `vendor/pokeemerald` has to point at that tree. Then train as above. You need at least a few maps that use the tileset; there is nothing to learn from an unused one.
+
+## Rule tiler (a brand-new tileset that no map uses yet)
+
+- **Where it lives**: `pokeroutes/ruletile.py`, `ArkTiler`. It is driven by a class table JSON, `data/tilesets/metatile_classes_ark.json`, found inside a ROM tree located by `find_rom()` (the `ARK_ROM` env var, then fallback candidates).
+- **Hardcoded names**: the tileset names are constants (`PRIMARY`, `SECONDARY` and the `*_SYMBOL`s). As written it serves exactly one tileset pair, the Arklarna one.
+- **CLI and web UI**: `--tileset ark`, and Generate > Tiler in the web UI (`webui/shell_api.py`, `ark_tiler`).
+- **Class table format** (read `ArkTiler.tile` and `_trees`):
+  - `mask_bits`: the order of `N NE E SE S SW W NW` bits for blob masks.
+  - `classes.<letter>`: one entry per class letter, with a `kind` (`autotile` value) and the fields listed below. A class may also set `collision: true`, and `joins` (the letters it connects with).
+
+  | `autotile` value | Fields |
+  |---|---|
+  | `blob47` | `by_mask` {mask → id} |
+  | `row` (ledges) | `parts` {left, mid, right, single} |
+  | `column` | `parts` {top, mid, bottom, single} |
+  | `waterfall` | `parts` {`top_left` … `bottom_right`} |
+  | `tree2x2` | `by_context`, `overlays` (per neighbour class: crown art over g, p, tall grass), `bush`, `phases` |
+  | none | `base` [ids], picked deterministically by position |
+
+  Letters missing from the table go through `ruletile.FALLBACK` (sand → path, sea → water, cliff → rock …).
+
+### Add a new rule-tiled tileset (needs a small code change)
+
+1. Put the tileset in a pokeemerald-format tree under `data/tilesets/primary/<p>` and `secondary/<s>`, with `CREDITS.md`.
+2. Write its class table JSON (same shape as above). Use `python3 -m pokeroutes atlas` or `Tileset.atlas()` to find the metatile ids.
+3. Generalise `ruletile.py`: make the table path and the `PRIMARY`/`SECONDARY` names parameters (for example `ArkTiler.load(rom, table=..., primary=..., secondary=...)`) instead of constants. Thread a choice through `cli.py --tileset` and `webui/shell_api.py` (`/api/tilers`). Keep Ark working unchanged.
+4. Generate a forest route with it. Look at the PNG for broken edges, then check tree blocks (2x2), pond edges and ledge rows.
+5. Commit the code plus the credits.
+
+## Checking tiling work
+
+- Generate at least 3 seeds in 2 biomes and read the PNGs.
+- Zoom into edges with `crop_route_image`: pond banks, tree borders, ledge ends, road edges.
+- `route_stats` shows variety per class. A real Hoenn route's most common tree metatile covers about 40% of tree cells; much higher than that looks flat.

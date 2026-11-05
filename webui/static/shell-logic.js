@@ -187,7 +187,7 @@
     // Help
     keys: "Mod+/",
     // not in a menu: scene tools and plain-key zoom
-    "tool-select": "v", "tool-pan": "h", "tool-paint": "b", "tool-stamp": "s", "x-zin": "=", "x-zout": "-", "x-zfit": "0", "x-help": "?",
+    "tool-select": "v", "tool-pan": "h", "tool-paint": "b", "tool-stamp": "s", "tool-tile": "t", "x-zin": "=", "x-zout": "-", "x-zfit": "0", "x-help": "?",
   };
   const ALT_SHORTCUTS = { redo: "Mod+y", zin: "Mod+Shift+=" };
   // Modifier shortcuts that still must not fire while typing.
@@ -210,7 +210,7 @@
   // ------------------------------------------------------------ dock layout
   const LAYOUT_KEY = "pokeroutes-shell-layout-v1";
   const CHROME = { menu: 26, toolbar: 34, status: 22, collapsed: 24, head: 26, splitter: 4 };
-  const BOTTOM_TABS = ["console", "timeline", "improve", "commits", "agent"];
+  const BOTTOM_TABS = ["console", "improve", "commits", "agent"];
   const CENTER_TABS = ["scene", "geography", "region", "story", "gates"];
   const DEFAULT_LAYOUT = {
     v: 1,

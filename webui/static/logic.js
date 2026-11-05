@@ -10,11 +10,11 @@
   };
   const CLASS_COLORS = {
     g: "#78be5a", p: "#d6b478", t: "#28823a", w: "#4678dc", f: "#14461e",
-    r: "#825a3c", s: "#e67828", e: "#e6a028", x: "#e6a028", a: "#a0d2ff", o: "#c800c8",
+    r: "#825a3c", s: "#e67828", e: "#e6a028", x: "#e6a028", a: "#a0d2ff", o: "#c800c8", q: "#aa783c",
   };
   const CLASS_NAMES = {
     g: "grass", p: "dirt road", t: "tall grass", w: "water", f: "trees",
-    r: "rock", s: "ledge (south)", e: "ledge (east)", x: "ledge (west)", a: "waterfall", o: "other",
+    r: "rock", s: "ledge (south)", e: "ledge (east)", x: "ledge (west)", a: "waterfall", o: "other", q: "bridge (wood)",
   };
 
   // Largest zoom level whose map fits the viewport (falls back to the smallest).
