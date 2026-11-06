@@ -2079,6 +2079,7 @@
         log: (text, is_error) => log(is_error ? "error" : "info", text),
         onView: syncNonSceneToolbar,
         is_active: () => SL.is_region_editor_tab(Shell.layout.center),
+        on_document_change: follow_map_changes_of_open_route,
       },
     });
     region_editor_actions.set_view_modes(main_view_mode, beside_view_mode, Shell.layout.center);
@@ -2100,6 +2101,7 @@
     replaceParams(p, "region route");
     state.route_trail = state.pending_walk && state.pending_walk.to === p.name ? state.pending_walk.trail : [];
     state.pending_walk = null;
+    if (region) region.map_sync = map_sync_record_of_spec(spec, params());
     state.region = region;
     if (region) sset(REGION_KEY, region); else sdel(REGION_KEY);
     renderRegionLink();
@@ -2109,6 +2111,84 @@
     Shell.setCenter("scene");
     log("info", `Opened ${p.name} from region ${current_region_seed()}`);
     generate();
+  }
+
+  function open_map_of_spec(spec) {
+    const region_block = spec.region || {};
+    const open_map = { route_name: (region_block.chain || {}).route || spec.name, map_name: spec.name, rect: region_block.rect || [0, 0, 0, 0] };
+    return open_map;
+  }
+  function map_sync_record(open_map, sync_target, region_document, opened_params) {
+    const record = {
+      route_name: sync_target ? sync_target.route.name : open_map.route_name, map_name: open_map.map_name, rect: open_map.rect,
+      signature: sync_target ? SL.open_map_signature(region_document, sync_target) : "",
+      chain: sync_target ? sync_target.route.chain.map((chain_map) => ({ name: chain_map.name, rect: chain_map.rect })) : [],
+      opened_params,
+    };
+    return record;
+  }
+  function map_sync_record_of_spec(spec, opened_params) {
+    const region_document = region_editor() && region_editor().getDoc();
+    if (!region_document || !spec.region || !spec.region.rect) return null;
+    const open_map = open_map_of_spec(spec);
+    const record = map_sync_record(open_map, SL.sync_target_for_open_map(region_document, open_map), region_document, opened_params);
+    return record;
+  }
+
+  // Map -> Routes: when the route open here changes on the Map, the Routes view follows it (same seed, the
+  // settings changed here kept, painted cells kept on maps that are still there).
+  let map_sync_in_flight = false, map_sync_waiting_document = null;
+  async function follow_map_changes_of_open_route(region_document) {
+    if (map_sync_in_flight) { map_sync_waiting_document = region_document; return; }
+    map_sync_in_flight = true;
+    try {
+      await follow_one_map_change(region_document);
+    } catch (problem) {
+      log("error", "Could not follow the Map: " + problem.message);
+    } finally {
+      map_sync_in_flight = false;
+      const waiting_document = map_sync_waiting_document;
+      map_sync_waiting_document = null;
+      if (waiting_document) follow_map_changes_of_open_route(waiting_document);
+    }
+  }
+  async function follow_one_map_change(region_document) {
+    const sync = state.region && state.region.map_sync;
+    if (!sync || !region_document) return;
+    const sync_target = SL.sync_target_for_open_map(region_document, sync);
+    if (!sync_target) { report_open_route_erased(sync); return; }
+    const signature = SL.open_map_signature(region_document, sync_target);
+    if (signature === sync.signature) return;
+    const spec = await region_editor().spec_of_map(sync_target.chain_map.id);
+    if (!state.region || state.region.map_sync !== sync) return;
+    move_painted_cells_along_the_chain(sync.chain, sync_target.route.chain, region_document.cell || 4);
+    apply_followed_spec(spec, sync, sync_target, region_document);
+  }
+  function report_open_route_erased(sync) {
+    if (sync.erased_reported) return;
+    sync.erased_reported = true;
+    const message = `${sync.map_name} was erased on the Map; the Routes view keeps its last version`;
+    log("warn", message);
+    Shell.status(message);
+  }
+  function move_painted_cells_along_the_chain(old_chain_maps, new_chain_maps, metatiles_per_region_cell) {
+    for (const memory_key of [SL.PAINT_KEY, SL.PAINT_OBJECTS_KEY]) {
+      const followed_memory = SL.paint_memory_after_chain_change(sget(memory_key) || {}, old_chain_maps, new_chain_maps, metatiles_per_region_cell);
+      sset(memory_key, followed_memory);
+    }
+  }
+  function apply_followed_spec(spec, sync, sync_target, region_document) {
+    const { params: fresh_params, region } = SL.specToParams(spec, params());
+    const synced_params = SL.params_after_map_sync(sync.opened_params, params(), fresh_params);
+    const opened_params = Object.assign({}, fresh_params, { seed: synced_params.seed });
+    replaceParams(synced_params, "follow the Map");
+    region.map_sync = map_sync_record(open_map_of_spec(spec), sync_target, region_document, opened_params);
+    state.region = region;
+    sset(REGION_KEY, region);
+    renderRegionLink();
+    show_open_route_on_map();
+    log("info", `Routes view follows the Map: ${spec.name}`);
+    generate({ keepPaint: true });
   }
 
   function describe_region_gate(gate) {

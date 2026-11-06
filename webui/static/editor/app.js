@@ -307,6 +307,14 @@
     rebuildBase();
     if (resized || !keepView) fit();
     refreshAll();
+    tell_host_the_document_changed();
+  }
+  function tell_host_the_document_changed() {
+    if (host && host.on_document_change) host.on_document_change(st.doc);
+  }
+  async function spec_of_map(map_id) {
+    const spec = await api("/api/editor/spec", { doc: ED.encodeDoc(st.doc), id: map_id });
+    return spec;
   }
   async function generate() {
     const seed = Math.max(0, parseInt($("seed").value, 10) || 0);
@@ -388,6 +396,7 @@
     st.unsaved = true;
     if (cause) st.doc.stale = ED.markStale(st.doc.stale, cause);
     refreshAll(label);
+    tell_host_the_document_changed();
   }
   function undo() {
     if (st.busy) return;
@@ -409,6 +418,7 @@
     rebuildBase();
     refreshAll();
     toast(msg);
+    tell_host_the_document_changed();
   }
   async function recompute(button) {
     if (!st.doc) return;
@@ -2102,7 +2112,7 @@
     load: loadSaved, listSaved, exportSpecs, recompute, setTool, toggleLayer, fit, openInBench,
     set_editor_mode, set_route_opener: (route_opener) => { open_route_spec_in_host = route_opener; },
     deleteSelected, help: () => { $("help").hidden = !$("help").hidden; },
-    generate_map, set_open_route,
+    generate_map, set_open_route, spec_of_map,
     set_paint_biome: (biome_code) => { st.biome = biome_code; setTool("biome"); refreshTool(); },
     paint_biome: () => st.biome,
     set_view_modes, fit_every_view,
