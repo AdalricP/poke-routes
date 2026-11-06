@@ -38,6 +38,9 @@ BIOME_COST = {"m": 1.0, "f": 1.3, "F": 1.8, "w": 2.0, "b": 1.2, "d": 1.4, "M": 3
               "v": 2.2, "o": np.inf, "~": np.inf, "=": np.inf}
 
 
+MOST_ROUTE_RECTS_IN_ONE_LINK = 12
+
+
 def size_ok(w: int, h: int) -> bool:
     return w <= MAX_W and h <= MAX_H and (w * CELL + 15) * (h * CELL + 14) <= MAP_BUDGET
 
@@ -265,50 +268,78 @@ class Network:
                     starts[c] = v
         goals, goal_node = self._goals(link, cost)
         path = search(cost, starts, goals)
-        if not path and not link.get("through_neighbouring_routes") and "dst" in link:
+        if not path:
+            return self.lay_another_way(link)
+        prev = self._node_at_start(path[0], link["src"])
+        rects: List[int] = []
+        for _ in range(MOST_ROUTE_RECTS_IN_ONE_LINK):
+            step = self.place_route_rect_with_a_way_on(path, prev, goal_node, link, cost)
+            if step is None:
+                break
+            k, used, done, path, next_goal_node = step
+            self._connect(prev, k, used[0], link)
+            rects.append(k)
+            if done:
+                self.finish_link_at_its_goal(k, used[-1], goal_node, link)
+                link["routes"] = rects
+                return True
+            prev, goal_node = k, next_goal_node
+        self.w.log.append(f"link {link['name']}: stuck after {len(rects)} routes, taken back")
+        self.remove_route_nodes(rects)
+        return self.lay_another_way(link)
+
+    def lay_another_way(self, link: dict) -> bool:
+        if not link.get("through_neighbouring_routes") and "dst" in link:
             self.w.log.append(f"link {link['name']}: boxed in, trying from the routes next to its ends")
             link["through_neighbouring_routes"] = True
             link["src"] = self.with_connected_routes(link["src"])
             link["dst"] = self.with_connected_routes(link["dst"])
             return self.lay(link)
-        if not path and link.get("mode", "land") == "land" and "dst" in link:
+        if link.get("mode", "land") == "land" and "dst" in link:
             self.w.log.append(f"link {link['name']}: no way over land, laid as a surf link")
             link["mode"] = "sea"
             return self.lay(link)
-        if not path:
-            self.w.log.append(f"link {link['name']}: no path")
-            return False
-        prev = self._node_at_start(path[0], link["src"])
-        rects = []
-        for _ in range(12):
-            r, used, done = self._grow(path, prev, goal_node, link)
-            if r is None:
-                self.w.log.append(f"link {link['name']}: no room after {len(rects)} routes")
-                break
-            k = self.add_node("route", r, link=link["name"], mode=self.mode_of_route_rect(r, link), kind_link=link["kind"])
+        self.w.log.append(f"link {link['name']}: no path")
+        link["routes"] = []
+        return False
+
+    def finish_link_at_its_goal(self, route_node_index: int, last_path_cell: Cell, goal_node, link: dict) -> None:
+        if goal_node is not None:
+            self._connect(route_node_index, goal_node, last_path_cell, link, into=True)
+            return
+        self.nodes[route_node_index]["goal"] = list(link["goal"])
+        self.nodes[route_node_index]["goal_landmark"] = link.get("landmark")
+
+    def place_route_rect_with_a_way_on(self, path: List[Cell], prev: int, goal_node, link: dict, cost: np.ndarray):
+        fixed, candidate_end_indices = self._fixed_side_and_end_candidates(path, prev)
+        for end_index in self._end_indices_in_preference_order(candidate_end_indices, len(path)):
+            rect, used, done = self._rect_ending_at(path, fixed, end_index, link)
+            k = self.add_node("route", rect, link=link["name"], mode=self.mode_of_route_rect(rect, link), kind_link=link["kind"])
             self.nodes[k]["paths"].append(used)
-            self._connect(prev, k, path[0], link)
-            rects.append(k)
             if done:
-                last = used[-1]
-                if goal_node is not None:
-                    self._connect(k, goal_node, last, link, into=True)
-                else:
-                    self.nodes[k]["goal"] = list(link["goal"])
-                    self.nodes[k]["goal_landmark"] = link.get("landmark")
-                break
-            # search on from the new rectangle
-            cost2 = cost.copy()
-            cost2[self.occ >= 0] = np.inf
-            starts = self.adjacent(k, 0.0, cost2)
-            goals, goal_node = self._goals(link, cost2)
-            path = search(cost2, starts, goals)
-            if not path:
-                self.w.log.append(f"link {link['name']}: stuck after {len(rects)} routes")
-                break
-            prev = k
-        link["routes"] = rects
-        return True
+                return k, used, True, None, goal_node
+            next_path, next_goal_node = self.search_on_from(k, link, cost)
+            if next_path:
+                return k, used, False, next_path, next_goal_node
+            self.remove_route_nodes([k])
+        return None
+
+    def search_on_from(self, route_node_index: int, link: dict, cost: np.ndarray):
+        cost_around_built_routes = cost.copy()
+        cost_around_built_routes[self.occ >= 0] = np.inf
+        starts = self.adjacent(route_node_index, 0.0, cost_around_built_routes)
+        goals, goal_node = self._goals(link, cost_around_built_routes)
+        next_path = search(cost_around_built_routes, starts, goals)
+        return next_path, goal_node
+
+    def remove_route_nodes(self, route_node_indices: List[int]) -> None:
+        removed = set(route_node_indices)
+        for k in sorted(removed, reverse=True):
+            if k != len(self.nodes) - 1:
+                raise RuntimeError(f"route node {k} is not the newest node, so it cannot be taken back")
+            self.occ[self.occ == k] = -1
+            self.nodes.pop()
+        self.conns = [c for c in self.conns if c["a"] not in removed and c["b"] not in removed]
 
     def with_connected_routes(self, ends: List[Tuple[int, float]]) -> List[Tuple[int, float]]:
         end_nodes = {node_index for node_index, _penalty in ends}
@@ -391,6 +422,14 @@ class Network:
     def _grow(self, path: List[Cell], prev: int, goal_node, link) -> Tuple[List[int], List[Cell], bool]:
         """Grow a rectangle along path (which starts next to prev). Returns the
         rectangle, the path cells it holds and whether it reaches the goal."""
+        fixed, candidate_end_indices = self._fixed_side_and_end_candidates(path, prev)
+        if not candidate_end_indices:
+            return None, None, False
+        end_index = self._end_indices_in_preference_order(candidate_end_indices, len(path))[0]
+        rect_holding_path = self._rect_ending_at(path, fixed, end_index, link)
+        return rect_holding_path
+
+    def _fixed_side_and_end_candidates(self, path: List[Cell], prev: int):
         x, y = path[0]
         px0, py0, px1, py1 = self.nodes[prev]["rect"]
         if x == px1:
@@ -401,36 +440,41 @@ class Network:
             fixed = ("y0", y)
         else:
             fixed = ("y1", y + 1)
-        L = len(path)
         cands = []
         bx0, by0, bx1, by1 = x, y, x + 1, y + 1
-        for j in range(L):
+        for j in range(len(path)):
             cx, cy = path[j]
             bx0, by0, bx1, by1 = min(bx0, cx), min(by0, cy), max(bx1, cx + 1), max(by1, cy + 1)
-            core = [bx0, by0, bx1, by1]
             f, v = fixed
             if {"x0": bx0, "x1": bx1, "y0": by0, "y1": by1}[f] != v:
                 break
-            if not size_ok(bx1 - bx0, by1 - by0) or not self.free(core):
+            if not size_ok(bx1 - bx0, by1 - by0) or not self.free([bx0, by0, bx1, by1]):
                 break
             cands.append(j)
-        if not cands:
-            return None, None, False
-        jmax = cands[-1]
-        if jmax == L - 1:
-            j = jmax
+        return fixed, cands
+
+    def _end_indices_in_preference_order(self, candidate_end_indices: List[int], path_length: int) -> List[int]:
+        if not candidate_end_indices:
+            return []
+        jmax = candidate_end_indices[-1]
+        if jmax == path_length - 1:
+            preferred = jmax
         else:
-            remaining = L
-            n = max(1, math.ceil(remaining / TARGET_ALONG))
-            want = remaining / n
-            ok = [j for j in cands if j <= want + 2 and (L - 1 - j) >= MIN_ALONG]
-            j = ok[-1] if ok else jmax
-        used = path[:j + 1]
+            n = max(1, math.ceil(path_length / TARGET_ALONG))
+            want = path_length / n
+            ok = [j for j in candidate_end_indices if j <= want + 2 and (path_length - 1 - j) >= MIN_ALONG]
+            preferred = ok[-1] if ok else jmax
+        fallbacks = [j for j in reversed(candidate_end_indices) if j != preferred]
+        end_indices = [preferred] + fallbacks
+        return end_indices
+
+    def _rect_ending_at(self, path: List[Cell], fixed, end_index: int, link) -> Tuple[List[int], List[Cell], bool]:
+        used = path[:end_index + 1]
         xs = [c[0] for c in used]
         ys = [c[1] for c in used]
         core = [min(xs), min(ys), max(xs) + 1, max(ys) + 1]
         rect = self._inflate(core, fixed[0], link)
-        return rect, used, j == L - 1
+        return rect, used, end_index == len(path) - 1
 
     def _inflate(self, core: List[int], fixed: str, link) -> List[int]:
         r = list(core)
@@ -865,6 +909,18 @@ def same_landmass(w: World, town, other_town) -> bool:
     first = labels[min(w.H - 1, int(town.cy)), min(w.W - 1, int(town.cx))]
     second = labels[min(w.H - 1, int(other_town.cy)), min(w.W - 1, int(other_town.cx))]
     return first == 0 or second == 0 or first == second
+
+
+def is_an_intended_dead_end(route: dict) -> bool:
+    leads_to_a_landmark = bool(route.get("goal"))
+    was_drawn_by_hand = route.get("kind_link") == "drawn" or bool(route.get("drawn"))
+    intended = leads_to_a_landmark or was_drawn_by_hand
+    return intended
+
+
+def unintended_dead_end_routes(routes: List[dict]) -> List[dict]:
+    dead_ends = [route for route in routes if len(route.get("exits") or []) <= 1 and not is_an_intended_dead_end(route)]
+    return dead_ends
 
 
 def route_json(w: World, net: Network, n: dict) -> dict:
