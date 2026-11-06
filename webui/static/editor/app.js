@@ -149,6 +149,17 @@
     biome: "Paint biome", water: "Coast", route: "Add route",
   };
   const BRUSH_TOOLS = new Set(["raise", "lower", "flatten", "smooth", "biome", "water"]);
+  // icons for the docked toolbar (dock_into_host); same look as the Scene tool icons.
+  const TOOL_ICONS = {
+    select: '<path d="M4 2l8 6.2-3.6.5 2 4.1-1.6.8-2-4.1L4 12z" fill="currentColor"/>',
+    raise: '<path d="M8 2.5l3 3.5H9v6.5H7V6H4.5z" fill="currentColor"/><rect x="3" y="13.5" width="10" height="1.2" fill="currentColor"/>',
+    lower: '<rect x="3" y="1.3" width="10" height="1.2" fill="currentColor"/><path d="M8 13.5l-3-3.5H7V3.5h2V10h2.5z" fill="currentColor"/>',
+    flatten: '<rect x="2" y="7.4" width="12" height="1.2" fill="currentColor"/><path d="M8 2l2 2.3H9V6.4H7V4.3H6z" fill="currentColor"/><path d="M8 14l-2-2.3h1.7V9.6h2v2.1H10z" fill="currentColor"/>',
+    smooth: '<path d="M2 6c1.3-1.6 2.7-1.6 4 0s2.7 1.6 4 0 2.7-1.6 4 0" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/><path d="M2 10.5c1.3-1.6 2.7-1.6 4 0s2.7 1.6 4 0 2.7-1.6 4 0" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" opacity=".5"/>',
+    biome: '<path d="M8 2a6 6 0 100 12c.9 0 1.3-.5 1.3-1.1 0-.3-.1-.5-.3-.7a.9.9 0 01-.3-.7c0-.6.5-1 1.1-1H11a3 3 0 003-3c0-3-2.7-5.5-6-5.5z" fill="currentColor"/><circle cx="5.3" cy="7.2" r="1" fill="#3a3a3a"/><circle cx="7.6" cy="4.8" r="1" fill="#3a3a3a"/><circle cx="10.2" cy="6.6" r="1" fill="#3a3a3a"/>',
+    water: '<path d="M2 3h12v6.5c-1.3 0-1.3 1.6-2.6 1.6S9.8 9.5 8.5 9.5 7.2 11.1 5.9 11.1 4.6 9.5 3.3 9.5 2 11.1 2 11.1z" fill="currentColor"/>',
+    route: '<path d="M2 12l3.5-3.5L8 11l4.5-6" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2.5h1.4v1.4H15v1.4h-1.6V6.7h-1.4V5.3H10.4V3.9H12z" fill="currentColor"/>',
+  };
   const SPEC_FIELDS = [
     ["meander", 0.05], ["branches", 1], ["loops", 1], ["dead_ends", 1], ["clearings", 1], ["lakes", 1],
     ["tall_grass", 0.05], ["hidden_paths", 1], ["hidden_items", 1], ["special_area_chance", 0.05],
@@ -1340,7 +1351,10 @@
     for (const b of [...rail.children]) {
       if (b.tagName === "HR") { host.tools.append(el("span", { class: "tb-sep", "data-modes": b.dataset.modes || "" })); continue; }
       const key = b.querySelector("b").textContent, name = b.lastChild.textContent;
-      host.tools.append(el("button", { type: "button", class: "tb-btn tb-txt", "data-edtool": b.dataset.edtool, title: `${name[0].toUpperCase() + name.slice(1)} (${key})` }, name));
+      const label = name[0].toUpperCase() + name.slice(1);
+      const btn = el("button", { type: "button", class: "tb-btn", "data-edtool": b.dataset.edtool, title: `${label} (${key})`, "aria-label": label });
+      btn.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${TOOL_ICONS[b.dataset.edtool] || ""}</svg>`;
+      host.tools.append(btn);
     }
 
     // side panel: the shell inspector's foldouts. Region (name, seed) first, then selection, tool, story, stages.
