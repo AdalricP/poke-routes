@@ -156,10 +156,11 @@ def lay_rectangles(net: network.Network, link: dict, cells: List[Cell], modes: L
         if rect is None:
             raise DrawnLineProblem(no_room_problem(piece[0]))
         node_index = net.add_node("route", rect, link=link["name"], mode=mode, kind_link="drawn")
-        net.nodes[node_index]["paths"].append(used)
         net._connect(previous, node_index, piece[0], link)
         rectangles.append(node_index)
-        start = leading_count_inside(net, cells, node_index, start + len(used))
+        end = leading_count_inside(net, cells, node_index, start + len(used))
+        net.nodes[node_index]["paths"].append(cells[start:end])
+        start = end
         if start < len(cells) and net.occ[cells[start][1], cells[start][0]] >= 0:
             raise DrawnLineProblem(no_room_problem(cells[start]))
         previous = node_index
