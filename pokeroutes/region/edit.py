@@ -31,7 +31,7 @@ from .world import CELL, City, Landmark, World
 FORMAT = "pokeroutes-region-edit"
 STAGES = ["water", "climate", "biomes", "routes"]
 # world attribute grids
-WGRIDS = {"height": "f4", "land": "u1", "half": "u1", "lake": "u1", "river": "u1", "flow": "f4", "recv": "i4",
+WGRIDS = {"height": "f4", "land": "u1", "landmass": "u1", "lake": "u1", "river": "u1", "flow": "f4", "recv": "i4",
           "temp": "f4", "moist": "f4", "tiers": "u1", "biome": "c", "lagoon": "u1"}
 # w.overrides grids (legend effects)
 OGRIDS = {"spit": "u1", "no_route": "u1", "trench": "u1", "isles": "u1", "no_lake": "u1", "lake_extra": "u1",
@@ -97,7 +97,8 @@ def world_to_doc(w: World, extra: Optional[dict] = None) -> dict:
             meta[k] = np.asarray(v).tolist() if isinstance(v, np.ndarray) else _plain(v)
     doc = {
         "format": FORMAT, "version": 1, "seed": int(w.seed), "size": [w.W, w.H], "cell": CELL,
-        "strait": [int(v) for v in w.strait], "wind": list(w.wind), "meta": meta, "grids": grids,
+        "preset": w.preset, "geography": w.geography,
+        "strait": [int(v) for v in w.strait] if w.strait else None, "wind": list(w.wind), "meta": meta, "grids": grids,
         "cities": [c.json() for c in w.cities], "landmarks": [l.json() for l in w.landmarks],
         "links": _plain(w.links), "routes": _plain(w.routes), "stale": [], "log": list(w.log)[-40:],
     }
@@ -114,16 +115,17 @@ def doc_to_world(doc: dict) -> World:
     if doc.get("format") != FORMAT:
         raise ValueError("not a region editor document")
     W, H = doc["size"]
-    w = World(int(doc["seed"]), W=int(W), H=int(H))
+    w = World(int(doc["seed"]), W=int(W), H=int(H), preset=doc.get("preset", "arklarna"),
+              geography=doc.get("geography", ""))
     shape = (w.H, w.W)
-    g = doc["grids"]
+    g = with_landmass_grid(doc["grids"])
     for k in WGRIDS:
         a = dec(g[k], shape)
         if k == "biome":
             a = _chars(a)
         elif k in BOOL:
             a = a.astype(bool)
-        elif k == "half" or k == "tiers":
+        elif k == "landmass" or k == "tiers":
             a = a.astype(np.int8)
         elif k == "recv":
             a = a.astype(np.int64).ravel()
@@ -139,7 +141,7 @@ def doc_to_world(doc: dict) -> World:
     for k, v in (doc.get("meta") or {}).items():
         w.overrides[k] = np.array(v) if k == "tier_q" else (tuple(v) if isinstance(v, list) and k != "preyl" else v)
     w.sea = ~w.land
-    w.strait = tuple(doc.get("strait", (0, 0)))
+    w.strait = tuple(doc["strait"]) if doc.get("strait") else None
     w.wind = tuple(doc.get("wind", (1.0, 0.0)))
     w.cities = [City(**{k: v for k, v in c.items() if k != "map"}) for c in doc.get("cities", [])]
     w.landmarks = [Landmark(**l) for l in doc.get("landmarks", [])]
@@ -147,6 +149,15 @@ def doc_to_world(doc: dict) -> World:
     w.routes = doc.get("routes", [])
     w.log = list(doc.get("log", []))
     return w
+
+
+def with_landmass_grid(grids: dict) -> dict:
+    """Documents saved before presets existed call the land labels ``half``."""
+    if "landmass" in grids or "half" not in grids:
+        return grids
+    renamed = {k: v for k, v in grids.items() if k != "half"}
+    renamed["landmass"] = grids["half"]
+    return renamed
 
 
 # ------------------------------------------------------------------ stages
@@ -230,6 +241,89 @@ def add_route(doc: dict, src_ref: dict, dst_ref: dict) -> dict:
     return out
 
 
+TOWN_SIZE = (10, 9)
+TOWN_MAP_MARGIN = 2
+
+
+def default_town_name(w: World) -> str:
+    taken = {c.name for c in w.cities}
+    number = 1
+    while f"Town {number}" in taken:
+        number += 1
+    return f"Town {number}"
+
+
+def unique_town_id(w: World, name: str) -> str:
+    base = network.ascii_id(name).lower() or "town"
+    taken = {c.id for c in w.cities}
+    town_id, number = base, 2
+    while town_id in taken:
+        town_id = f"{base}{number}"
+        number += 1
+    return town_id
+
+
+def town_rect(w: World, x: int, y: int) -> List[int]:
+    width, height = TOWN_SIZE
+    x0 = min(max(TOWN_MAP_MARGIN, x - width // 2), w.W - TOWN_MAP_MARGIN - width)
+    y0 = min(max(TOWN_MAP_MARGIN, y - height // 2), w.H - TOWN_MAP_MARGIN - height)
+    return [x0, y0, x0 + width, y0 + height]
+
+
+def rects_overlap(a: List[int], b: List[int]) -> bool:
+    return not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
+
+
+def landmass_name(w: World, x: int, y: int) -> str:
+    if w.landmass is None or not w.landmass[y, x]:
+        return ""
+    return f"landmass {int(w.landmass[y, x])}"
+
+
+def add_town(doc: dict, x: int, y: int, name: Optional[str] = None) -> dict:
+    """Place a town centred on cell (x, y), which has to be dry land. Routes go
+    stale; the next routes pass lays roads to it."""
+    w = doc_to_world(doc)
+    x, y = int(x), int(y)
+    if not (0 <= x < w.W and 0 <= y < w.H):
+        raise ValueError("that cell is off the map")
+    if not w.land[y, x] or w.lake[y, x]:
+        raise ValueError("a town has to stand on dry land")
+    name = (str(name or "").strip() or default_town_name(w))[:40]
+    if any(c.name == name for c in w.cities) or any(r["name"] == name for r in w.routes):
+        raise ValueError(f"the name {name!r} is taken")
+    rect = town_rect(w, x, y)
+    if any(rects_overlap(rect, c.rect) for c in w.cities):
+        raise ValueError("too close to another town")
+    town = City(unique_town_id(w, name), name, rect, gym="", honours="", half=landmass_name(w, x, y), size="town")
+    w.cities.append(town)
+    w.log.append(f"editor: placed {name} at {x}, {y}")
+    out = finish(w, doc, stale_with_routes(doc))
+    out["added_town"] = town.id
+    return out
+
+
+def delete_town(doc: dict, town_id: str) -> dict:
+    w = doc_to_world(doc)
+    town = w.city(town_id)
+    if town is None:
+        raise ValueError(f"no town {town_id!r}")
+    w.cities = [c for c in w.cities if c.id != town_id]
+    for route in w.routes:
+        route["exits"] = [e for e in route.get("exits", []) if e.get("to") != town.name]
+    w.log.append(f"editor: removed {town.name}")
+    out = finish(w, doc, stale_with_routes(doc))
+    for beat in out.get("story") or []:
+        if beat.get("at") == town.name:
+            beat["at"] = ""
+    return out
+
+
+def stale_with_routes(doc: dict) -> List[str]:
+    stale = set(doc.get("stale", [])) | {"routes"}
+    return [stage for stage in STAGES if stage in stale]
+
+
 def finish(w: World, doc: dict, stale: List[str]) -> dict:
     out = world_to_doc(w)
     out["stale"] = stale
@@ -269,14 +363,14 @@ def full_spec(doc: dict, rid: str) -> Optional[dict]:
 
 # ------------------------------------------------------------------ files
 
-def generate_doc(seed: int) -> dict:
+def generate_doc(seed: int, preset: str = "generic", geography_kind: Optional[str] = None) -> dict:
     from .pipeline import build
 
-    w = build(seed, routes=True, strip=False)
+    w = build(seed, routes=True, strip=False, preset=preset, geography_kind=geography_kind)
     w.overrides.pop("network", None)
     out = world_to_doc(w)
     out["routes"] = with_specs(w)
-    out["name"] = f"seed-{seed}"
+    out["name"] = f"seed-{seed}" if preset == "generic" else f"{preset}-{seed}"
     return out
 
 
@@ -303,10 +397,12 @@ def load(path: Path) -> dict:
     rj = json.loads(Path(path).read_text())
     if "editor" in rj:
         doc = rj["editor"]
+        doc["grids"] = with_landmass_grid(doc["grids"])
+        doc.setdefault("preset", "arklarna")
         w = doc_to_world(doc)  # validates
         doc["routes"] = with_specs(w)
         return doc
-    return generate_doc(int(rj.get("seed", 1)))
+    return generate_doc(int(rj.get("seed", 1)), rj.get("preset", "arklarna"), rj.get("geography") or None)
 
 
 def render_png(doc: dict, scale: int = 6) -> bytes:

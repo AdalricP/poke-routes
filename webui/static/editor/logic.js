@@ -198,17 +198,17 @@
   }
 
   const LAND_MIN = 0.008, SEA_MAX = -0.01;
-  // a land cell that appears (raised out of the sea / painted): take a neighbour's half
+  // a land cell that appears (raised out of the sea / painted): take a neighbour's landmass label
   function becomeLand(doc, s, i) {
     const g = doc.grids, W = doc.W;
     touch(doc, s, "land")[i] = 1;
-    const half = touch(doc, s, "half");
+    const half = touch(doc, s, "landmass");
     if (!half[i]) {
       let h = 1;
       const x = i % W, y = (i / W) | 0;
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0], [0, 2], [0, -2]]) {
         const j = (y + dy) * W + (x + dx);
-        if (x + dx >= 0 && x + dx < W && y + dy >= 0 && y + dy < doc.H && g.half[j]) { h = g.half[j]; break; }
+        if (x + dx >= 0 && x + dx < W && y + dy >= 0 && y + dy < doc.H && g.landmass[j]) { h = g.landmass[j]; break; }
       }
       half[i] = h;
     }
@@ -219,7 +219,7 @@
     touch(doc, s, "land")[i] = 0;
     touch(doc, s, "lake")[i] = 0;
     touch(doc, s, "river")[i] = 0;
-    touch(doc, s, "half")[i] = 0;
+    touch(doc, s, "landmass")[i] = 0;
     touch(doc, s, "biome")[i] = 126; // ~
   }
 
@@ -485,6 +485,25 @@
     c.rect = [x0 + ndx, y0 + ndy, x1 + ndx, y1 + ndy];
     return !!(ndx || ndy);
   }
+  // towns placed by hand: the server checks again, this only saves pointless round trips
+  const TOWN_SIZE = [10, 9];
+  function next_town_name(doc) {
+    const taken = new Set(doc.cities.map((c) => c.name));
+    let number = 1;
+    while (taken.has(`Town ${number}`)) number++;
+    return `Town ${number}`;
+  }
+  function town_spot_problem(doc, x, y) {
+    if (x < 0 || y < 0 || x >= doc.W || y >= doc.H) return "that is off the map";
+    const i = y * doc.W + x;
+    if (!doc.grids.land[i] || doc.grids.lake[i]) return "a town has to stand on dry land";
+    const [width, height] = TOWN_SIZE;
+    const near_town = doc.cities.some((c) => x >= c.rect[0] - width / 2 && x < c.rect[2] + width / 2 &&
+      y >= c.rect[1] - height / 2 && y < c.rect[3] + height / 2);
+    if (near_town) return "too close to another town";
+    return "";
+  }
+
   // landmarks that travel together: Romowe carries its pillar and its gate
   const CARRY = { romowe: ["sky_pillar"], gold_feather_tower: ["brandwald"] };
   function moveLandmark(doc, id, dx, dy) {
@@ -719,6 +738,7 @@
     brushCells, lineCells, bbox, brushRaise, brushFlatten, brushSmooth, paintBiome, paintWater,
     shadeGrid, cellColor, renderBase,
     asciiId, routeByName, nodeRect, placeAt, refOf, renameRoute, renamePlace, moveCity, moveLandmark,
+    TOWN_SIZE, next_town_name, town_spot_problem,
     exitAlong, sideRange, edgeCell, mirrorExit, moveExit, sizeOk, resizeRoute, deleteRoute, routeWarnings,
     setSpecField, benchParams, HMS, routeNeeds, reachableAt, storyWarnings, moveBeat, removeBeat,
   };

@@ -1,12 +1,16 @@
 """Region editor + bench paint backend (kept out of server.py, like region_api.py).
 
-POST /api/editor/generate   {seed}                 -> editor document for a fresh region
+POST /api/editor/generate   {seed, preset?, geography?} -> editor document for a fresh region
+                            preset: generic (default; no towns, no landmarks) | arklarna
+                            geography: continent | coast | ... (generic only; default: the seed picks)
 GET  /api/editor/list                              -> saved regions under region_out/
 POST /api/editor/load       {name}                 -> document from region_out/<name>/region.json
 POST /api/editor/recompute  {doc, stages: [...]}   -> document with those stages re-run
                             stages: water | climate | biomes | routes | all
 POST /api/editor/add-route  {doc, src, dst}        -> document with a new link laid between two
                             places; refs are {"city": id} | {"route": name} | {"landmark": id}
+POST /api/editor/add-town   {doc, x, y, name?}     -> document with a town placed on land at cell (x, y)
+POST /api/editor/delete-town {doc, id}             -> document without that town (routes go stale)
 POST /api/editor/save       {doc, name}            -> writes region_out/<name>/ (region.json, routes/*.yaml)
 POST /api/editor/spec       {doc, id}              -> one route's full spec (with its region block)
 POST /api/editor/render     {doc, scale}           -> PNG of the edited region (server-side render)
@@ -92,7 +96,8 @@ def post(h, u, srv) -> None:
     try:
         if p == "/api/editor/generate":
             seed = max(0, min(2 ** 31 - 1, int(b.get("seed", 1))))
-            return h._json(edit.generate_doc(seed))
+            geography_kind = b.get("geography") or None
+            return h._json(edit.generate_doc(seed, str(b.get("preset") or "generic"), geography_kind))
         if p == "/api/editor/load":
             f = OUT / _name(b.get("name")) / "region.json"
             if not f.exists():
@@ -105,6 +110,10 @@ def post(h, u, srv) -> None:
             return h._json(edit.recompute(b["doc"], stages))
         if p == "/api/editor/add-route":
             return h._json(edit.add_route(b["doc"], b.get("src") or {}, b.get("dst") or {}))
+        if p == "/api/editor/add-town":
+            return h._json(edit.add_town(b["doc"], int(b["x"]), int(b["y"]), b.get("name")))
+        if p == "/api/editor/delete-town":
+            return h._json(edit.delete_town(b["doc"], str(b.get("id", ""))))
         if p == "/api/editor/save":
             name = _name(b.get("name") or b["doc"].get("name"))
             with _lock:

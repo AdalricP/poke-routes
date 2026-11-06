@@ -25,3 +25,11 @@ Known gaps / next:
   Now lobe count/placement, strait, spit arc, Nehrung size and coast roughness come from the
   seed (lore layout kept). Seeds 1-60 all build; ~1 in 8 drops an optional link
   (often the Huettenau-Pilsau loop), seed 31 loses Pilsau-Kaup. Worth a look.
+- 2026-11-06: the owner asked why the geography was always the same map. Default is now a
+  generic generator (geography.py): the seed picks continent / coast / peninsula / islands /
+  archipelago / inland lakes / crescent and shapes it; no legendaries, no towns, so no routes
+  until towns are placed in the editor (routes follow the shortest tree between them).
+  The old map, legends and four towns are the opt-in `--preset arklarna`, unchanged (seed 1
+  and 7 builds matched the old hashes). `w.half` became `w.landmass`; `w.strait` is None
+  outside the preset. Open: land touching the map edge drains off-map; sea links between towns
+  on different islands rarely find a way.

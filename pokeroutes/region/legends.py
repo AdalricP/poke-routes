@@ -40,10 +40,10 @@ def groudon(w: World) -> None:
     dcoast = ndi.distance_transform_edt(w.land)
     hs = ndi.gaussian_filter(np.where(w.land, w.height, 0), 3)
     up = w.overrides.get("upland", 0)
-    py_, px_ = np.unravel_index(int(np.argmax(np.where(w.half == 1, hs, -1))), hs.shape)
+    py_, px_ = np.unravel_index(int(np.argmax(np.where(w.landmass == 1, hs, -1))), hs.shape)
     dpk = np.hypot(xs - px_, ys - py_)
     # on the shoulder of the main range (not on its top), on the side facing the lowlands
-    score = np.where((w.half == 1) & (dcoast >= 12), hs + 0.3 * up - 0.02 * np.abs(dpk - 13) + 0.004 * xs, -1)
+    score = np.where((w.landmass == 1) & (dcoast >= 12), hs + 0.3 * up - 0.02 * np.abs(dpk - 13) + 0.004 * xs, -1)
     score[:, int(w.W * 0.55):] = -1
     cy, cx = np.unravel_index(int(np.argmax(score)), score.shape)
     r = np.hypot(xs - cx, ys - cy)
@@ -113,7 +113,7 @@ def kyogre(w: World) -> None:
     w.height = np.where(~w.land, w.height - 0.45 * np.exp(-e * 1.6), w.height)
     # storm coast: the mainland coast nearest the trench
     dtr = np.hypot(xs - tx, ys - ty)
-    storm = w.land & (w.half == 1) & (dtr < 24)
+    storm = w.land & (w.landmass == 1) & (dtr < 24)
     _addf(w, "rain", 0.45 * storm * np.exp(-dtr / 18))
     # sea caves: the highest coastal cell on that stretch, raised into cliffs
     coast = w.land & ndi.binary_dilation(~w.land) & storm
@@ -142,7 +142,7 @@ def rayquaza(w: World) -> None:
     """Romowe: a ring of peaks on the Nehrung's Samland block around a sheltered,
     green valley, with one gap. A pillar stands in the middle."""
     xs, ys = _grid(w)
-    neh = (w.half == 2) & ~w.overrides.get("spit", np.zeros_like(w.land))
+    neh = (w.landmass == 2) & ~w.overrides.get("spit", np.zeros_like(w.land))
     d = ndi.distance_transform_edt(neh)
     cy, cx = np.unravel_index(int(np.argmax(d)), d.shape)
     R = float(min(6.5, max(4.0, d[cy, cx] - 2.0)))
@@ -209,7 +209,7 @@ def lugia(w: World) -> None:
     isl &= dland > 2
     w.land = w.land | isl
     w.height = np.where(isl, hv + 0.01, w.height)
-    w.half = np.where(isl, 3, w.half).astype(np.int8)
+    w.landmass = np.where(isl, 3, w.landmass).astype(np.int8)
     # whirlpools: sea cells between pairs of islands
     pools = []
     for (ax, ay), (bx, by) in zip(spots[1:], spots[2:] + spots[1:2]):
@@ -233,7 +233,7 @@ def lugia(w: World) -> None:
 def main_river_mouth(w: World) -> Tuple[int, int, List[Tuple[int, int]]]:
     """The Oberland river with the most flow at the sea, and its stem upstream."""
     W = w.W
-    riv = w.river & (w.half == 1)
+    riv = w.river & (w.landmass == 1)
     mouth_mask = riv & ndi.binary_dilation(~w.land)
     if not mouth_mask.any():
         mouth_mask = riv
@@ -276,9 +276,9 @@ def hooh(w: World) -> None:
     for lm in w.landmarks:
         x0, y0, x1, y1 = lm.footprint
         taken[max(0, y0 - 4):y1 + 4, max(0, x0 - 4):x1 + 4] = True
-    ok = (w.half == 1) & (dcoast >= 6) & (dr >= 15) & (dr <= 24) & (driver >= 2) & ~taken
+    ok = (w.landmass == 1) & (dcoast >= 6) & (dr >= 15) & (dr <= 24) & (driver >= 2) & ~taken
     if not ok.any():
-        ok = (w.half == 1) & (dcoast >= 4) & (dr >= 12)
+        ok = (w.landmass == 1) & (dcoast >= 4) & (dr >= 12)
     score = np.where(ok, w.moist - 0.01 * dr, -9)
     ty, tx = np.unravel_index(int(np.argmax(score)), score.shape)
     r = np.hypot(xs - tx, ys - ty)

@@ -383,7 +383,8 @@ def generate_world(a):
     world_output_directory = OUT / "world" / str(world_seed)
     log_capture = io.StringIO()
     with contextlib.redirect_stdout(log_capture):
-        world, _written_directory, _written_paths = generate(world_seed, out=world_output_directory, strip=True, verbose=True)
+        world, _written_directory, _written_paths = generate(world_seed, out=world_output_directory, strip=True, verbose=True,
+                                                             preset=str(a.get("preset") or "generic"))
     route_spec_paths = sorted(str(spec_path.relative_to(ROOT)) for spec_path in world_output_directory.glob("routes/*.yaml"))
     world_result = {"seed": world_seed, "map_image": str(world_output_directory / "region.png"),
                     "stages_image": str(world_output_directory / "stages.png"),
@@ -602,8 +603,10 @@ TOOLS = {
                        {"path": {**S, "description": "spec path in the repo, e.g. specs/misty-lake.yaml"},
                         "note": {**S, "description": "one line shown next to the button"}}),
     "generate_world": (generate_world, "Generate a whole region from a seed, like `python3 -m pokeroutes.region generate`: "
-                       "terrain, climate, legendaries, towns and the route network. Returns the region map PNG, the stage strip "
-                       "and one spec file per route, which generate_route can take.", {"seed": I}),
+                       "terrain, water, climate and biomes. The default (generic) preset has no towns or landmarks, so no "
+                       "routes; preset arklarna adds the owner's fixed map with its legendaries, towns and routes. Returns the "
+                       "region map PNG, the stage strip and one spec file per route, which generate_route can take.",
+                       {"seed": I, "preset": {**S, "description": "generic (default) or arklarna"}}),
     "tilers": (tilers, "Which tilers work in this checkout (learned needs vendor/pokeemerald; ark needs ARK_ROM), the "
                "tileset each biome uses and the learned models available.", {}),
     "check_web_ui": (check_web_ui, "Start this job's own copy of the web UI server, check /api/spec-schema, a generate "

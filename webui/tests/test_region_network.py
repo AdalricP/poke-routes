@@ -19,7 +19,7 @@ def make_world(W: int = 80, H: int = 80) -> World:
     w = World(seed=1, W=W, H=H)
     w.land = np.ones((H, W), dtype=bool)
     w.height = np.zeros((H, W), dtype=float)
-    w.half = np.ones((H, W), dtype=np.int8)
+    w.landmass = np.ones((H, W), dtype=np.int8)
     w.sea = ~w.land
     w.lake = np.zeros((H, W), dtype=bool)
     w.river = np.zeros((H, W), dtype=bool)
@@ -46,6 +46,7 @@ def make_four_city_world() -> World:
     landmark, and two pre-seeded 'wild' landmarks (so wild_sites() doesn't have to find
     real terrain features on a blank map)."""
     w = make_world()
+    w.preset = "arklarna"
     w.cities = [city("tvangsburg", 8, 8), city("pilsau", 70, 8),
                 city("huettenau", 8, 70), city("kaup", 70, 70)]
     w.landmarks = [

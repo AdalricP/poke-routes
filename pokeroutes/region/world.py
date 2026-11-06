@@ -80,9 +80,11 @@ class World:
     rng: np.random.Generator = None
     land: np.ndarray = None
     height: np.ndarray = None  # sea < 0 <= land, land roughly 0..1
-    half: np.ndarray = None  # 0 sea, 1 Oberland, 2 Nehrung
+    preset: str = "generic"  # generic | arklarna
+    geography: str = ""  # the kind of land the generic generator drew (continent, islands, ...)
+    landmass: np.ndarray = None  # 0 sea, else a land label (arklarna: 1 Oberland, 2 Nehrung, 3 isles)
     lagoon: np.ndarray = None
-    strait: Tuple[int, int] = (0, 0)  # (x, y)
+    strait: Optional[Tuple[int, int]] = None  # (x, y); only the arklarna preset has one
     sea: np.ndarray = None
     lake: np.ndarray = None
     river: np.ndarray = None

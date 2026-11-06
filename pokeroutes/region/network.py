@@ -565,7 +565,7 @@ def wild_sites(w: World, net: "Network", n: int) -> list:
     cands = []
     v = w.landmark("glutberg")
     ys, xs = np.mgrid[0:w.H, 0:w.W]
-    okland = w.land & (w.half == 1) | w.land & (w.half == 2)
+    okland = w.land & (w.landmass == 1) | w.land & (w.landmass == 2)
     okland &= np.isfinite(net.lcost) & free
     if v is not None:
         okland &= np.hypot(xs - v.x, ys - v.y) > 10
@@ -607,6 +607,9 @@ def wild_sites(w: World, net: "Network", n: int) -> list:
     return out
 
 
+ARKLARNA_TOWNS = ("tvangsburg", "pilsau", "huettenau", "kaup")
+
+
 def build_network(w: World, keep: Optional[List[dict]] = None, plan: Optional[List[dict]] = None) -> Network:
     """Lay the route network. ``keep``: route dicts (as in ``w.routes``) to keep as they
     are; links are then only laid where a kept chain has a gap. ``plan``: the previous
@@ -632,6 +635,47 @@ def build_network(w: World, keep: Optional[List[dict]] = None, plan: Optional[Li
             return
         lay_around(net, link, pins[link["name"]])
 
+    if w.preset == "arklarna" and all(town_id in C for town_id in ARKLARNA_TOWNS):
+        arklarna_links(w, net, C, add, links)
+    else:
+        town_links(w, net, C, add)
+    # links drawn by hand in the editor
+    for ul in plan:
+        if ul.get("kind") != "user":
+            continue
+        link = user_link(w, net, ul)
+        if link is not None:
+            add(link)
+        else:
+            # keep the ref around with no routes, so a later rebuild can retry once it resolves
+            links.append(dict(name=ul["name"], kind="user", mode=ul.get("mode", "land"),
+                              src_ref=ul.get("src_ref"), dst_ref=ul.get("dst_ref"), routes=[]))
+            w.log.append(f"{ul['name']}: an end is gone; not laid")
+    add_back_gates(net)
+    classify(w, net)
+    for n in net.nodes:  # roles the owner set by hand stay
+        man = (n.get("keep") or {}).get("manual") or {}
+        if n["kind"] == "route" and man.get("role"):
+            n["role"] = man["role"]
+    name_routes(w, net)
+    w.links = []
+    for lk in links:
+        d = dict(name=lk["name"], kind=lk["kind"], mode=lk.get("mode", "land"),
+                 routes=[net.nodes[k]["name"] for k in lk.get("routes", [])], landmark=lk.get("landmark"))
+        for k in ("dropped", "src_ref", "dst_ref"):
+            if lk.get(k):
+                d[k] = lk[k]
+        w.links.append(d)
+    w.routes = [route_json(w, net, n) for n in net.nodes if n["kind"] == "route"]
+    w.overrides["network"] = net
+    w.log.append(f"routes: {len(w.routes)} ({', '.join(r['name'] + ':' + r['role'] for r in w.routes)})")
+    return net
+
+
+
+def arklarna_links(w: World, net: Network, C: Dict[str, int], add, links: List[dict]) -> None:
+    """The Arklarna preset: three roads between its four towns, the legendary
+    branches, two wild places and the Hüttenau loop."""
     add(dict(name="Tvangsburg-Pilsau", kind="main", src=[(C["tvangsburg"], 0)], dst=[(C["pilsau"], 0)]))
     add(dict(name="Tvangsburg-Huettenau", kind="main", src=[(C["tvangsburg"], 0)], dst=[(C["huettenau"], 0)]))
     add(dict(name="Pilsau-Kaup", kind="main", src=[(C["pilsau"], 0)], dst=[(C["kaup"], 0)]))
@@ -681,37 +725,35 @@ def build_network(w: World, keep: Optional[List[dict]] = None, plan: Optional[Li
     first = [k for k in links[0].get("routes", [])]
     add(dict(name="Huettenau-Pilsau loop", kind="loop", src=[(C["huettenau"], 0)] + [(k, 4.0) for k in links[1].get("routes", [])[-1:]],
              dst=[(C["pilsau"], 2.0)] + [(k, 0.0) for k in first]))
-    # links drawn by hand in the editor
-    for ul in plan:
-        if ul.get("kind") != "user":
-            continue
-        link = user_link(w, net, ul)
-        if link is not None:
-            add(link)
-        else:
-            # keep the ref around with no routes, so a later rebuild can retry once it resolves
-            links.append(dict(name=ul["name"], kind="user", mode=ul.get("mode", "land"),
-                              src_ref=ul.get("src_ref"), dst_ref=ul.get("dst_ref"), routes=[]))
-            w.log.append(f"{ul['name']}: an end is gone; not laid")
-    add_back_gates(net)
-    classify(w, net)
-    for n in net.nodes:  # roles the owner set by hand stay
-        man = (n.get("keep") or {}).get("manual") or {}
-        if n["kind"] == "route" and man.get("role"):
-            n["role"] = man["role"]
-    name_routes(w, net)
-    w.links = []
-    for lk in links:
-        d = dict(name=lk["name"], kind=lk["kind"], mode=lk.get("mode", "land"),
-                 routes=[net.nodes[k]["name"] for k in lk.get("routes", [])], landmark=lk.get("landmark"))
-        for k in ("dropped", "src_ref", "dst_ref"):
-            if lk.get(k):
-                d[k] = lk[k]
-        w.links.append(d)
-    w.routes = [route_json(w, net, n) for n in net.nodes if n["kind"] == "route"]
-    w.overrides["network"] = net
-    w.log.append(f"routes: {len(w.routes)} ({', '.join(r['name'] + ':' + r['role'] for r in w.routes)})")
-    return net
+
+
+def town_links(w: World, net: Network, C: Dict[str, int], add) -> None:
+    for town, other_town in town_tree(w.cities):
+        mode = "land" if same_landmass(w, town, other_town) else "sea"
+        add(dict(name=f"{town.name}-{other_town.name}", kind="main", mode=mode,
+                 src=[(C[town.id], 0)], dst=[(C[other_town.id], 0)]))
+
+
+def town_tree(towns: list) -> List[tuple]:
+    """Pairs of towns joined by the shortest tree over their centres (Prim)."""
+    if len(towns) < 2:
+        return []
+    joined, pairs = [towns[0]], []
+    waiting = list(towns[1:])
+    while waiting:
+        town, other_town = min(((a, b) for a in joined for b in waiting),
+                               key=lambda pair: math.hypot(pair[0].cx - pair[1].cx, pair[0].cy - pair[1].cy))
+        pairs.append((town, other_town))
+        joined.append(other_town)
+        waiting.remove(other_town)
+    return pairs
+
+
+def same_landmass(w: World, town, other_town) -> bool:
+    labels, _count = ndi.label(w.land & ~w.lake)
+    first = labels[min(w.H - 1, int(town.cy)), min(w.W - 1, int(town.cx))]
+    second = labels[min(w.H - 1, int(other_town.cy)), min(w.W - 1, int(other_town.cx))]
+    return first == 0 or second == 0 or first == second
 
 
 def route_json(w: World, net: Network, n: dict) -> dict:

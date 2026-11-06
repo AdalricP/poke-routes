@@ -275,7 +275,8 @@ def write_all(w: World, out: Path) -> Dict[str, Path]:
 def region_json(w: World, specs: List[dict]) -> dict:
     return {
         "seed": w.seed, "size": [w.W, w.H], "cell": CELL,
-        "strait": list(w.strait),
+        "preset": w.preset, "geography": w.geography,
+        "strait": list(w.strait) if w.strait else None,
         "cities": [c.json() for c in w.cities],
         "landmarks": [l.json() for l in w.landmarks],
         "links": w.links,

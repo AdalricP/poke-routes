@@ -1,5 +1,6 @@
-"""Terrain: coastline, heightmap (fBm + domain warp), erosion, rivers, lakes,
-climate and biomes. Every function edits the World in place."""
+"""Terrain: heightmap (fBm + domain warp), erosion, rivers, lakes, climate and
+biomes, run on whatever land mask the geography step drew. The Arklarna preset's
+own coastline and heightmap live here too. Every function edits the World in place."""
 from __future__ import annotations
 
 import heapq
@@ -68,8 +69,8 @@ def _seg_dist(px, py, ax, ay, bx, by):
     return np.hypot(px - (ax + t * abx), py - (ay + t * aby))
 
 
-def coastline(w: World) -> None:
-    """Two halves: the Oberland mainland (west) and the Nehrung (east): a sand spit
+def arklarna_coastline(w: World) -> None:
+    """The Arklarna preset only. Two halves: the Oberland mainland (west) and the Nehrung (east): a sand spit
     running from the strait at Pilsau to the Samland block, with the lagoon (Haff)
     between them. That layout is fixed by the lore; where the lobes sit, how big they
     are, where the strait is and how ragged the coast is all come from the seed."""
@@ -215,7 +216,7 @@ def coastline(w: World) -> None:
         d2 = ndi.distance_transform_edt(~eastland)
         half[islets & (d1 <= d2)] = 1
         half[islets & (d2 < d1)] = 2
-    w.half = half
+    w.landmass = half
     w.lagoon = haff & ~land
     w.overrides["spit"] = spit & land
     w.log.append(f"coast: {land.mean() * 100:.0f}% land, strait at {w.strait}")
@@ -223,7 +224,7 @@ def coastline(w: World) -> None:
 
 # ------------------------------------------------------------------ height
 
-def heightmap(w: World) -> None:
+def arklarna_heightmap(w: World) -> None:
     rng = w.rng
     xs, ys = _grid(w)
     u, v = (xs + 0.5) / w.W, (ys + 0.5) / w.H
@@ -258,6 +259,20 @@ def heightmap(w: World) -> None:
 
 
 # ------------------------------------------------------------------ hydrology helpers
+
+def shore_distance(land: np.ndarray) -> np.ndarray:
+    if not (~land).any():
+        return np.full(land.shape, float(max(land.shape)))
+    return ndi.distance_transform_edt(land)
+
+
+def drain_outlet(land: np.ndarray) -> np.ndarray:
+    """Water leaves the map through the sea and through any land on the map edge
+    (the land goes on past it)."""
+    map_edge = np.zeros_like(land)
+    map_edge[0, :] = map_edge[-1, :] = map_edge[:, 0] = map_edge[:, -1] = True
+    return ~land | map_edge
+
 
 def priority_fill(h: np.ndarray, outlet: np.ndarray, eps: float = 0.0) -> np.ndarray:
     """Priority-flood depression filling: every land cell can drain to an outlet."""
@@ -312,7 +327,7 @@ def erode(w: World, iters: int = 30) -> None:
     plus a thermal pass that slumps slopes steeper than the talus angle."""
     h = w.height.copy()
     land = w.land
-    sea = ~land
+    sea = drain_outlet(land)
     for it in range(iters):
         if it % 5 == 0:
             hf = priority_fill(h, sea, eps=1e-5)
@@ -342,7 +357,7 @@ def erode(w: World, iters: int = 30) -> None:
 
 def hydrology(w: World, max_lakes: int = 3, river_cells: int = 0) -> None:
     land = w.land
-    sea = ~land
+    sea = drain_outlet(land)
     h = w.height
     filled = priority_fill(h, sea)
     depth = np.where(land, filled - h, 0)
@@ -371,7 +386,7 @@ def hydrology(w: World, max_lakes: int = 3, river_cells: int = 0) -> None:
     w.recv, w.flow = recv, A
     thr = river_cells or max(30, int(land.sum() * 0.0045))
     w.river = land & ~w.lake & (A >= thr)
-    w.sea = sea
+    w.sea = ~land
     w.log.append(f"hydrology: {int(w.lake.sum())} lake cells, {int(w.river.sum())} river cells (thr {thr})")
 
 
@@ -400,7 +415,7 @@ def climate(w: World, reuse_noise: bool = False) -> None:
         m[:, x] = cur
         prev = col
     m = ndi.gaussian_filter(m, 1.5)
-    dcoast = ndi.distance_transform_edt(land)
+    dcoast = shore_distance(land)
     driver = ndi.distance_transform_edt(~(w.river | w.lake)) if w.river is not None else dcoast
     noise = w.overrides.get("moist_noise") if reuse_noise else None
     if noise is None:
@@ -428,7 +443,7 @@ def biomes(w: World) -> None:
     land = w.land
     h, t, m = w.height, w.temp, w.moist
     hn = np.where(land, h, 0) / max(1e-6, float(h[land].max()))
-    dsea = ndi.distance_transform_edt(land)
+    dsea = shore_distance(land)
     near_river = ndi.binary_dilation(w.river | w.lake, iterations=2)
     slope = np.hypot(*np.gradient(h))
     b = np.full(h.shape, "m", dtype="<U1")

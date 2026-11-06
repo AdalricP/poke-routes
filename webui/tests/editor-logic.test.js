@@ -13,13 +13,13 @@ function test(name, fn) {
 function makeDoc() {
   const W = 40, H = 30, N = W * H;
   const g = {
-    height: new Float32Array(N), land: new Uint8Array(N), half: new Uint8Array(N), lake: new Uint8Array(N),
+    height: new Float32Array(N), land: new Uint8Array(N), landmass: new Uint8Array(N), lake: new Uint8Array(N),
     river: new Uint8Array(N), biome: new Uint8Array(N), tiers: new Uint8Array(N), dirty: new Uint8Array(N),
     paint_biome: new Uint8Array(N), paint_water: new Uint8Array(N),
   };
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = y * W + x, inside = x >= 4 && x < 36 && y >= 4 && y < 26;
-    g.land[i] = inside ? 1 : 0; g.half[i] = inside ? 1 : 0;
+    g.land[i] = inside ? 1 : 0; g.landmass[i] = inside ? 1 : 0;
     g.height[i] = inside ? 0.1 + 0.01 * x : -0.2;
     g.biome[i] = (inside ? "m" : "~").charCodeAt(0);
   }
@@ -83,11 +83,11 @@ test("raise / lower move height, mark dirty, and cross sea level", () => {
   ED.brushRaise(d, s, [[i, 1]], -5);
   assert.strictEqual(d.grids.land[i], 0);
   assert.strictEqual(String.fromCharCode(d.grids.biome[i]), "~");
-  // raise a sea cell above 0: it becomes land with a half
+  // raise a sea cell above 0: it becomes land with a landmass label
   const j = 1 * 40 + 20;
   ED.brushRaise(d, s, [[j, 1]], 1);
   assert.strictEqual(d.grids.land[j], 1);
-  assert.ok(d.grids.half[j] >= 1);
+  assert.ok(d.grids.landmass[j] >= 1);
 });
 
 test("flatten pulls toward the target, smooth evens out a spike", () => {
@@ -360,6 +360,17 @@ test("story: a gated route opens once a beat hands out the move", () => {
   assert.ok(ED.reachableAt(d, 1).has("Eins"));
   assert.strictEqual(ED.routeNeeds({ mode: "sea" }), "surf");
   assert.strictEqual(ED.routeNeeds({ mode: "sea", gate: { needs: "" } }), "");
+});
+
+test("towns placed by hand: next free name, only on dry land away from other towns", () => {
+  const d = makeDoc();
+  assert.strictEqual(ED.next_town_name(d), "Town 1");
+  d.cities.push({ id: "town1", name: "Town 1", rect: [15, 18, 25, 27] });
+  assert.strictEqual(ED.next_town_name(d), "Town 2");
+  assert.strictEqual(ED.town_spot_problem(d, 1, 1), "a town has to stand on dry land");
+  assert.strictEqual(ED.town_spot_problem(d, 7, 12), "too close to another town");
+  assert.strictEqual(ED.town_spot_problem(d, 99, 1), "that is off the map");
+  assert.strictEqual(ED.town_spot_problem(d, 20, 6), "");
 });
 
 if (process.env.REGION_DOC) {

@@ -55,10 +55,10 @@ def settle(w: World) -> None:
     sx, sy = w.strait
     wh = SIZES["pilsau"]
     cands = [(sx + dx, sy + dy) for dx in range(-6, 7) for dy in range(-6, 7)]
-    spit_land = land & (w.half == 2)
+    spit_land = land & (w.landmass == 2)
 
     def pil_score(r, cx, cy):
-        a, b = frac(land & (w.half == 1), r), frac(land & (w.half == 2), r)
+        a, b = frac(land & (w.landmass == 1), r), frac(land & (w.landmass == 2), r)
         if min(a, b) < 0.10:  # the port must stand on both shores
             return -1e9 + a + b
         # the road onto the spit leaves through a side, not a corner (routes skip corners)
@@ -95,7 +95,7 @@ def settle(w: World) -> None:
     cands = [(vx + dx, vy + dy) for dx in range(-20, 21) for dy in range(-20, 21) if 10 <= np.hypot(dx, dy) <= 17]
 
     def hu_score(r, cx, cy):
-        s = frac(land & (w.half == 1), r) * 8 - frac(hard, r) * 30 - frac(slope > 0.04, r) * 4
+        s = frac(land & (w.landmass == 1), r) * 8 - frac(hard, r) * 30 - frac(slope > 0.04, r) * 4
         s -= np.hypot(cx - (tv[0] + tv[2]) / 2, cy - (tv[1] + tv[3]) / 2) * 0.03
         return s
 
@@ -104,7 +104,7 @@ def settle(w: World) -> None:
 
     # Kaup: small dune village on the Nehrung, on the coast, between the spit and Romowe
     wh = SIZES["kaup"]
-    neh = (w.half == 2)
+    neh = (w.landmass == 2)
     spit = w.overrides.get("spit", np.zeros_like(land))
     den = w.landmark("romowe")
     dcoast = ndi.distance_transform_edt(land)
