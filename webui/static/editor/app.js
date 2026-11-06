@@ -2295,7 +2295,7 @@
       (region_rect[2] - region_rect[0]) * pixels_per_region_cell, (region_rect[3] - region_rect[1]) * pixels_per_region_cell];
     const previous_alpha = ctx.globalAlpha;
     ctx.globalAlpha = 1;
-    fly.is_animating_tiles = fly_view_route_tiles.draw_route_tiles(ctx, region_document, cell_window, pixels_per_region_cell, screen_rect_of);
+    fly.is_animating_tiles = fly_view_route_tiles.draw_route_tiles(ctx, region_document, cell_window, screen_rect_of);
     ctx.globalAlpha = previous_alpha;
   }
 
