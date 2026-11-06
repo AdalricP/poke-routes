@@ -440,6 +440,38 @@ test("scene exits walk along a route's chain of maps", () => {
   assert.strictEqual(SL.chain_map_with_constant(doc, "MAP_ROUTE1_2").name, "Route 1 (2/2)");
 });
 
+test("an L-shaped chain is laid out at its world positions", () => {
+  const l_shaped_chain = [
+    { name: "Route 1 (1/4)", rect: [16, 24, 24, 32] }, { name: "Route 1 (2/4)", rect: [24, 24, 32, 32] },
+    { name: "Route 1 (3/4)", rect: [32, 24, 40, 32] }, { name: "Route 1 (4/4)", rect: [32, 32, 40, 40] },
+  ];
+  const layout = SL.chain_layout(l_shaped_chain, 4);
+  assert.deepStrictEqual(layout.maps.map((placement) => [placement.offset_x_in_metatiles, placement.offset_y_in_metatiles]), [[0, 0], [32, 0], [64, 0], [64, 32]]);
+  assert.deepStrictEqual([layout.width_in_metatiles, layout.height_in_metatiles], [96, 64]);
+  assert.deepStrictEqual(layout.maps.map((placement) => [placement.width_in_metatiles, placement.height_in_metatiles]), [[32, 32], [32, 32], [32, 32], [32, 32]]);
+  assert.strictEqual(SL.chain_map_index_at(layout, 0, 0), 0);
+  assert.strictEqual(SL.chain_map_index_at(layout, 31, 31), 0);
+  assert.strictEqual(SL.chain_map_index_at(layout, 32, 5), 1);
+  assert.strictEqual(SL.chain_map_index_at(layout, 70, 40), 3);
+  assert.strictEqual(SL.chain_map_index_at(layout, 10, 40), -1);
+  assert.strictEqual(SL.chain_map_index_at(layout, -1, 0), -1);
+  assert.deepStrictEqual(SL.chain_map_offset_between(layout, 1, 3), { x: 32, y: 32 });
+  assert.deepStrictEqual(SL.chain_map_offset_between(layout, 3, 0), { x: -64, y: -32 });
+});
+
+test("seams lie on the edges shared by touching chain maps", () => {
+  const l_shaped_chain = [{ name: "a", rect: [0, 0, 8, 8] }, { name: "b", rect: [8, 0, 16, 8] }, { name: "c", rect: [8, 8, 16, 16] }];
+  const seams = SL.chain_seam_segments(SL.chain_layout(l_shaped_chain, 4));
+  assert.deepStrictEqual(seams, [{ x0: 32, y0: 0, x1: 32, y1: 32 }, { x0: 32, y0: 32, x1: 64, y1: 32 }]);
+  const diagonal_chain = [{ name: "a", rect: [0, 0, 8, 8] }, { name: "b", rect: [8, 8, 16, 16] }];
+  assert.deepStrictEqual(SL.chain_seam_segments(SL.chain_layout(diagonal_chain, 4)), []);
+  const single_map = SL.chain_layout([{ name: "solo", rect: [5, 5, 13, 13] }], 4);
+  assert.deepStrictEqual(SL.chain_seam_segments(single_map), []);
+  assert.deepStrictEqual([single_map.maps[0].offset_x_in_metatiles, single_map.width_in_metatiles], [0, 32]);
+  const uneven_neighbours = [{ name: "tall", rect: [0, 0, 8, 16] }, { name: "short", rect: [8, 4, 16, 12] }];
+  assert.deepStrictEqual(SL.chain_seam_segments(SL.chain_layout(uneven_neighbours, 4)), [{ x0: 32, y0: 16, x1: 32, y1: 48 }]);
+});
+
 test("saved spec file round trip", () => {
   const p = { name: "Testweg", seed: 7, width: 64, height: 72, exits: [{ side: "south", at: 0.45, width: 2 }, { side: "north", at: 0.6, width: 2 }], special_areas: ["auto"] };
   const file = SL.paramsToSpecFile(p, { name: "Testweg", region: { role: "link" }, endings: [] });

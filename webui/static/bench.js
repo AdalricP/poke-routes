@@ -53,11 +53,20 @@
     region: sget(REGION_KEY),      // {name, region, endings} or null
     file: { handle: null, name: "" },
     saved: "", generated: "",
-    expanded: new Set(["route", "g:exits", "g:lanes", "g:special", "g:layers"]),
+    expanded: new Set(["chain", "route", "g:exits", "g:lanes", "g:special", "g:layers"]),
     route_trail: [],           // names of the region routes walked through, for Back
     connection_labels: [],     // screen boxes of the exit labels drawn on the Scene: {x, y, w, h, i}
+    chain: null,
   };
   const undoStack = new SL.History(150, 800);
+  const push_undo_entry_of_any_map = undoStack.push.bind(undoStack);
+  undoStack.push = (undo_entry) => push_undo_entry_of_any_map(undo_entry_tagged_with_open_map(undo_entry));
+  function undo_entry_tagged_with_open_map(undo_entry) {
+    const open_map_slot = state.chain ? state.chain.slots[state.chain.active_index] : null;
+    if (!open_map_slot) return undo_entry;
+    const tagged_entry = Object.assign({}, undo_entry, { chain_map_name: open_map_slot.name, key: undo_entry.key ? open_map_slot.name + "|" + undo_entry.key : undo_entry.key });
+    return tagged_entry;
+  }
   function saveView() { sset(VIEW_KEY, { layer: state.layer, ov: state.ov, brush_size: state.brush_size }); }
 
   // ------------------------------------------------------------ inspector controls
@@ -368,6 +377,7 @@
     undoStack.push({ kind: "spec", before: lastParams, after, key: live ? key : key + ":" + Date.now(), t: Date.now() });
     lastParams = after;
     sset(STORE_KEY, after);
+    remember_open_chain();
     updateTitle();
     autoGenerate();
   }
@@ -410,6 +420,7 @@
     return k ? `change to ${k.replace(/_/g, " ")}` : "change";
   }
   async function applyEntry(e, side) {
+    if (!open_map_of_undo_entry(e)) return;
     if (e.kind === "spec") {
       setParams(e[side]);
       sset(STORE_KEY, params());
@@ -426,6 +437,15 @@
     } else if (e.kind === "events") {
       route_events.restore(e[side]);
     }
+  }
+
+  function open_map_of_undo_entry(undo_entry) {
+    if (!state.chain || !undo_entry.chain_map_name) return true;
+    const map_index = state.chain.slots.findIndex((slot) => slot.name === undo_entry.chain_map_name);
+    if (map_index < 0) return false;
+    activate_chain_map(map_index);
+    const is_open = state.chain.active_index === map_index;
+    return is_open;
   }
 
   // ------------------------------------------------------------ server
@@ -495,6 +515,7 @@
 
   // ------------------------------------------------------------ generate
   async function generate(opts) {
+    if (state.chain) { await generate_open_chain(opts); return; }
     if (state.busy) { pendingGenerate = true; return; }
     const p = params();
     sset(STORE_KEY, p);
@@ -548,6 +569,7 @@
   }
 
   function regenerate() {
+    if (state.chain) { regenerate_open_chain_with_new_seeds(); return; }
     $("seed").value = Math.floor(Math.random() * 100000);
     edited("seed");
     generate();
@@ -573,11 +595,10 @@
   }
 
   // ------------------------------------------------------------ canvases
-  function drawStage(i, prev, prevTiles) {
-    const r = state.result;
+  function drawStage(r, atlas, i, prev, prevTiles) {
     const W = r.width, H = r.height;
     const st = r.stages[i];
-    const { meta, img } = state.atlas;
+    const { meta, img } = atlas;
     const idx = meta.index, cols = meta.columns;
     const c = document.createElement("canvas");
     c.width = W * CELL;
@@ -635,24 +656,23 @@
   }
 
   function buildCanvases() {
-    const r = state.result;
-    state.tileCanvases = [];
-    state.classCanvases = [];
-    state.changedMasks = [];
-    state.stageInfo = [];
-    state.animCells = [];
+    Object.assign(state, canvases_of_route(state.result, state.atlas));
+  }
+  function canvases_of_route(r, atlas) {
+    const canvases = { tileCanvases: [], classCanvases: [], changedMasks: [], stageInfo: [], animCells: [] };
     let prev = null, prevTiles = null;
     r.stages.forEach((st, i) => {
-      const d = drawStage(i, prev, prevTiles);
-      state.tileCanvases.push(d.tiles);
-      state.classCanvases.push(d.classes);
-      state.changedMasks.push(d.mask);
-      state.animCells.push(d.anim);
+      const d = drawStage(r, atlas, i, prev, prevTiles);
+      canvases.tileCanvases.push(d.tiles);
+      canvases.classCanvases.push(d.classes);
+      canvases.changedMasks.push(d.mask);
+      canvases.animCells.push(d.anim);
       const pz = i ? r.stages[i - 1].zones : 0, pe = i ? r.stages[i - 1].events : 0;
-      state.stageInfo.push({ changed: d.changed, zones: st.zones - pz, events: st.events - pe });
+      canvases.stageInfo.push({ changed: d.changed, zones: st.zones - pz, events: st.events - pe });
       prev = d.tiles;
       prevTiles = st.tiles;
     });
+    return canvases;
   }
 
   // ------------------------------------------------------------ tile animation
@@ -672,10 +692,15 @@
     if (route_items.has_glitter() || route_items.has_moving_sprites()) draw();
   }
   function draw_tile_animation_frame() {
-    const cells = state.animCells[state.stage];
-    if (!state.atlas || !cells || !cells.length) return;
-    const { meta, img } = state.atlas;
-    const g = state.tileCanvases[state.stage].getContext("2d");
+    animate_tiles_of_map(state);
+    for (const slot of inactive_chain_slots_with_maps()) animate_tiles_of_map(slot);
+    draw();
+  }
+  function animate_tiles_of_map(map_holder) {
+    const cells = map_holder.animCells[map_holder.stage];
+    if (!map_holder.atlas || !cells || !cells.length) return;
+    const { meta, img } = map_holder.atlas;
+    const g = map_holder.tileCanvases[map_holder.stage].getContext("2d");
     for (const c of cells) {
       const seq = [meta.index[c.mid], ...meta.anim[c.mid]];
       const a = seq[(Math.floor(animFrame * c.speed) + c.phase) % seq.length];
@@ -684,7 +709,6 @@
       g.clearRect(c.x, c.y, CELL, CELL);
       g.drawImage(img, (a % meta.columns) * CELL, Math.floor(a / meta.columns) * CELL, CELL, CELL, c.x, c.y, CELL, CELL);
     }
-    draw();
   }
   const idle_motion_cycle_in_ticks = 16;
   function idle_motion_phase(motion, cell_x, cell_y) {
@@ -697,12 +721,20 @@
   async function reload_atlas_at_version(atlas_version) {
     const route_result = state.result;
     if (!route_result) return;
+    state.atlas = await atlas_of_route_at_version(route_result, atlas_version);
+    buildCanvases();
+    for (const slot of inactive_chain_slots_with_maps()) await reload_atlas_of_slot(slot, atlas_version);
+    draw();
+  }
+  async function reload_atlas_of_slot(slot, atlas_version) {
+    slot.atlas = await atlas_of_route_at_version(slot.result, atlas_version);
+    Object.assign(slot, canvases_of_route(slot.result, slot.atlas));
+  }
+  function atlas_of_route_at_version(route_result, atlas_version) {
     const atlas_address = new URL(route_result.atlas || "/api/atlas", location.origin);
     atlas_address.searchParams.set("v", atlas_version);
     route_result.atlas = atlas_address.pathname + atlas_address.search;
-    state.atlas = await atlasFor(route_result.atlas);
-    buildCanvases();
-    draw();
+    return atlasFor(route_result.atlas);
   }
   const breeze_wave_ticks_per_tree_block_step = 3;
   const breeze_phase_jitter_in_ticks = 4;
@@ -756,6 +788,7 @@
   }
 
   function fit() {
+    if (state.chain) { fit_chain_rectangle(0, 0, state.chain.layout.width_in_metatiles, state.chain.layout.height_in_metatiles); return; }
     const r = state.result;
     if (!r) return;
     const box = wrap.getBoundingClientRect();
@@ -805,6 +838,7 @@
     const panBtn = ev.button === 1 || ev.button === 2 || spaceDown || state.tool === "pan";
     wrap.setPointerCapture(ev.pointerId);
     if (!panBtn && state.tool === "paint" && ev.button === 0) {
+      activate_chain_map_under(sx, sy);
       if (!canPaint(true) || state.paint.busy) { drag = null; return; }
       drag = { mode: "paint" };
       if (state.stage !== state.result.stages.length - 1) { stopPlay(); setStage(state.result.stages.length - 1, false); }
@@ -838,7 +872,7 @@
     wrap.classList.remove("dragging");
     if (!d) return;
     if (d.mode === "paint") { commitPaint(); return; }
-    if (d.select && !d.moved) { const { sx, sy } = pt(ev); click_scene_cell(sx, sy); }
+    if (d.select && !d.moved) { const { sx, sy } = pt(ev); activate_chain_map_under(sx, sy); click_scene_cell(sx, sy); }
   });
   function click_scene_cell(sx, sy) {
     if (route_events.pick_cell(cellOf(sx, sy))) return;
@@ -849,7 +883,7 @@
   wrap.addEventListener("pointercancel", () => { drag = null; wrap.classList.remove("dragging"); state.paint.cells = new Map(); state.paint.objects = []; draw(); });
   wrap.addEventListener("contextmenu", (ev) => ev.preventDefault());
   wrap.addEventListener("dblclick", () => { if (state.sel) focusSel(); });
-  wrap.addEventListener("pointerleave", () => { state.hover = null; state.hoverArea = null; hideTip(); $("stCell").textContent = ""; draw(); });
+  wrap.addEventListener("pointerleave", () => { state.hover = null; state.hoverArea = null; if (state.chain) state.chain.hover = null; hideTip(); $("stCell").textContent = ""; draw(); });
   wrap.addEventListener("wheel", (ev) => {
     ev.preventDefault();
     const { sx, sy } = pt(ev);
@@ -874,6 +908,7 @@
   }
 
   function hoverAt(sx, sy) {
+    if (hover_on_another_chain_map(sx, sy)) return;
     const r = state.result;
     if (!r) return;
     const c = cellOf(sx, sy);
@@ -882,15 +917,19 @@
     const area = c && state.ov.areas && state.tool === "select" ? PR.specialAt(zones, c.x, c.y) : null;
     const changed = area !== state.hoverArea;
     state.hoverArea = area;
-    if (c) {
-      const st = r.stages[state.stage];
-      const k = st.cls[c.y][c.x];
-      const m = st.tiles[c.y * r.width + c.x];
-      $("stCell").textContent = `x ${c.x}  y ${c.y}  ${PR.CLASS_NAMES[k] || k}  0x${m.toString(16).toUpperCase().padStart(3, "0")}`;
-    } else $("stCell").textContent = "";
+    $("stCell").textContent = c ? cell_status_text(r, state.stage, c) : "";
     wrap.classList.toggle("over-connection", state.tool === "select" && !!connection_label_at(sx, sy));
     if (area) showTip(area, sx, sy); else hideTip();
     if (changed || state.tool !== "select") draw();
+  }
+
+  function cell_status_text(route_result, stage_index, cell) {
+    const st = route_result.stages[stage_index];
+    const k = st.cls[cell.y][cell.x];
+    const m = st.tiles[cell.y * route_result.width + cell.x];
+    const map_label = state.chain ? `map ${chain_map_index_named(route_result.name) + 1}  ` : "";
+    const status_text = `${map_label}x ${cell.x}  y ${cell.y}  ${PR.CLASS_NAMES[k] || k}  0x${m.toString(16).toUpperCase().padStart(3, "0")}`;
+    return status_text;
   }
 
   function showTip(z, sx, sy) {
@@ -1043,10 +1082,11 @@
     return fresh_particles;
   }
   function visible_map_rectangle(view_width, view_height) {
-    const route_result = state.result;
-    const { zoom, ox, oy } = state.view;
+    const { zoom } = state.view;
+    const shown_area = shown_area_in_metatiles();
+    const ox = state.view.ox + shown_area.left * CELL * zoom, oy = state.view.oy + shown_area.top * CELL * zoom;
     const left = Math.max(0, ox), top = Math.max(0, oy);
-    const right = Math.min(view_width, ox + route_result.width * CELL * zoom), bottom = Math.min(view_height, oy + route_result.height * CELL * zoom);
+    const right = Math.min(view_width, ox + shown_area.width * CELL * zoom), bottom = Math.min(view_height, oy + shown_area.height * CELL * zoom);
     const visible_rectangle = { left, top, width: right - left, height: bottom - top };
     return visible_rectangle;
   }
@@ -1169,26 +1209,38 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     $("tbZoom").textContent = `${Math.round(state.view.zoom * 100)}%`;
+    state.connection_labels = [];
     const r = state.result;
-    if (!r || !state.tileCanvases.length) return;
+    if (!state.chain && (!r || !state.tileCanvases.length)) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     let t = 1;
     if (state.prevStage != null && prefs.fade) {
       t = Math.min(1, (performance.now() - state.fadeStart) / FADE_MS);
       if (t >= 1) state.prevStage = null;
     } else state.prevStage = null;
-    paintScene(ctx, state.view, { fade: t, prev: state.prevStage, interactive: true });
+    if (state.chain) paint_open_chain(ctx, { fade: t, prev: state.prevStage, interactive: true });
+    else paintScene(ctx, state.view, { fade: t, prev: state.prevStage, interactive: true });
     if (t < 1 || flashLeft() > 0) draw();
   }
 
   // Draws the map + overlays into any 2D context (the scene view, and File > Export PNG).
   function paintScene(g, view, opt) {
+    if (opt.interactive) paint_map_shadow(g, view, state.result);
+    paint_map_layer(g, view, opt);
+    paint_map_overlays(g, view, opt);
+  }
+
+  function paint_map_shadow(g, view, r) {
+    g.fillStyle = "rgba(0,0,0,0.35)";
+    g.fillRect(view.ox + 2, view.oy + 2, r.width * CELL * view.zoom, r.height * CELL * view.zoom);
+  }
+
+  function paint_map_layer(g, view, opt) {
     const r = state.result;
     const { zoom, ox, oy } = view;
     const W = r.width * CELL * zoom, H = r.height * CELL * zoom;
     const layer = state.layer === "classes" ? state.classCanvases : state.tileCanvases;
     g.imageSmoothingEnabled = false;
-    if (opt.interactive) { g.fillStyle = "rgba(0,0,0,0.35)"; g.fillRect(ox + 2, oy + 2, W, H); }
     if (opt.prev != null && opt.fade < 1) g.drawImage(layer[opt.prev], ox, oy, W, H);
     g.globalAlpha = opt.fade == null ? 1 : opt.fade;
     g.drawImage(layer[state.stage], ox, oy, W, H);
@@ -1197,6 +1249,12 @@
     if (opt.interactive && mask && fl > 0) { g.globalAlpha = 0.65 * fl; g.drawImage(mask, ox, oy, W, H); g.globalAlpha = 1; }
     const s = CELL * zoom;
     if (state.ov.grid && s >= 8) drawGrid(g, r, ox, oy, s);
+  }
+
+  function paint_map_overlays(g, view, opt) {
+    const r = state.result;
+    const { zoom, ox, oy } = view;
+    const s = CELL * zoom;
     const zones = PR.zonesAt(r, state.stage);
     if (state.ov.markings && state.ov.events) drawEvents(g, PR.eventsAt(r, state.stage).filter((e) => !route_people.hides_generated_event(e)).concat(route_items.visible_items()), ox, oy, s);
     if (state.ov.markings && state.ov.events) route_people.draw(g, ox, oy, s);
@@ -1204,7 +1262,7 @@
     if (state.ov.markings && state.ov.areas) drawAreas(g, zones, ox, oy, s);
     if (!opt.interactive) return;
     if (state.ov.markings) drawSelection(g, ox, oy, s);
-    if (state.ov.markings) draw_connection_labels(g, ox, oy, s); else state.connection_labels = [];
+    if (state.ov.markings) draw_connection_labels(g, ox, oy, s);
     if (state.paint.cells.size) {
       g.globalAlpha = 0.7;
       for (const [k, value] of state.paint.cells) {
@@ -1479,25 +1537,31 @@
     renderTree();
   }
   // a new route with remembered paint: put it back
-  async function reapplyPaint() {
-    const r = state.result;
+  function reapplyPaint() {
+    return reapply_paint_on_map(state);
+  }
+  async function reapply_paint_on_map(map_holder) {
+    const r = map_holder.result;
     const cells = SL.paintList(savedPaint(r));
     if (!cells.length) return;
-    if (await retile(cells, true)) log("info", `Put back ${cells.length} painted cells on ${r.name}`);
+    if (await retile_map(map_holder, cells, true)) log("info", `Put back ${cells.length} painted cells on ${r.name}`);
   }
-  async function retile(cells, quiet) {
-    const r = state.result;
+  function retile(cells, quiet) {
+    return retile_map(state, cells, quiet);
+  }
+  async function retile_map(map_holder, cells, quiet) {
+    const r = map_holder.result;
     if (!r) return false;
     try {
       const res = await postJSON("/api/retile", { id: r.id, cells: SL.expand_paint_cells(cells) });
-      if (state.result !== r) return false; // a new route arrived meanwhile
+      if (map_holder.result !== r) return false; // a new route arrived meanwhile
       const last = r.stages.length - 1;
       r.stages[last].cls = res.cls;
       r.stages[last].tiles = res.tiles;
-      const d = drawStage(last, last ? state.tileCanvases[last - 1] : null, last ? r.stages[last - 1].tiles : null);
-      state.tileCanvases[last] = d.tiles;
-      state.classCanvases[last] = d.classes;
-      state.animCells[last] = d.anim;
+      const d = drawStage(r, map_holder.atlas, last, last ? map_holder.tileCanvases[last - 1] : null, last ? r.stages[last - 1].tiles : null);
+      map_holder.tileCanvases[last] = d.tiles;
+      map_holder.classCanvases[last] = d.classes;
+      map_holder.animCells[last] = d.anim;
       if (!quiet) log("info", `Painted ${res.painted} cells; re-tiled ${res.retiled}`);
       return true;
     } catch (e) {
@@ -1559,6 +1623,7 @@
   function focusSel() {
     const r = state.result;
     if (!r) return;
+    if (state.chain && state.sel && state.sel.type === "route") { frame_chain_map(state.chain.active_index); return; }
     if (!state.sel || state.sel.type === "route") { fit(); return; }
     if (!presentAt(state.sel)) { stopPlay(); setStage(r.stages.length - 1, false); }
     const bb = selBBox(state.sel);
@@ -1745,6 +1810,27 @@
   }
 
   function treeModel() {
+    if (state.chain) return chain_tree_model();
+    const map_node = map_tree_node();
+    if (!map_node) return null;
+    const route_node = Object.assign(map_node, { children: map_node.children.concat([layers_tree_group()]) });
+    return route_node;
+  }
+
+  function layers_tree_group() {
+    const eye = (k) => ({ on: state.ov[k], toggle: () => toggleOv(k) });
+    const layers = [
+      { id: "l:tiles", label: "Metatiles", meta: state.layer === "tiles" ? "shown" : "", icon: { color: "#7aa060" }, run: () => setLayer("tiles"), on: state.layer === "tiles" },
+      { id: "l:classes", label: "Classes", meta: state.layer === "classes" ? "shown" : "", icon: { color: "#c49a5a" }, run: () => setLayer("classes"), on: state.layer === "classes" },
+      { id: "l:areas", label: "Areas overlay", icon: { cls: "ring" }, eye: eye("areas") },
+      { id: "l:events", label: "Items overlay", icon: { cls: "dot", color: "#e0453a" }, eye: eye("events") },
+      { id: "l:grid", label: "Grid", icon: { color: "#666" }, eye: eye("grid") },
+    ];
+    const layers_group = { id: "g:layers", label: "Layers", group: true, children: layers };
+    return layers_group;
+  }
+
+  function map_tree_node() {
     const r = state.result;
     if (!r) return null;
     const st = r.stages[state.stage];
@@ -1770,14 +1856,6 @@
     }));
     const connections = scene_connections();
     const exits = (r.exits || []).map((x, i) => exit_tree_node(x, i, connections[i]));
-    const eye = (k) => ({ on: state.ov[k], toggle: () => toggleOv(k) });
-    const layers = [
-      { id: "l:tiles", label: "Metatiles", meta: state.layer === "tiles" ? "shown" : "", icon: { color: "#7aa060" }, run: () => setLayer("tiles"), on: state.layer === "tiles" },
-      { id: "l:classes", label: "Classes", meta: state.layer === "classes" ? "shown" : "", icon: { color: "#c49a5a" }, run: () => setLayer("classes"), on: state.layer === "classes" },
-      { id: "l:areas", label: "Areas overlay", icon: { cls: "ring" }, eye: eye("areas") },
-      { id: "l:events", label: "Items overlay", icon: { cls: "dot", color: "#e0453a" }, eye: eye("events") },
-      { id: "l:grid", label: "Grid", icon: { color: "#666" }, eye: eye("grid") },
-    ];
     return {
       id: "route", label: r.name, meta: `${r.width}×${r.height}`, sel: { type: "route" }, icon: { color: "#4d90d6" },
       children: [
@@ -1789,7 +1867,6 @@
         { id: "g:placed", label: "Placed items", meta: String(route_items.tree_nodes().length), group: true, children: route_items.tree_nodes() },
         { id: "g:people", label: "People & signs", meta: String(route_people.tree_nodes().length), group: true, children: route_people.tree_nodes() },
         { id: "g:objects", label: "Placed objects", meta: String(object_tree_nodes().length), group: true, children: object_tree_nodes() },
-        { id: "g:layers", label: "Layers", group: true, children: layers },
       ],
     };
   }
@@ -1814,7 +1891,8 @@
       const li = el("li", "node");
       li.setAttribute("role", "treeitem");
       const kids = (n.children || []).filter(matches);
-      const open = q ? true : state.expanded.has(n.id);
+      const expand_key = n.expand_key || n.id;
+      const open = q ? true : state.expanded.has(expand_key);
       if (n.children) li.setAttribute("aria-expanded", open);
       if (n.id === sid) li.classList.add("sel");
       if (n.dim) li.classList.add("dim");
@@ -1822,7 +1900,7 @@
       const row = el("div", "row");
       row.style.paddingLeft = 4 + depth * 12 + "px";
       const tw = el("span", "tw" + (open ? " open" : ""), n.children && n.children.length ? "▶" : "");
-      tw.onclick = (ev) => { ev.stopPropagation(); if (state.expanded.has(n.id)) state.expanded.delete(n.id); else state.expanded.add(n.id); renderTree(); };
+      tw.onclick = (ev) => { ev.stopPropagation(); if (state.expanded.has(expand_key)) state.expanded.delete(expand_key); else state.expanded.add(expand_key); renderTree(); };
       row.append(tw);
       if (n.icon) {
         const ic = el("span", "ic" + (n.icon.cls ? " " + n.icon.cls : ""));
@@ -1849,7 +1927,8 @@
         else if (n.children) tw.onclick(new Event("click"));
       };
       row.ondblclick = () => {
-        if (n.sel) { select(n.sel); focusSel(); }
+        if (n.sel) { select(n.sel); focusSel(); return; }
+        if (n.on_double_click) n.on_double_click();
       };
       li.append(row);
       if (n.children && kids.length) {
@@ -1986,6 +2065,7 @@
     const r = state.result;
     const dl = $("stats");
     dl.innerHTML = "";
+    if (!r) { renderEnc(); return; }
     for (const [k, v] of reportRows(r)) dl.append(el("dt", "", k), el("dd", "", v == null ? "-" : String(v)));
     if (r.warnings && r.warnings.length) dl.append(el("dt", "", "warnings"), Object.assign(el("dd", "long", r.warnings.join("; ")), { style: "color: var(--warn)" }));
     renderEnc();
@@ -2088,7 +2168,7 @@
   function show_open_route_on_map() {
     const editor_actions = region_editor();
     if (!editor_actions || !editor_actions.set_open_route) return;
-    editor_actions.set_open_route(state.region ? state.region.name : null);
+    editor_actions.set_open_route(state.chain ? state.chain.route_name : state.region ? state.region.name : null);
   }
   function current_region_seed() {
     const editor_document = region_editor() && region_editor().getDoc();
@@ -2096,7 +2176,10 @@
     return region_seed;
   }
 
-  function openInBench(spec) {
+  function openInBench(opened) {
+    if (opened && Array.isArray(opened.maps)) { open_route_chain(opened); return; }
+    leave_chain_view();
+    const spec = opened;
     const { params: p, region } = SL.specToParams(spec, params());
     replaceParams(p, "region route");
     state.route_trail = state.pending_walk && state.pending_walk.to === p.name ? state.pending_walk.trail : [];
@@ -2153,6 +2236,7 @@
     }
   }
   async function follow_one_map_change(region_document) {
+    if (state.chain) { await follow_map_change_of_open_chain(region_document); return; }
     const sync = state.region && state.region.map_sync;
     if (!sync || !region_document) return;
     const sync_target = SL.sync_target_for_open_map(region_document, sync);
@@ -2210,33 +2294,20 @@
     const r = reg.region || {};
     const dl = el("dl", "kv");
     const add = (k, v) => { if (v != null && v !== "") dl.append(el("dt", "", k), el("dd", "", String(v))); };
-    add("route", reg.name);
+    add("route", state.chain ? state.chain.route_name : reg.name);
+    if (state.chain) add("map", `${state.chain.active_index + 1} of ${state.chain.slots.length}`);
     add("role", r.role);
     add("shape", r.shape);
     add("tags", (r.tags || []).join(", "));
     add("gate", describe_region_gate(r.gate));
     box.append(dl);
-    const chain_row = chain_map_row(reg.name);
-    if (chain_row) box.append(chain_row);
     const b = el("button", "btn", "Detach from region");
     b.type = "button";
     b.onclick = detach_from_region;
     box.append(b);
   }
-  function chain_map_row(open_map_name) {
-    const chain = SL.chain_of_map(open_region_document(), open_map_name);
-    if (!chain.length) return null;
-    const chain_row = el("div", "chain-row");
-    chain_row.append(el("span", "brush-size-label", "Maps"));
-    chain.forEach((chain_map, chain_index) => {
-      const is_open = chain_map.name === open_map_name;
-      const map_button = Object.assign(el("button", "seg-btn" + (is_open ? " on" : ""), String(chain_index + 1)), { type: "button", title: chain_map.name });
-      map_button.onclick = () => { if (!is_open) walk_to(chain_map, [...state.route_trail, open_map_name]); };
-      chain_row.append(map_button);
-    });
-    return chain_row;
-  }
   function detach_from_region() {
+    leave_chain_view();
     state.region = null;
     state.route_trail = [];
     sdel(REGION_KEY);
@@ -2286,7 +2357,21 @@
     if (!connection) return;
     if (connection.kind === "unknown") { log("warn", `Open the region in the Map view first to follow the way to ${connection.name}.`); return; }
     if (connection.kind === "town") { show_town_in_routes_view(connection.town); return; }
-    walk_to(connection.route, [...state.route_trail, state.region ? state.region.name : state.result.name]);
+    if (is_connection_inside_open_chain(connection)) { activate_chain_map(chain_map_index_named(connection.name)); return; }
+    walk_to(connection.route, [...state.route_trail, open_route_name()]);
+  }
+  function open_route_name() {
+    if (state.chain) return state.chain.route_name;
+    const route_name = state.region ? state.region.name : state.result.name;
+    return route_name;
+  }
+  function chain_map_index_named(map_name) {
+    const map_index = state.chain ? state.chain.slots.findIndex((slot) => slot.name === map_name) : -1;
+    return map_index;
+  }
+  function is_connection_inside_open_chain(connection) {
+    const leads_inside_chain = !!connection && connection.kind === "route" && chain_map_index_named(connection.name) >= 0;
+    return leads_inside_chain;
   }
   function go_back_a_route() {
     if (!state.route_trail.length) return;
@@ -2321,7 +2406,6 @@
     }
   }
   function draw_connection_labels(g, ox, oy, s) {
-    state.connection_labels = [];
     const route = state.result;
     const connections = scene_connections();
     const font_size = Math.round(Math.max(11, Math.min(14, s * 0.7)));
@@ -2330,7 +2414,7 @@
     (route.exits || []).forEach((scene_exit, exit_index) => {
       const connection = connections[exit_index];
       const destination_name = connection ? connection.name : readable_map_name(scene_exit.to);
-      if (!destination_name || !scene_exit.cells.length) return;
+      if (!destination_name || !scene_exit.cells.length || is_connection_inside_open_chain(connection)) return;
       const text = `${ARROW_OUT_OF_SIDE[scene_exit.side] || "→"} ${destination_name}`;
       const box = connection_label_box(scene_exit, g.measureText(text).width, font_size + 8, ox, oy, s);
       g.lineJoin = "round";
@@ -2339,7 +2423,7 @@
       g.strokeText(text, box.x + 6, box.y + box.h / 2 + 1);
       g.fillStyle = "#2a2a2a";
       g.fillText(text, box.x + 6, box.y + box.h / 2 + 1);
-      if (connection) state.connection_labels.push(Object.assign({ i: exit_index }, box));
+      if (connection) state.connection_labels.push(Object.assign({ i: exit_index, chain_map_index: chain_map_index_being_shown() }, box));
     });
   }
   function readable_map_name(map_constant) {
@@ -2517,6 +2601,7 @@
   async function loadSpecText(text, name, handle) {
     let spec;
     try { spec = await parseSpec(text); } catch (e) { log("error", `Could not read ${name}: ${e.message}`); return; }
+    leave_chain_view();
     const { params: p, region } = SL.specToParams(spec.format === "poke-routes-spec" ? Object.assign({}, spec.params, { region: spec.region, endings: spec.endings }) : spec, params());
     replaceParams(p, "open");
     state.region = region;
@@ -2570,6 +2655,7 @@
   }
 
   function newRoute() {
+    leave_chain_view();
     const p = { name: "Testweg", seed: Math.floor(Math.random() * 100000), special_areas: DEFAULT_SPECIALS.slice(), exits: DEFAULT_EXITS.map((e) => ({ ...e })) };
     for (const f of schema.fields) if (f.name !== "seed") p[f.name] = FIRST_RUN[f.name] != null ? FIRST_RUN[f.name] : f.default;
     replaceParams(p, "new route");
@@ -2597,10 +2683,11 @@
 
   function updateTitle() {
     const p = params();
-    const name = state.file.name || p.name;
+    const name = state.chain ? state.chain.route_name : state.file.name || p.name;
     const dirty = state.saved && state.saved !== JSON.stringify(p);
     const stale = state.generated && state.generated !== JSON.stringify(p);
-    $("docTitle").textContent = `${name}${dirty ? " •" : ""} · seed ${p.seed}${stale ? " · edited since Generate" : ""}`;
+    const map_text = state.chain && state.chain.slots.length > 1 ? ` · map ${state.chain.active_index + 1} of ${state.chain.slots.length}` : "";
+    $("docTitle").textContent = `${name}${dirty ? " •" : ""}${map_text} · seed ${p.seed}${stale ? " · edited since Generate" : ""}`;
     document.title = `${name} – poke-routes editor`;
   }
 
@@ -2655,7 +2742,7 @@
       { id: "recent", label: "Open recent", items: () => {
         const list = sget(SL.RECENT_KEY) || [];
         if (!list.length) return [{ label: "No recent routes", enabled: false }];
-        return list.map((e) => ({ label: e.label, run: () => { replaceParams(e.params, "recent"); Shell.setCenter("scene"); generate(); } }))
+        return list.map((e) => ({ label: e.label, run: () => { leave_chain_view(); replaceParams(e.params, "recent"); Shell.setCenter("scene"); generate(); } }))
           .concat([{ sep: true }, { label: "Clear recent", run: () => { sdel(SL.RECENT_KEY); log("info", "Cleared recent routes"); } }]);
       } },
       { sep: true },
@@ -2847,6 +2934,7 @@
     loadOptions();
     loadTilers();
     log("info", "poke-routes editor ready");
+    if (reopen_remembered_chain()) { generate_chain_maps(all_map_indices_of(state.chain), { keepPaint: true, fit: true }); return; }
     generate({ keepPaint: true });
   }
 
@@ -2856,9 +2944,18 @@
   const BRUSH_SIZES = [1, 2, 3, 5];
 
   async function load_paint_palette(route_result) {
+    state.palette = await paint_palette_of_route(route_result);
+    settle_brush_on_palette();
+  }
+
+  async function paint_palette_of_route(route_result) {
     const palette_key = `${route_result.tiler}|${route_result.tileset}`;
     if (!state.palettes[palette_key]) state.palettes[palette_key] = await fetch_paint_palette(route_result);
-    state.palette = state.palettes[palette_key];
+    const route_palette = state.palettes[palette_key];
+    return route_palette;
+  }
+
+  function settle_brush_on_palette() {
     if (!is_brush_available(state.brush)) state.brush = "g";
     keep_ledge_direction_available();
     if (!$("leftTiles").hidden) render_paint_palette();
@@ -3168,6 +3265,608 @@
     if (state.palette.objects.length) sections.append(palette_section("Objects", object_buttons()));
   }
 
+  const CHAIN_KEY = "pokeroutes-open-route-chain-v1";
+  const live_map_field_names = ["result", "atlas", "tileCanvases", "classCanvases", "changedMasks", "stageInfo", "animCells", "stage", "prevStage", "region", "generated", "palette"];
+  const metatiles_per_region_cell_without_editor = 4;
+  const seam_line_dash_in_pixels = [6, 5];
+  const seam_line_colour = "rgba(20,20,20,0.5)";
+  const seam_line_halo_colour = "rgba(255,255,255,0.32)";
+  const placeholder_line_colour = "rgba(255,255,255,0.22)";
+  const placeholder_text_colour = "rgba(255,255,255,0.6)";
+  let chain_map_index_drawn = null;
+
+  function active_chain_slot() {
+    const chain = state.chain;
+    const open_slot = chain ? chain.slots[chain.active_index] : null;
+    return open_slot;
+  }
+
+  function chain_map_index_being_shown() {
+    if (chain_map_index_drawn !== null) return chain_map_index_drawn;
+    const shown_index = state.chain ? state.chain.active_index : null;
+    return shown_index;
+  }
+
+  function inactive_chain_slots_with_maps() {
+    if (!state.chain) return [];
+    const open_slot = active_chain_slot();
+    const slots_with_maps = state.chain.slots.filter((slot) => slot !== open_slot && !!slot.result);
+    return slots_with_maps;
+  }
+
+  function inactive_chain_map_indices_with_maps() {
+    const slots_with_maps = inactive_chain_slots_with_maps();
+    const map_indices = slots_with_maps.map((slot) => state.chain.slots.indexOf(slot));
+    return map_indices;
+  }
+
+  function metatiles_per_region_cell() {
+    const metatiles_per_cell = (window.ED && window.ED.CELL) || metatiles_per_region_cell_without_editor;
+    return metatiles_per_cell;
+  }
+
+  function live_map_fields() {
+    const fields = Object.fromEntries(live_map_field_names.map((field_name) => [field_name, state[field_name]]));
+    fields.items_snapshot = route_items.snapshot();
+    fields.people_snapshot = route_people.snapshot();
+    return fields;
+  }
+
+  function install_map_fields(fields) {
+    for (const field_name of live_map_field_names) state[field_name] = fields[field_name];
+    route_items.resume(fields.items_snapshot);
+    route_people.resume(fields.people_snapshot);
+  }
+
+  function store_live_map_into_slot() {
+    const open_slot = active_chain_slot();
+    if (!open_slot) return;
+    Object.assign(open_slot, live_map_fields(), { params: params() });
+  }
+
+  function empty_hand_edits_of(map_name) {
+    const hand_edits = {
+      items_snapshot: { route_key: "", shown_items: [] },
+      people_snapshot: { route_key: "", route_name: map_name, entries: [], generated: [] },
+    };
+    return hand_edits;
+  }
+
+  function chain_slot(chain_map, placement, map_params, map_region, opened_params) {
+    const slot = Object.assign({
+      name: chain_map.name, rect: chain_map.rect, placement, params: map_params, region: map_region, opened_params: opened_params || map_params,
+      result: null, atlas: null, tileCanvases: [], classCanvases: [], changedMasks: [], stageInfo: [], animCells: [],
+      stage: 0, prevStage: null, generated: "", palette: state.palette, is_generating: false,
+    }, empty_hand_edits_of(chain_map.name));
+    return slot;
+  }
+
+  function slot_of_chain_map(layout, params_and_region_of_map) {
+    return (chain_map, map_index) => chain_slot(chain_map, layout.maps[map_index], ...params_and_region_of_map(chain_map));
+  }
+
+  function chain_of_route(route_name, chain_maps, params_and_region_of_map, active_index) {
+    const layout = SL.chain_layout(chain_maps, metatiles_per_region_cell());
+    const chain = {
+      route_name, layout, active_index, hover: null,
+      slots: chain_maps.map(slot_of_chain_map(layout, params_and_region_of_map)),
+      seam_segments: SL.chain_seam_segments(layout),
+    };
+    return chain;
+  }
+
+  function params_and_region_of_spec(chain_map) {
+    const { params: map_params, region } = SL.specToParams(chain_map.spec, params());
+    return [map_params, region];
+  }
+
+  function params_and_region_remembered(remembered_map) {
+    const params_and_region = [remembered_map.params, remembered_map.region, remembered_map.opened_params];
+    return params_and_region;
+  }
+
+  function params_and_region_following(old_chain) {
+    return (chain_map) => followed_params_and_region(old_chain, chain_map);
+  }
+
+  function followed_params_and_region(old_chain, chain_map) {
+    const [fresh_params, region] = params_and_region_of_spec(chain_map);
+    const old_slot = old_chain.slots.find((slot) => slot.rect.join() === chain_map.rect.join()) || old_chain.slots.find((slot) => slot.name === chain_map.name);
+    if (!old_slot) return [fresh_params, region];
+    const synced_params = SL.params_after_map_sync(old_slot.opened_params, old_slot.params, fresh_params);
+    const followed = [synced_params, region, Object.assign({}, fresh_params, { seed: synced_params.seed })];
+    return followed;
+  }
+
+  function open_chain_place() {
+    const open_slot = active_chain_slot();
+    const open_place = { route_name: state.chain.route_name, map_name: open_slot.name, rect: open_slot.rect };
+    return open_place;
+  }
+
+  function route_signature(region_document, synced_route) {
+    const signature = JSON.stringify(synced_route.chain.map((chain_map) => SL.open_map_signature(region_document, { route: synced_route, chain_map })));
+    return signature;
+  }
+
+  function chain_map_sync_record(region_document) {
+    const sync_target = region_document ? SL.sync_target_for_open_map(region_document, open_chain_place()) : null;
+    if (!sync_target) return null;
+    const record = {
+      map_name: state.chain.route_name, signature: route_signature(region_document, sync_target.route),
+      chain: sync_target.route.chain.map((chain_map) => ({ name: chain_map.name, rect: chain_map.rect })),
+    };
+    return record;
+  }
+
+  async function follow_map_change_of_open_chain(region_document) {
+    const chain = state.chain, sync = chain.map_sync;
+    if (!sync || !region_document) return;
+    const sync_target = SL.sync_target_for_open_map(region_document, open_chain_place());
+    if (!sync_target) { report_open_route_erased(sync); return; }
+    if (route_signature(region_document, sync_target.route) === sync.signature) return;
+    const opened = await region_editor().route_chain_specs_of_map(sync_target.chain_map.id);
+    if (state.chain !== chain) return;
+    move_painted_cells_along_the_chain(sync.chain, sync_target.route.chain, region_document.cell || metatiles_per_region_cell());
+    reopen_followed_chain(chain, Object.assign(opened, { focus_map_name: sync_target.chain_map.name }), region_document);
+  }
+
+  function reopen_followed_chain(old_chain, opened, region_document) {
+    store_live_map_into_slot();
+    const focus_index = Math.max(0, opened.maps.findIndex((chain_map) => chain_map.name === opened.focus_map_name));
+    const followed_chain = chain_of_route(opened.route, opened.maps, params_and_region_following(old_chain), focus_index);
+    show_chain_in_routes_view(followed_chain, "follow the Map");
+    followed_chain.map_sync = chain_map_sync_record(region_document);
+    remember_open_chain();
+    log("info", `Routes view follows the Map: ${opened.route}`);
+    generate_chain_maps(all_map_indices_of(followed_chain), { keepPaint: true });
+  }
+
+  function all_map_indices_of(chain) {
+    const map_indices = chain.slots.map((_slot, map_index) => map_index);
+    return map_indices;
+  }
+
+  function open_route_chain(opened) {
+    const focus_index = Math.max(0, opened.maps.findIndex((chain_map) => chain_map.name === opened.focus_map_name));
+    const chain = chain_of_route(opened.route, opened.maps, params_and_region_of_spec, focus_index);
+    state.route_trail = trail_after_walking_into(opened);
+    state.pending_walk = null;
+    show_chain_in_routes_view(chain, "region route");
+    chain.map_sync = chain_map_sync_record(open_region_document());
+    remember_open_chain();
+    sset("pokeroutes-shell-region-seed", current_region_seed());
+    Shell.setCenter("scene");
+    log("info", `Opened ${opened.route} (${chain.slots.length} map${chain.slots.length === 1 ? "" : "s"}) from region ${current_region_seed()}`);
+    requestAnimationFrame(fit);
+    generate_chain_maps(all_map_indices_of(chain), {});
+  }
+
+  function trail_after_walking_into(opened) {
+    const pending_walk = state.pending_walk;
+    const walked_into_route = !!pending_walk && (pending_walk.to === opened.route || opened.maps.some((chain_map) => chain_map.name === pending_walk.to));
+    const trail = walked_into_route ? pending_walk.trail : [];
+    return trail;
+  }
+
+  function show_chain_in_routes_view(chain, undo_label) {
+    const focus_slot = chain.slots[chain.active_index];
+    state.chain = chain;
+    if (undo_label) replaceParams(focus_slot.params, undo_label); else setParams(focus_slot.params);
+    install_map_fields(focus_slot);
+    state.sel = null;
+    state.expanded.add(map_tree_expand_key(focus_slot));
+    if (focus_slot.region) sset(REGION_KEY, focus_slot.region); else sdel(REGION_KEY);
+    remember_open_chain();
+    route_items.update_count();
+    show_open_route_on_map();
+    sync_back_button();
+    render_open_map_panels();
+  }
+
+  function reopen_remembered_chain() {
+    const remembered_chain = sget(CHAIN_KEY);
+    const saved_params = sget(STORE_KEY);
+    if (!remembered_chain || !Array.isArray(remembered_chain.maps) || !remembered_chain.maps.length || !saved_params) return false;
+    const focus_index = remembered_chain.maps.findIndex((remembered_map) => remembered_map.name === saved_params.name);
+    if (focus_index < 0) return false;
+    const chain = chain_of_route(remembered_chain.route, remembered_chain.maps, params_and_region_remembered, focus_index);
+    chain.slots[focus_index].params = saved_params;
+    chain.map_sync = remembered_chain.map_sync || null;
+    show_chain_in_routes_view(chain, null);
+    return true;
+  }
+
+  function remember_open_chain() {
+    const chain = state.chain;
+    if (!chain) return;
+    active_chain_slot().params = params();
+    const remembered_chain = {
+      route: chain.route_name, map_sync: chain.map_sync || null,
+      maps: chain.slots.map((slot) => ({ name: slot.name, rect: slot.rect, params: slot.params, region: slot.region, opened_params: slot.opened_params })),
+    };
+    sset(CHAIN_KEY, remembered_chain);
+  }
+
+  function leave_chain_view() {
+    if (!state.chain) return;
+    state.chain = null;
+    sdel(CHAIN_KEY);
+    renderTree();
+    updateTitle();
+    draw();
+  }
+
+  function render_open_map_panels() {
+    renderInfo();
+    renderTree();
+    renderExits();
+    renderSelection();
+    renderRegionLink();
+    updateTitle();
+    draw();
+  }
+
+  function view_shifted_between(from_slot, to_slot) {
+    const cell_size_on_screen = CELL * state.view.zoom;
+    const shifted_view = Object.assign({}, state.view, {
+      ox: state.view.ox + (to_slot.placement.offset_x_in_metatiles - from_slot.placement.offset_x_in_metatiles) * cell_size_on_screen,
+      oy: state.view.oy + (to_slot.placement.offset_y_in_metatiles - from_slot.placement.offset_y_in_metatiles) * cell_size_on_screen,
+    });
+    return shifted_view;
+  }
+
+  function view_of_chain_map(map_index) {
+    const map_view = view_shifted_between(active_chain_slot(), state.chain.slots[map_index]);
+    return map_view;
+  }
+
+  function activate_chain_map(map_index) {
+    const chain = state.chain;
+    if (!chain || map_index === chain.active_index || !chain.slots[map_index] || state.paint.busy) return;
+    store_live_map_into_slot();
+    const entered_slot = chain.slots[map_index];
+    state.view = view_shifted_between(active_chain_slot(), entered_slot);
+    chain.active_index = map_index;
+    chain.hover = null;
+    install_map_fields(entered_slot);
+    setParams(entered_slot.params);
+    if (entered_slot.generated === JSON.stringify(entered_slot.params)) state.generated = JSON.stringify(params());
+    Object.assign(state, { sel: null, hover: null, hoverArea: null });
+    state.expanded.add(map_tree_expand_key(entered_slot));
+    sset(STORE_KEY, params());
+    if (state.region) sset(REGION_KEY, state.region);
+    remember_open_chain();
+    route_items.update_count();
+    if (state.result) settle_brush_on_palette();
+    if (state.result) route_events.on_new_route(state.result);
+    render_open_map_panels();
+  }
+
+  function chain_map_index_under(screen_x, screen_y) {
+    const open_placement = active_chain_slot().placement;
+    const cell_size_on_screen = CELL * state.view.zoom;
+    const x_in_chain = Math.floor((screen_x - state.view.ox) / cell_size_on_screen) + open_placement.offset_x_in_metatiles;
+    const y_in_chain = Math.floor((screen_y - state.view.oy) / cell_size_on_screen) + open_placement.offset_y_in_metatiles;
+    const map_index = SL.chain_map_index_at(state.chain.layout, x_in_chain, y_in_chain);
+    return map_index;
+  }
+
+  function activate_chain_map_under(screen_x, screen_y) {
+    if (!state.chain) return;
+    const label = connection_label_at(screen_x, screen_y);
+    const map_index = label && label.chain_map_index != null ? label.chain_map_index : chain_map_index_under(screen_x, screen_y);
+    if (map_index < 0 || !state.chain.slots[map_index].result) return;
+    activate_chain_map(map_index);
+  }
+
+  function hover_cell_on_chain_map(map_index) {
+    const chain_hover = state.chain && state.chain.hover;
+    const hover_cell = chain_hover && chain_hover.map_index === map_index ? chain_hover.cell : null;
+    return hover_cell;
+  }
+
+  function hover_on_another_chain_map(screen_x, screen_y) {
+    const chain = state.chain;
+    if (!chain) return false;
+    const map_index = chain_map_index_under(screen_x, screen_y);
+    if (map_index < 0 || map_index === chain.active_index) { chain.hover = null; return false; }
+    const slot = chain.slots[map_index];
+    const cell = PR.cellAt(view_of_chain_map(map_index), screen_x, screen_y, CELL);
+    chain.hover = slot.result ? { map_index, cell } : null;
+    Object.assign(state, { hover: null, hoverArea: null });
+    hideTip();
+    wrap.classList.toggle("over-connection", state.tool === "select" && !!connection_label_at(screen_x, screen_y));
+    $("stCell").textContent = slot.result ? cell_status_text(slot.result, slot.stage, cell) : `${slot.name} · generating`;
+    draw();
+    return true;
+  }
+
+  function with_chain_map_shown(map_index, show) {
+    const slot = state.chain.slots[map_index];
+    const live_fields = live_map_fields();
+    const live_view_fields = { exits: state.exits, sel: state.sel, hover: state.hover, hoverArea: state.hoverArea };
+    const live_paint_cells = state.paint.cells;
+    install_map_fields(slot);
+    Object.assign(state, { exits: slot.params.exits || [], sel: null, hover: hover_cell_on_chain_map(map_index), hoverArea: null });
+    state.paint.cells = new Map();
+    chain_map_index_drawn = map_index;
+    try {
+      const shown = show();
+      return shown;
+    } finally {
+      chain_map_index_drawn = null;
+      install_map_fields(live_fields);
+      Object.assign(state, live_view_fields);
+      state.paint.cells = live_paint_cells;
+    }
+  }
+
+  function paint_open_chain(g, opt) {
+    const chain = state.chain;
+    const shown_indices = inactive_chain_map_indices_with_maps();
+    const open_map_has_tiles = !!state.result && state.tileCanvases.length > 0;
+    for (const slot of chain.slots) if (!slot.result || (slot === active_chain_slot() && !open_map_has_tiles)) paint_chain_map_placeholder(g, slot);
+    for (const map_index of shown_indices) paint_map_shadow(g, view_of_chain_map(map_index), chain.slots[map_index].result);
+    if (open_map_has_tiles) paint_map_shadow(g, state.view, state.result);
+    for (const map_index of shown_indices) with_chain_map_shown(map_index, () => paint_map_layer(g, view_of_chain_map(map_index), { interactive: false }));
+    if (open_map_has_tiles) paint_map_layer(g, state.view, opt);
+    for (const map_index of shown_indices) with_chain_map_shown(map_index, () => paint_map_overlays(g, view_of_chain_map(map_index), { interactive: true }));
+    if (open_map_has_tiles) paint_map_overlays(g, state.view, opt);
+    paint_chain_seams(g);
+  }
+
+  function paint_chain_map_placeholder(g, slot) {
+    const map_view = view_shifted_between(active_chain_slot(), slot);
+    const cell_size_on_screen = CELL * map_view.zoom;
+    const width_on_screen = slot.placement.width_in_metatiles * cell_size_on_screen, height_on_screen = slot.placement.height_in_metatiles * cell_size_on_screen;
+    g.save();
+    g.strokeStyle = placeholder_line_colour;
+    g.setLineDash(seam_line_dash_in_pixels);
+    g.lineWidth = 1;
+    g.strokeRect(Math.round(map_view.ox) + 0.5, Math.round(map_view.oy) + 0.5, width_on_screen - 1, height_on_screen - 1);
+    g.font = "600 12px Inter, system-ui, sans-serif";
+    g.fillStyle = placeholder_text_colour;
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText(slot.is_generating ? `${slot.name} · generating…` : slot.name, map_view.ox + width_on_screen / 2, map_view.oy + height_on_screen / 2);
+    g.restore();
+  }
+
+  function paint_chain_seams(g) {
+    if (!state.ov.markings || !state.chain.seam_segments.length) return;
+    const open_placement = active_chain_slot().placement;
+    const cell_size_on_screen = CELL * state.view.zoom;
+    const screen_x_of = (x_in_chain) => Math.round(state.view.ox + (x_in_chain - open_placement.offset_x_in_metatiles) * cell_size_on_screen) + 0.5;
+    const screen_y_of = (y_in_chain) => Math.round(state.view.oy + (y_in_chain - open_placement.offset_y_in_metatiles) * cell_size_on_screen) + 0.5;
+    g.save();
+    g.setLineDash(seam_line_dash_in_pixels);
+    g.beginPath();
+    for (const seam of state.chain.seam_segments) {
+      g.moveTo(screen_x_of(seam.x0), screen_y_of(seam.y0));
+      g.lineTo(screen_x_of(seam.x1), screen_y_of(seam.y1));
+    }
+    g.lineWidth = 3;
+    g.strokeStyle = seam_line_halo_colour;
+    g.stroke();
+    g.lineWidth = 1;
+    g.strokeStyle = seam_line_colour;
+    g.stroke();
+    g.restore();
+  }
+
+  function fit_chain_rectangle(left_in_metatiles, top_in_metatiles, width_in_metatiles, height_in_metatiles) {
+    const box = wrap.getBoundingClientRect();
+    const zoom = PR.fitZoom(width_in_metatiles * CELL, height_in_metatiles * CELL, box.width, box.height, 16);
+    const open_placement = active_chain_slot().placement;
+    const left_on_screen = Math.round((box.width - width_in_metatiles * CELL * zoom) / 2) - left_in_metatiles * CELL * zoom;
+    const top_on_screen = Math.round(Math.max(16, (box.height - height_in_metatiles * CELL * zoom) / 2)) - top_in_metatiles * CELL * zoom;
+    state.view = {
+      zoom, ox: left_on_screen + open_placement.offset_x_in_metatiles * CELL * zoom, oy: top_on_screen + open_placement.offset_y_in_metatiles * CELL * zoom,
+    };
+    draw();
+  }
+
+  function frame_chain_map(map_index) {
+    const placement = state.chain.slots[map_index].placement;
+    fit_chain_rectangle(placement.offset_x_in_metatiles, placement.offset_y_in_metatiles, placement.width_in_metatiles, placement.height_in_metatiles);
+  }
+
+  function shown_area_in_metatiles() {
+    if (!state.chain) return { left: 0, top: 0, width: state.result.width, height: state.result.height };
+    const open_placement = active_chain_slot().placement;
+    const chain_area = {
+      left: -open_placement.offset_x_in_metatiles, top: -open_placement.offset_y_in_metatiles,
+      width: state.chain.layout.width_in_metatiles, height: state.chain.layout.height_in_metatiles,
+    };
+    return chain_area;
+  }
+
+  function map_tree_expand_key(slot) {
+    const expand_key = "map:" + slot.name;
+    return expand_key;
+  }
+
+  function chain_tree_model() {
+    const chain = state.chain;
+    const map_nodes = all_map_indices_of(chain).map(chain_map_tree_node);
+    const chain_node = {
+      id: "chain", label: chain.route_name, meta: `${chain.slots.length} map${chain.slots.length === 1 ? "" : "s"}`, icon: { color: "#4d90d6" }, group: true,
+      children: map_nodes.concat([layers_tree_group()]),
+    };
+    return chain_node;
+  }
+
+  function chain_map_tree_node(map_index) {
+    const chain = state.chain, slot = chain.slots[map_index];
+    const naming = { label: `Map ${map_index + 1}`, expand_key: map_tree_expand_key(slot) };
+    const waiting_node = { id: map_index === chain.active_index ? "route" : `m${map_index}:map`, meta: slot.is_generating ? "generating…" : "not generated", icon: { color: "#4d90d6" }, dim: true };
+    if (map_index === chain.active_index) return Object.assign(map_tree_node() || waiting_node, naming);
+    if (!slot.result) return Object.assign(waiting_node, naming);
+    const reached_node = tree_node_reached_through_map(with_chain_map_shown(map_index, map_tree_node), map_index);
+    return Object.assign(reached_node, naming);
+  }
+
+  function tree_node_reached_through_map(tree_node, map_index) {
+    const reached_node = Object.assign({}, tree_node, { id: `m${map_index}:${tree_node.id}`, expand_key: tree_node.expand_key || tree_node.id, sel: null });
+    if (tree_node.sel) reached_node.run = () => select_on_chain_map(map_index, tree_node.sel);
+    if (tree_node.sel) reached_node.on_double_click = () => frame_selection_on_chain_map(map_index, tree_node.sel);
+    if (tree_node.children) reached_node.children = tree_node.children.map((child_node) => tree_node_reached_through_map(child_node, map_index));
+    return reached_node;
+  }
+
+  function select_on_chain_map(map_index, selection) {
+    activate_chain_map(map_index);
+    select(selection);
+  }
+
+  function frame_selection_on_chain_map(map_index, selection) {
+    select_on_chain_map(map_index, selection);
+    focusSel();
+  }
+
+  function generate_open_chain(opts) {
+    const chain = state.chain;
+    const map_indices = opts && opts.auto ? [chain.active_index] : all_map_indices_of(chain);
+    return generate_chain_maps(map_indices, opts || {});
+  }
+
+  function regenerate_open_chain_with_new_seeds() {
+    store_live_map_into_slot();
+    for (const slot of state.chain.slots) slot.params = Object.assign({}, slot.params, { seed: Math.floor(Math.random() * 100000) });
+    setParams(active_chain_slot().params);
+    sset(STORE_KEY, params());
+    remember_open_chain();
+    generate_open_chain({});
+  }
+
+  async function generate_chain_maps(map_indices, opts) {
+    if (state.busy) { pendingGenerate = opts.keepPaint ? { keepPaint: true } : true; return; }
+    const chain = state.chain;
+    store_live_map_into_slot();
+    remember_open_chain();
+    setBusy(true, map_indices.length > 1 ? `generating ${map_indices.length} maps` : "generating");
+    stopPlay();
+    const started_at_in_milliseconds = performance.now();
+    const generations = map_indices.map((map_index) => generate_chain_slot(chain, chain.slots[map_index], opts));
+    renderTree();
+    const outcomes = await Promise.all(generations);
+    setBusy(false);
+    if (state.chain === chain) finish_chain_generation(chain, outcomes, started_at_in_milliseconds, opts);
+    if (!pendingGenerate) return;
+    const pending_generate_options = pendingGenerate === true ? undefined : pendingGenerate;
+    pendingGenerate = false;
+    generate(pending_generate_options);
+  }
+
+  function finish_chain_generation(chain, outcomes, started_at_in_milliseconds, opts) {
+    const generated_count = outcomes.filter(Boolean).length;
+    const seconds_taken = (performance.now() - started_at_in_milliseconds) / 1000;
+    log(generated_count === outcomes.length ? "info" : "warn", `Generated ${generated_count} of ${outcomes.length} map${outcomes.length === 1 ? "" : "s"} of ${chain.route_name} in ${seconds_taken.toFixed(1)} s`);
+    $("sceneMsg").hidden = !!state.result;
+    if (opts.fit) fit();
+    renderTree();
+    updateTitle();
+  }
+
+  function generate_body_of_slot(requested_params, slot) {
+    const body = Object.assign({}, requested_params, { tiler: prefs.tiler });
+    if (!slot.region || !slot.region.region) return body;
+    body.region = slot.region.region;
+    if (slot.region.endings && slot.region.endings.length) body.endings = slot.region.endings;
+    return body;
+  }
+
+  async function generate_chain_slot(chain, slot, opts) {
+    const requested_params = slot.params;
+    slot.is_generating = true;
+    draw();
+    try {
+      const route_result = await postJSON("/api/generate", generate_body_of_slot(requested_params, slot));
+      const route_atlas = await atlasFor(route_result.atlas || "/api/atlas");
+      const route_palette = await paint_palette_of_route(route_result);
+      if (state.chain !== chain) return false;
+      install_generated_map_into_slot(slot, route_result, route_atlas, route_palette, requested_params);
+      await put_back_hand_edits_on_slot(chain, slot, route_result, opts);
+      return true;
+    } catch (error) {
+      log("error", `Generate failed for ${slot.name}: ${error.message}`);
+      return false;
+    } finally {
+      slot.is_generating = false;
+      if (state.chain === chain) renderTree();
+      draw();
+    }
+  }
+
+  function is_hand_edit_of_map(undo_entry, map_name) {
+    const is_hand_edit = ["paint", "items", "people"].includes(undo_entry.kind) && (!undo_entry.chain_map_name || undo_entry.chain_map_name === map_name);
+    return is_hand_edit;
+  }
+
+  function install_generated_map_into_slot(slot, route_result, route_atlas, route_palette, requested_params) {
+    route_result.generated_class_rows = route_result.stages[route_result.stages.length - 1].cls.slice();
+    const generated_map = Object.assign({
+      result: route_result, atlas: route_atlas, palette: route_palette, stage: route_result.stages.length - 1, prevStage: null,
+      generated: JSON.stringify(requested_params),
+    }, canvases_of_route(route_result, route_atlas), empty_hand_edits_of(route_result.name));
+    Object.assign(slot, generated_map);
+    undoStack.filter((undo_entry) => !is_hand_edit_of_map(undo_entry, slot.name));
+    reportToConsole(route_result, (route_result.timing || {}).total || 0);
+    if (slot === active_chain_slot()) show_open_slot(slot);
+    draw();
+  }
+
+  function show_open_slot(slot) {
+    install_map_fields(slot);
+    state.sel = null;
+    settle_brush_on_palette();
+    route_items.update_count();
+    render_open_map_panels();
+  }
+
+  async function put_back_hand_edits_on_slot(chain, slot, route_result, opts) {
+    if (opts.keepPaint) await reapply_paint_on_map(slot);
+    if (!opts.keepPaint) { storePaint(route_result, {}); store_painted_objects(route_result, []); }
+    const [items_snapshot, people_snapshot] = await Promise.all([route_items.placed_items_put_back_on(route_result), route_people.people_put_back_on(route_result)]);
+    route_events.on_new_route(route_result);
+    if (state.chain !== chain || slot.result !== route_result) return;
+    Object.assign(slot, { items_snapshot, people_snapshot });
+    if (slot !== active_chain_slot()) { renderTree(); draw(); return; }
+    route_items.resume(items_snapshot);
+    route_people.resume(people_snapshot);
+    route_items.update_count();
+    renderTree();
+    renderSelection();
+    draw();
+  }
+
+  function chain_map_offset_in_metatiles() {
+    const open_slot = active_chain_slot();
+    const offset = open_slot ? { x: open_slot.placement.offset_x_in_metatiles, y: open_slot.placement.offset_y_in_metatiles } : { x: 0, y: 0 };
+    return offset;
+  }
+
+  function neighbouring_map_of_slot(slot, open_offset) {
+    const neighbouring_map = {
+      canvas: slot.tileCanvases[slot.tileCanvases.length - 1],
+      offset_x_in_metatiles: slot.placement.offset_x_in_metatiles - open_offset.x, offset_y_in_metatiles: slot.placement.offset_y_in_metatiles - open_offset.y,
+      width_in_metatiles: slot.result.width, height_in_metatiles: slot.result.height,
+    };
+    return neighbouring_map;
+  }
+
+  function neighbouring_tile_canvases() {
+    const open_offset = chain_map_offset_in_metatiles();
+    const neighbouring_maps = inactive_chain_slots_with_maps().map((slot) => neighbouring_map_of_slot(slot, open_offset));
+    return neighbouring_maps;
+  }
+
+  function leads_to_another_map_of_this_route(exit_index) {
+    const leads_inside = is_connection_inside_open_chain(scene_connections()[exit_index]);
+    return leads_inside;
+  }
+
   // ------------------------------------------------------------ play-test window (playtest.js)
   function open_playtest() {
     if (!window.Playtest) return;
@@ -3192,11 +3891,12 @@
   }
   const playtest_hooks = {
     show_final_stage, final_route_events, final_tile_canvas, playtest_route_name, scene_connections, follow_connection,
+    chain_map_offset_in_metatiles, neighbouring_tile_canvases, leads_to_another_map_of_this_route,
     draw_route_effect_particles_into, fetchJSON,
     draw_event_sprite: (graphics_context, route_event, origin_x, origin_y, cell_size) => route_items.draw_event_sprite(graphics_context, route_event, origin_x, origin_y, cell_size, animFrame),
   };
   $("tbPlaytest").onclick = open_playtest;
 
-  window.Bench = { generate, state, params, setParams, undoStack, menus, extras, loadSpecText, playtest_hooks, reload_atlas_at_version, fetchJSON, postJSON, log, draw, region_editor };
+  window.Bench = { generate, state, params, setParams, undoStack, menus, extras, loadSpecText, playtest_hooks, reload_atlas_at_version, fetchJSON, postJSON, log, draw, region_editor, open_route_name };
   boot();
 })();

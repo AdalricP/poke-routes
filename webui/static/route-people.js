@@ -204,16 +204,10 @@
       }
     }
 
-    async function send_to_server() {
-      const route = state.result;
-      if (!route) return null;
+    async function send_people_of_route_to_server(route, people_and_signs) {
       try {
-        const answer = await bench.postJSON("/api/route-people", { id: route.id, entries });
-        if (state.result !== route) return null;
-        generated = answer.generated || [];
-        if (!(answer.skipped || []).length) entries = answer.placed;
+        const answer = await bench.postJSON("/api/route-people", { id: route.id, entries: people_and_signs });
         report_skipped(answer);
-        bench.refresh();
         return answer;
       } catch (error) {
         bench.log("error", "Saving people and signs failed: " + error.message);
@@ -221,14 +215,56 @@
       }
     }
 
-    async function on_new_route(route) {
-      route_key = SL.paintKey(route);
-      route_name = route.name;
-      entries = PE.remembered_entries(bench.sget(PE.PEOPLE_MEMORY_KEY), route_key);
-      generated = [];
+    async function send_to_server() {
+      const route = state.result;
+      if (!route) return null;
+      const answer = await send_people_of_route_to_server(route, entries);
+      if (!answer || state.result !== route) return null;
+      resume(people_snapshot_after_answer(snapshot(), answer));
+      bench.refresh();
+      return answer;
+    }
+
+    function people_snapshot_after_answer(people_snapshot, answer) {
+      const has_skipped_entries = (answer.skipped || []).length > 0;
+      const snapshot_after_answer = Object.assign({}, people_snapshot, {
+        generated: answer.generated || [], entries: has_skipped_entries ? people_snapshot.entries : answer.placed,
+      });
+      return snapshot_after_answer;
+    }
+
+    async function people_put_back_on(route) {
+      const people_route_key = SL.paintKey(route);
+      const remembered_snapshot = {
+        route_key: people_route_key, route_name: route.name, generated: [],
+        entries: PE.remembered_entries(bench.sget(PE.PEOPLE_MEMORY_KEY), people_route_key),
+      };
       if (!options.sprites.length) await load_options();
-      const answer = await send_to_server();
-      if (answer && entries.length) bench.log("info", `Put back ${entries.length} people and signs on ${route.name}`);
+      const answer = await send_people_of_route_to_server(route, remembered_snapshot.entries);
+      if (!answer) return remembered_snapshot;
+      if (remembered_snapshot.entries.length) bench.log("info", `Put back ${remembered_snapshot.entries.length} people and signs on ${route.name}`);
+      const put_back = people_snapshot_after_answer(remembered_snapshot, answer);
+      return put_back;
+    }
+
+    async function on_new_route(route) {
+      resume({ route_key: SL.paintKey(route), route_name: route.name, generated: [], entries: PE.remembered_entries(bench.sget(PE.PEOPLE_MEMORY_KEY), SL.paintKey(route)) });
+      const put_back = await people_put_back_on(route);
+      if (state.result !== route) return;
+      resume(put_back);
+      bench.refresh();
+    }
+
+    function snapshot() {
+      const people_snapshot = { route_key, route_name, entries, generated };
+      return people_snapshot;
+    }
+
+    function resume(people_snapshot) {
+      route_key = people_snapshot.route_key;
+      route_name = people_snapshot.route_name;
+      entries = people_snapshot.entries;
+      generated = people_snapshot.generated;
     }
 
     function people() {
@@ -423,7 +459,7 @@
 
     bind_toolbar();
     return {
-      SELECTION_TYPE, on_new_route, restore, click, pick_at, draw, hides_generated_event, render_selection,
+      SELECTION_TYPE, on_new_route, people_put_back_on, snapshot, resume, restore, click, pick_at, draw, hides_generated_event, render_selection,
       tree_nodes, tree_id, selected_box, delete_selected, person_at, people,
       has_selection: () => !!selected_item(),
       is_selection: (selection) => !!selection && selection.type === SELECTION_TYPE,
