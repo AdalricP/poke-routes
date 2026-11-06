@@ -1909,11 +1909,19 @@ def main_head_commit() -> str:
     return main_head
 
 
+def first_unpushed_session_root() -> str:
+    pushed_main = _git(REPO, "rev-parse", "-q", "--verify", f"refs/remotes/origin/{MAIN}", check=False)
+    main_head = main_head_commit()
+    if pushed_main and _is_ancestor(REPO, pushed_main, main_head):
+        return pushed_main
+    return main_head
+
+
 def current_session() -> dict:
     session = _meta.get("session")
     if session and session.get("root"):
         return session
-    session = {"number": len(_meta.get("sessions") or []) + 1, "root": main_head_commit(), "started": time.time()}
+    session = {"number": len(_meta.get("sessions") or []) + 1, "root": first_unpushed_session_root(), "started": time.time()}
     if not _st["owner"]:
         return session
     _meta["session"] = session
