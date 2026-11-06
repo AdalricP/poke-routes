@@ -480,7 +480,7 @@
 
   function reportToConsole(r, rt) {
     const t = r.timing || {};
-    log("info", `Generated ${r.name} (seed ${r.seed}, ${r.width}×${r.height}, ${r.biome || "?"}, ${r.tiler === "ark" ? "Ark" : "learned"} tiles) in ${rt.toFixed(1)} s`,
+    log("info", `Generated ${r.name} (seed ${r.seed}, ${r.width}×${r.height}, ${r.biome || "?"}, ${r.tiler === "ark" ? "PokeRoutes" : "learned"} tiles) in ${rt.toFixed(1)} s`,
       `server ${(t.total || 0).toFixed(2)} s: generate ${(t.generate || 0).toFixed(2)}, final tiling ${(t.tile_final || 0).toFixed(2)}, stage tiling ${(t.tile_stages || 0).toFixed(2)}\n` +
       `${r.stages.length} stages: ${r.stages.map((s) => s.name).join(", ")}`);
     for (const w of r.warnings || []) log("warn", w);
@@ -1426,7 +1426,7 @@
     };
     if (sel.type === "route") {
       title(r.name, "#4d90d6");
-      kv([["id", r.route_id], ["seed", r.seed], ["size", `${r.width} × ${r.height}`], ["biome", r.biome], ["tiler", r.tiler === "ark" ? "Ark rule tiles" : `learned (${r.tileset || "general_fortree"})`],
+      kv([["id", r.route_id], ["seed", r.seed], ["size", `${r.width} × ${r.height}`], ["biome", r.biome], ["tiler", r.tiler === "ark" ? "PokeRoutes tiles" : `learned (${r.tileset || "general_fortree"})`],
         ["stages", r.stages.length], ["zones", r.zones.length], ["events", r.events.length], ["exportable", r.exportable ? "yes" : "no (too big)"]]);
       return;
     }
@@ -2275,7 +2275,7 @@
     prefs.tiler_picked_by_hand = true;
     savePrefs();
     applyPrefs();
-    log("info", `Tiler: ${t === "ark" ? "Ark rule tiles" : "learned Emerald tiles"}`);
+    log("info", `Tiler: ${t === "ark" ? "PokeRoutes tiles" : "learned Emerald tiles"}`);
     if (state.result) generate();
   }
   const menus = [
@@ -2358,7 +2358,7 @@
       { sep: true },
       { id: "tiler", label: "Tiler", items: [
         { id: "t-learned", label: "Learned (Emerald General + Fortree)", radio: true, checked: () => prefs.tiler === "learned", run: () => setTiler("learned") },
-        { id: "t-ark", label: "Ark rule tiles", radio: true, checked: () => prefs.tiler === "ark", enabled: () => !state.tilers || state.tilers.some((t) => t.id === "ark" && t.ok), run: () => setTiler("ark") },
+        { id: "t-ark", label: "PokeRoutes tiles", radio: true, checked: () => prefs.tiler === "ark", enabled: () => !state.tilers || state.tilers.some((t) => t.id === "ark" && t.ok), run: () => setTiler("ark") },
       ] },
       { sep: true },
       { id: "play", label: "Play / pause tile animation", enabled: sceneRoute, run: (ev) => { if (ev && document.activeElement && document.activeElement.tagName === "BUTTON") document.activeElement.blur(); toggle_tile_animation(); } },

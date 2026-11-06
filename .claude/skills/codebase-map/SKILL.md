@@ -40,7 +40,7 @@ Use this instead of exploring with grep/sed. Jump straight to the file and funct
      - `pokeroutes/classify.py`: class codes and `FALLBACK`.
      - Models live in `pokeroutes/models/*.json` and `models/index.json`.
    - **Ground texturing**, applied after the learned tiler: `pokeroutes/ground.py` (`texture_open_ground` for light-grass patches and flower clumps, `tile_with_false_walls`).
-   - **Rule tiler** (hand-made tilesets): `pokeroutes/ruletile.py`, `ArkTiler`.
+   - **Rule tiler** (hand-made tilesets, shown to the user as the PokeRoutes tileset): `pokeroutes/ruletile.py`, `ArkTiler`; bridges, sand shores, sideways falls and ledges over ground in `pokeroutes/ruletile_terrain.py`.
    - **Reading tilesets and rendering metatiles**: `pokeroutes/tileset.py`, `load_pair`.
    - **Scene-preview breeze** (tree crowns, tall grass, flowers swaying 1 px; preview only, not in the ROM): `pokeroutes/breeze.py`, added to the atlas `anim` and listed in `meta.breeze` by `webui/server.py` `build_atlas`.
 7. **Export**: `pokeroutes/export.py`.
