@@ -217,6 +217,9 @@ body.resizing.h * { cursor: row-resize !important; }
 .node > .row .eye svg { width: 12px; height: 12px; }
 .node > .row .eye.on { color: var(--text); }
 .node > .row .eye:hover { color: #fff; }
+.node > .row .go { flex: none; margin-left: 6px; border: 1px solid var(--text-3); border-radius: 3px; background: none; color: var(--text); font: inherit; font-size: 11px; line-height: 14px; padding: 0 5px; cursor: pointer; }
+.node > .row .go:hover { border-color: #9cc6f0; color: #fff; }
+.sel-actions .go { margin-left: 6px; }
 .node.collapsed > ul { display: none; }
 .tree .empty { padding: 6px 12px; color: var(--text-3); }
 
@@ -227,6 +230,7 @@ body.resizing.h * { cursor: row-resize !important; }
 .scene.tool-pan, .scene.panning { cursor: grab; }
 .scene.dragging { cursor: grabbing; }
 .scene.tool-paint, .scene.tool-stamp, .scene.tool-item { cursor: crosshair; }
+.scene.over-connection { cursor: pointer; }
 .tb-opts .item-name { width: 170px; }
 .sel-field { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
 .sel-field > span { min-width: 40px; color: var(--text-2); }
@@ -517,3 +521,9 @@ body.moving, body.moving * { user-select: none !important; cursor: move !importa
 .terrain-brush.on { border-color: var(--focus); color: var(--text); background: #33404d; }
 .terrain-brush canvas { width: 40px; height: 40px; image-rendering: pixelated; }
 .biome-swatch { display: block; width: 40px; height: 40px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.35); }
+.ask-input { width: 100%; box-sizing: border-box; margin-top: 6px; }
+.palette-section { margin-bottom: 8px; }
+.palette-heading { margin: 0 0 4px; font-size: 11px; font-weight: 600; color: var(--text-2); text-transform: none; }
+.tiles-exact summary { cursor: pointer; }
+.tiles-exact canvas { display: block; width: 100%; max-width: 192px; image-rendering: pixelated; cursor: crosshair; }
+.tiles-missing { cursor: help; }

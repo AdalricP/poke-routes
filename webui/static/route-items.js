@@ -89,7 +89,7 @@
 
     function has_glitter() {
       const route = state.result;
-      if (!glitter_strip || !route || !state.ov.events) return false;
+      if (!glitter_strip || !route || !state.ov.events || state.ov.markings === false) return false;
       return window.PR.eventsAt(route, state.stage).concat(visible_items()).some((event) => event.kind === "hidden_item");
     }
 

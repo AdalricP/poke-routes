@@ -403,10 +403,8 @@
   }
 
   async function undo(j, b) {
-    if (!confirm(`Revert "${j.subject || j.request}"? Are you sure?`)) return;
-    b.classList.add("imp-shift");
-    await new Promise((r) => setTimeout(r, 120));  // let the button actually move before the next dialog
-    if (!confirm("Are you really really sure?")) { b.classList.remove("imp-shift"); return; }
+    const revert_confirmed = await window.Shell.ask({ title: "Undo this change?", message: `Revert "${j.subject || j.request}"? This adds a revert commit on main.`, ok_label: "Revert" });
+    if (!revert_confirmed) return;
     b.disabled = true;
     try {
       const u = await api(`/api/improve/${j.id}/undo`, {});
@@ -811,10 +809,11 @@
   for (const b of $("impHistTabs").querySelectorAll(".imp-tab")) {
     b.onclick = () => { state.histTab = b.dataset.tab; state.fixOpenFor = null; renderHistTabs(); renderHist(); };
   }
-  $("impHistClear").onclick = () => {
+  $("impHistClear").onclick = async () => {
     const tab = state.histTab;
     if (!jobsForTab(tab).some((j) => !j.pinned)) return;
-    if (!confirm(`Remove all unpinned ${tab} jobs from this list? Pinned ones are kept.`)) return;
+    const clear_confirmed = await window.Shell.ask({ title: "Clear the list?", message: `Remove all unpinned ${tab} jobs from this list? Pinned ones are kept.`, ok_label: "Clear" });
+    if (!clear_confirmed) return;
     api("/api/improve/clear", { status: tab }).then(refresh).catch((e) => ($("impErr").textContent = e.message));
   };
   for (const b of $("impWctl").querySelectorAll("button")) b.onclick = () => setWorkers(Number(b.dataset.d));

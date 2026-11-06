@@ -334,10 +334,28 @@ test("region route YAML spec -> params", () => {
   assert.strictEqual(params.biome, "riverland");
   assert.strictEqual(params.branches, 2);           // defaults kept
   assert.strictEqual(params.tileset, undefined);    // not a bench field
-  assert.strictEqual(params.exits.length, 2);       // a stand-in exit on the goal side
-  assert.deepStrictEqual(params.exits[1], { side: "east", at: 0.5, width: 2 });
+  assert.strictEqual(params.exits.length, 1);       // a dead end keeps its one exit
   assert.strictEqual(params.exits[0].to, "Kiefernheide");
   assert.deepStrictEqual(region, { name: "Route 3", region: spec.region, endings: ["cave"] });
+});
+
+test("scene exits lead to the routes and towns on the other side", () => {
+  const doc = {
+    routes: [
+      { name: "Route 1", exits: [{ side: "west", to: "Town 1", to_map: "MAP_TOWN1" }, { side: "north", to: "Route 2", to_map: "MAP_ROUTE2" }] },
+      { name: "Route 2", exits: [{ side: "south", to: "Route 1", to_map: "MAP_ROUTE1" }] },
+    ],
+    cities: [{ id: "town1", name: "Town 1" }],
+  };
+  const scene_exits = [{ side: "west", to: "MAP_TOWN1" }, { side: "north", to: "MAP_ROUTE2" }, { side: "east", to: "" }];
+  const [town, route, open_edge] = SL.exitConnections(scene_exits, doc, "Route 1");
+  assert.deepStrictEqual([town.kind, town.name, town.town.id], ["town", "Town 1", "town1"]);
+  assert.deepStrictEqual([route.kind, route.name, route.route.name], ["route", "Route 2", "Route 2"]);
+  assert.strictEqual(open_edge, null);
+  const without_doc = SL.exitConnections(scene_exits, null, "Route 1");
+  assert.deepStrictEqual(without_doc.map((c) => c && c.name), ["Town 1", "Route 2", null]);
+  assert.strictEqual(without_doc[0].kind, "unknown");
+  assert.deepStrictEqual(SL.exitConnections([], doc, "Route 1"), []);
 });
 
 test("saved spec file round trip", () => {
@@ -382,6 +400,39 @@ test("stroke interpolation and paint memory", () => {
   assert.deepStrictEqual(SL.paintList(null), []);
   assert.strictEqual(SL.paintKey({ name: "Testweg", width: 64, height: 72 }), "Testweg|64x72"); // same key as the first paint mode
   assert.strictEqual(SL.PAINT_KEY, "pokeroutes-paint-v1");
+});
+
+test("paint palette brushes: kinds, ledges, tree blocks, objects, exact tiles", () => {
+  const palette = {
+    tiler: "ark", terrain: [
+      { code: "g", group: "ground" }, { code: "F", group: "trees", snap_blocks: true },
+      { code: "s", group: "ledges" }, { code: "j", group: "ledges" }, { code: "e", group: "ledges" },
+    ],
+    unavailable: [{ code: "d" }],
+    objects: [{ id: "stump", cells: [[1, 2], [3, 4]], classes: [["o", "o"], ["g", "o"]] }],
+    tiles: { "7": "w" },
+  };
+  assert.deepStrictEqual(SL.brush_kind("F"), { kind: "terrain", key: "F" });
+  assert.deepStrictEqual(SL.brush_kind(SL.LEDGE_BRUSH), { kind: "ledge", key: "ledge" });
+  assert.deepStrictEqual(SL.brush_kind("object:split_oak"), { kind: "object", key: "split_oak" });
+  assert.deepStrictEqual(SL.brush_kind("tile:286"), { kind: "tile", key: "286" });
+  assert.deepStrictEqual(SL.palette_ledge_codes(palette), ["s", "j", "e"]);
+  assert.strictEqual(SL.next_ledge_code(palette, "s"), "j");
+  assert.strictEqual(SL.next_ledge_code(palette, "e"), "s");
+  assert.strictEqual(SL.next_ledge_code(null, "s"), "s");
+  assert.strictEqual(SL.palette_class_codes(palette), "gFsjed");
+  assert.strictEqual(SL.palette_terrain_entry(palette, "F").snap_blocks, true);
+  assert.strictEqual(SL.palette_terrain_entry(palette, "q"), null);
+  const snapped = SL.snap_cells_to_blocks([[3, 3, "F"], [4, 3, "F"]], 6, 5).map(([x, y]) => `${x},${y}`).sort();
+  assert.deepStrictEqual(snapped, ["2,2", "2,3", "3,2", "3,3", "4,2", "4,3", "5,2", "5,3"]);
+  assert.deepStrictEqual(SL.snap_cells_to_blocks([[4, 4, "f"]], 5, 5), [[4, 4, "f"]]);
+  const stump = SL.palette_object_entry(palette, "stump");
+  assert.deepStrictEqual(SL.object_stamp_cells(stump, 5, 5, 10, 10), [[5, 5, "o#1"], [6, 5, "o#2"], [5, 6, "g#3"], [6, 6, "o#4"]]);
+  assert.deepStrictEqual(SL.object_stamp_cells(stump, 9, 5, 10, 10), [], "an object never sticks out of the map");
+  assert.strictEqual(SL.exact_tile_value(palette, 7), "w#7");
+  assert.strictEqual(SL.exact_tile_value(palette, 99), "g#99");
+  assert.deepStrictEqual(SL.expand_paint_cells([[1, 2, "F#564"], [3, 4, "p"], [5, 6, "o#709"]]),
+    [[1, 2, "F"], [1, 2, "#564"], [3, 4, "p"], [5, 6, "o"], [5, 6, "#709"]]);
 });
 
 console.log(`shell-logic: ${n} tests passed`);
