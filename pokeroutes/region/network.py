@@ -35,7 +35,7 @@ MIN_ALONG = 7
 TURN = 3.0
 
 BIOME_COST = {"m": 1.0, "f": 1.3, "F": 1.8, "w": 2.0, "b": 1.2, "d": 1.4, "M": 3.5, "S": 6.0,
-              "v": 2.2, "a": 1.5, "g": 1.4, "B": 1.3, "l": np.inf, "o": np.inf, "~": np.inf, "=": np.inf}
+              "v": 2.2, "o": np.inf, "~": np.inf, "=": np.inf}
 
 
 def size_ok(w: int, h: int) -> bool:
@@ -47,16 +47,28 @@ def size_ok(w: int, h: int) -> bool:
 LAKE_CROSSING_COST_PER_CELL = 9.0
 SHALLOW_SEA_CROSSING_COST_PER_CELL = 12.0
 DEEPEST_SEA_A_ROAD_CROSSES = -0.30
+FARTHEST_FROM_LAND_A_BRIDGE_REACHES_IN_CELLS = 2.0
+SURF_ROUTE_LAND_COST_PER_CELL = 1.6
+SMALLEST_WATER_SHARE_OF_A_SURF_ROUTE = 0.4
+CONNECTED_ROUTE_START_PENALTY = 4.0
+MAP_EDGE_AVOIDANCE_IN_CELLS = 6
+MAP_EDGE_COST_PER_CELL_CLOSER = 1.5
 SMALLEST_COST_FACTOR_OF_A_VARIANT, COST_FACTOR_SPREAD_OF_A_VARIANT = 0.3, 2.4
 COST_NOISE_SMOOTHING_IN_CELLS = 4.0
 
 
 def water_crossing_cost(w: World) -> np.ndarray:
     lake = np.asarray(w.lake, bool) & w.land
-    shallow_sea = ~w.land & (w.height >= DEEPEST_SEA_A_ROAD_CROSSES)
+    shallow_sea = ~w.land & (w.height >= DEEPEST_SEA_A_ROAD_CROSSES) & is_within_bridge_reach_of_land(w)
     crossing_cost = np.where(lake, LAKE_CROSSING_COST_PER_CELL, np.inf)
     crossing_cost = np.where(shallow_sea, SHALLOW_SEA_CROSSING_COST_PER_CELL, crossing_cost)
     return crossing_cost
+
+
+def is_within_bridge_reach_of_land(w: World) -> np.ndarray:
+    distance_to_land_in_cells = ndi.distance_transform_edt(~w.land)
+    within_reach = distance_to_land_in_cells <= FARTHEST_FROM_LAND_A_BRIDGE_REACHES_IN_CELLS
+    return within_reach
 
 
 def variant_cost_factor(w: World, variant: int) -> np.ndarray:
@@ -72,22 +84,30 @@ def variant_cost_factor(w: World, variant: int) -> np.ndarray:
 def land_cost(w: World, variant: int = 0) -> np.ndarray:
     c = np.vectorize(lambda b: BIOME_COST.get(b, 1.0), otypes=[float])(w.biome)
     crossing = water_crossing_cost(w)
-    c = np.where(np.isinf(c) & np.isfinite(crossing) & (w.biome != "l"), crossing, c)
+    c = np.where(np.isinf(c) & np.isfinite(crossing), crossing, c)
     gy, gx = np.gradient(w.height)
     c = c + 30.0 * np.hypot(gx, gy) * w.land
     c = c * variant_cost_factor(w, variant)
     c = np.where(w.river, c + 6.0, c)  # cross rivers, don't follow them
+    c = c + map_edge_cost(w)
     c = np.where(w.overrides.get("no_route", np.zeros_like(w.land)), np.inf, c)
     c[:2, :] = c[-2:, :] = np.inf
     c[:, :2] = c[:, -2:] = np.inf
     return c
 
 
+def map_edge_cost(w: World) -> np.ndarray:
+    rows, columns = np.mgrid[0:w.H, 0:w.W]
+    distance_to_map_edge = np.minimum(np.minimum(rows, w.H - 1 - rows), np.minimum(columns, w.W - 1 - columns))
+    edge_cost = np.maximum(0, MAP_EDGE_AVOIDANCE_IN_CELLS - distance_to_map_edge) * MAP_EDGE_COST_PER_CELL_CLOSER
+    return edge_cost
+
+
 def sea_cost(w: World) -> np.ndarray:
-    c = np.where(w.land, np.inf, 1.0)
+    """Surf routes run over open water; land costs extra, so a surf link walks
+    from an inland town to the shore and then takes to the sea."""
+    c = np.where(w.land, SURF_ROUTE_LAND_COST_PER_CELL, 1.0) + map_edge_cost(w)
     c = np.where(w.height < -0.30, 1.15, c)
-    c = np.where(w.overrides.get("trench", np.zeros_like(w.land)), 0.55, c)  # the way out passes the Deep Rinne
-    c = np.where(w.overrides.get("isles", np.zeros_like(w.land)), 1.0, c)
     c[:2, :] = c[-2:, :] = np.inf
     c[:, :2] = c[:, -2:] = np.inf
     return c
@@ -178,11 +198,6 @@ class Network:
                 continue
             rad = 3.5 if lm.kind in ("den", "volcano") else 2.5
             self.reserved[np.hypot(xs - lm.x, ys - lm.y) <= rad] = lm.id
-        gate = w.overrides.get("den_gate")
-        # Romowe's one way in should be left to the Romowe branch: other links pay to cross it
-        self.gate_pen = np.zeros((w.H, w.W))
-        if gate:
-            self.gate_pen[np.hypot(xs - gate[0], ys - gate[1]) <= 3.0] = 12.0
         self.allow = ""
 
     # ---- nodes
@@ -239,8 +254,6 @@ class Network:
         cost = cost + np.where(occd < 6, (6 - occd) * 1.2, 0)
         self.allow = link.get("landmark") or ""
         cost = cost + np.where((self.reserved != "") & (self.reserved != self.allow), 25.0, 0)
-        if self.allow != "romowe":
-            cost = cost + self.gate_pen
         if "goal" in link:
             gx, gy = link["goal"]
             cost[gy, gx] = min(float(cost[gy, gx]), 2.0) if math.isfinite(cost[gy, gx]) else 2.0
@@ -252,6 +265,16 @@ class Network:
                     starts[c] = v
         goals, goal_node = self._goals(link, cost)
         path = search(cost, starts, goals)
+        if not path and not link.get("through_neighbouring_routes") and "dst" in link:
+            self.w.log.append(f"link {link['name']}: boxed in, trying from the routes next to its ends")
+            link["through_neighbouring_routes"] = True
+            link["src"] = self.with_connected_routes(link["src"])
+            link["dst"] = self.with_connected_routes(link["dst"])
+            return self.lay(link)
+        if not path and link.get("mode", "land") == "land" and "dst" in link:
+            self.w.log.append(f"link {link['name']}: no way over land, laid as a surf link")
+            link["mode"] = "sea"
+            return self.lay(link)
         if not path:
             self.w.log.append(f"link {link['name']}: no path")
             return False
@@ -262,7 +285,7 @@ class Network:
             if r is None:
                 self.w.log.append(f"link {link['name']}: no room after {len(rects)} routes")
                 break
-            k = self.add_node("route", r, link=link["name"], mode=link.get("mode", "land"), kind_link=link["kind"])
+            k = self.add_node("route", r, link=link["name"], mode=self.mode_of_route_rect(r, link), kind_link=link["kind"])
             self.nodes[k]["paths"].append(used)
             self._connect(prev, k, path[0], link)
             rects.append(k)
@@ -286,6 +309,21 @@ class Network:
             prev = k
         link["routes"] = rects
         return True
+
+    def with_connected_routes(self, ends: List[Tuple[int, float]]) -> List[Tuple[int, float]]:
+        end_nodes = {node_index for node_index, _penalty in ends}
+        connected = [(connection["b"] if connection["a"] in end_nodes else connection["a"], CONNECTED_ROUTE_START_PENALTY)
+                     for connection in self.conns if (connection["a"] in end_nodes) != (connection["b"] in end_nodes)]
+        widened_ends = list(ends) + [end for end in connected if end[0] not in end_nodes]
+        return widened_ends
+
+    def mode_of_route_rect(self, rect: List[int], link: dict) -> str:
+        if link.get("mode") != "sea":
+            return "land"
+        x0, y0, x1, y1 = rect
+        water_share = float((~self.w.land[y0:y1, x0:x1]).mean())
+        mode = "sea" if water_share >= SMALLEST_WATER_SHARE_OF_A_SURF_ROUTE else "land"
+        return mode
 
     def _goals(self, link, cost):
         if "goal" in link:
@@ -405,7 +443,7 @@ class Network:
             n[{"x0": 0, "y0": 1, "x1": 2, "y1": 3}[s]] += -1 if s in ("x0", "y0") else 1
             if not size_ok(n[2] - n[0], n[3] - n[1]) or not self.free(n):
                 return False
-            # the new strip: land routes stop growing into open sea, sea routes into land
+            # the new strip: land routes stop growing into open sea
             if s in ("x0", "x1"):
                 xx = n[0] if s == "x0" else n[2] - 1
                 strip = water[n[1]:n[3], xx]
@@ -413,7 +451,7 @@ class Network:
                 yy = n[1] if s == "y0" else n[3] - 1
                 strip = water[yy, n[0]:n[2]]
             frac = float(strip.mean())
-            if (not sea and frac > 0.85) or (sea and frac < 0.15):
+            if not sea and frac > 0.85:
                 return False
             r[:] = n
             return True
@@ -636,7 +674,6 @@ def wild_sites(w: World, net: "Network", n: int) -> list:
     return out
 
 
-ARKLARNA_TOWNS = ("tvangsburg", "pilsau", "huettenau", "kaup")
 
 
 def build_network(w: World, keep: Optional[List[dict]] = None, plan: Optional[List[dict]] = None,
@@ -667,10 +704,7 @@ def build_network(w: World, keep: Optional[List[dict]] = None, plan: Optional[Li
             return
         lay_around(net, link, pins[link["name"]])
 
-    if w.preset == "arklarna" and all(town_id in C for town_id in ARKLARNA_TOWNS):
-        arklarna_links(w, net, C, add, links)
-    else:
-        town_links(w, net, C, add, towns_joined_by_drawn_lines(plan), variant)
+    town_links(w, net, C, add, towns_joined_by_drawn_lines(plan), variant)
     links.extend(kept_drawn_links(plan, pins))
     # links drawn by hand in the editor
     for ul in plan:
@@ -747,60 +781,6 @@ class TownGroups:
 
     def joined(self, town_id: str, other_town_id: str) -> bool:
         return self.root(town_id) == self.root(other_town_id)
-
-
-def arklarna_links(w: World, net: Network, C: Dict[str, int], add, links: List[dict]) -> None:
-    """The Arklarna preset: three roads between its four towns, the legendary
-    branches, two wild places and the Hüttenau loop."""
-    add(dict(name="Tvangsburg-Pilsau", kind="main", src=[(C["tvangsburg"], 0)], dst=[(C["pilsau"], 0)]))
-    add(dict(name="Tvangsburg-Huettenau", kind="main", src=[(C["tvangsburg"], 0)], dst=[(C["huettenau"], 0)]))
-    add(dict(name="Pilsau-Kaup", kind="main", src=[(C["pilsau"], 0)], dst=[(C["kaup"], 0)]))
-
-    def branch(name, lid, cell=None, mode="land", prefer_routes=True, avoid=()):
-        lm = w.landmark(lid)
-        if lm is None:
-            return
-        src = []
-        for n in net.nodes:
-            if n["idx"] in avoid:
-                continue
-            if mode == "sea":
-                src.append((n["idx"], 0.0 if n["kind"] == "city" else 2.0))
-            else:
-                src.append((n["idx"], 40.0 if (n["kind"] == "city" and prefer_routes) else 0.0))
-        goal = cell or (lm.x, lm.y)
-        occ_k = int(net.occ[goal[1], goal[0]])
-        if occ_k >= 0 and net.nodes[occ_k].get("link") != name:
-            w.log.append(f"{name}: {lid} already sits inside a route")
-            net.nodes[occ_k].setdefault("landmarks", []).append(lid)
-            return
-        add(dict(name=name, kind="branch", src=src, goal=goal, mode=mode, landmark=lid))
-
-    # Glutberg: up the flank from the Hüttenau side
-    v = w.landmark("glutberg")
-    hu = w.city("huettenau")
-    if v and hu:
-        a = math.atan2(hu.cy - v.y, hu.cx - v.x)
-        gx, gy = int(round(v.x + 3.0 * math.cos(a))), int(round(v.y + 3.0 * math.sin(a)))
-        branch("Glutberg branch", "glutberg", (gx, gy), prefer_routes=False)
-    branch("Gold Feather branch", "gold_feather_tower")
-    gate = w.overrides.get("den_gate")
-    branch("Romowe branch", "romowe", gate)
-    branch("Brandung branch", "kyogre_caves")
-    branch("Skerries crossing", "silver_skerries", mode="sea")
-    # wild places in whatever part of the map no route reaches yet: long dead ends
-    wild = [lm for lm in w.landmarks if lm.id.startswith("wild_")]
-    if not wild:  # first build: find them (an edited map keeps the ones it has)
-        wild = wild_sites(w, net, 2)
-        w.landmarks.extend(wild)
-    for lm in wild:
-        if 0 <= lm.y < w.H and 0 <= lm.x < w.W:
-            net.reserved[lm.y, lm.x] = lm.id
-        branch(f"{lm.name} branch", lm.id)
-    # a loop: Hüttenau gets a second way out that rejoins the Pilsau road
-    first = [k for k in links[0].get("routes", [])]
-    add(dict(name="Huettenau-Pilsau loop", kind="loop", src=[(C["huettenau"], 0)] + [(k, 4.0) for k in links[1].get("routes", [])[-1:]],
-             dst=[(C["pilsau"], 2.0)] + [(k, 0.0) for k in first]))
 
 
 def town_links(w: World, net: Network, C: Dict[str, int], add, drawn_pairs: Optional[List[Tuple[str, str]]] = None,
@@ -1027,7 +1007,24 @@ def user_link(w: World, net: Network, ul: dict) -> Optional[dict]:
         if d is None or d == s:
             return None
         link["dst"] = [(d, 0.0)]
+        if link["mode"] == "land" and not nodes_joined_over_land(net, s, d):
+            link["mode"] = "sea"
     return link
+
+
+def nodes_joined_over_land(net: Network, node_index: int, other_node_index: int) -> bool:
+    labels, _count = ndi.label(np.isfinite(net.lcost) | (net.occ >= 0))
+    first_column, first_row = rect_centre_cell(net.nodes[node_index]["rect"])
+    second_column, second_row = rect_centre_cell(net.nodes[other_node_index]["rect"])
+    first, second = labels[first_row, first_column], labels[second_row, second_column]
+    joined = bool(first) and first == second
+    return joined
+
+
+def rect_centre_cell(rect: List[int]) -> Cell:
+    x0, y0, x1, y1 = rect
+    centre_cell = ((x0 + x1) // 2, (y0 + y1) // 2)
+    return centre_cell
 
 
 def node_for_ref(net: Network, ref: Optional[dict]) -> Optional[int]:

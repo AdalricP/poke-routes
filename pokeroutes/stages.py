@@ -133,7 +133,7 @@ def stage_skeleton(route: Route) -> None:
         goal = [(y, x) for y in range(gy - 3, gy + 4) for x in range(gx - 4, gx + 5)
                 if route.inside(y, x, 3) and not (abs(y - gy) == 3 and abs(x - gx) == 4)]
         carve(route, goal)
-        reg = route.spec.region.get("goal", {}) if isinstance(route.spec.region, dict) else {}
+        reg = (route.spec.region.get("goal") or {}) if isinstance(route.spec.region, dict) else {}
         route.zones.append(Zone("clearing", goal, "goal", {"center": (gy, gx), "goal": reg.get("landmark", True)}))
     for e, cells in route.exits:
         for cell in cells:

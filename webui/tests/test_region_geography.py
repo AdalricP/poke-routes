@@ -43,12 +43,9 @@ def test_geography_can_be_forced():
         build(5, routes=False, strip=False, geography_kind="moon")
 
 
-def test_arklarna_preset_keeps_its_towns_and_legendaries():
-    w = build(1, routes=True, strip=False, preset="arklarna")
-    assert {c.id for c in w.cities} == {"tvangsburg", "pilsau", "huettenau", "kaup"}
-    assert w.landmark("glutberg") is not None
-    assert w.strait is not None
-    assert len(w.routes) > 0
+def test_the_arklarna_preset_is_gone():
+    with pytest.raises(ValueError):
+        build(1, routes=True, strip=False, preset="arklarna")
 
 
 def test_add_and_delete_towns_through_the_edit_api(tmp_path):
@@ -81,10 +78,47 @@ def test_add_and_delete_towns_through_the_edit_api(tmp_path):
     assert after["routes"] == []
 
 
-def test_documents_saved_before_presets_load_as_arklarna():
-    doc = edit.generate_doc(1, preset="arklarna")
+def test_documents_saved_before_presets_load_as_generic():
+    doc = edit.generate_doc(1)
     doc["grids"]["half"] = doc["grids"].pop("landmass")
     doc.pop("preset")
     w = edit.doc_to_world(doc)
-    assert w.preset == "arklarna"
+    assert w.preset == "generic"
     assert w.landmass.max() >= 1
+
+
+def test_legendary_biomes_in_old_documents_read_as_plain_biomes():
+    doc = edit.generate_doc(1)
+    w = edit.doc_to_world(doc)
+    land_cell = tuple(np.argwhere(w.land & ~w.lake)[0])
+    w.biome[land_cell] = "l"
+    w.overrides["_edit"]["paint_biome"][land_cell] = ord("g")
+    reloaded = edit.doc_to_world(edit.world_to_doc(w))
+    assert reloaded.biome[land_cell] == "v"
+    assert reloaded.overrides["_edit"]["paint_biome"][land_cell] == ord("f")
+
+
+def river_mouth_of(world, flat_index):
+    receivers = np.asarray(world.recv)
+    for _ in range(world.W * world.H):
+        receiver = int(receivers[flat_index])
+        if receiver < 0:
+            return flat_index
+        flat_index = receiver
+    raise AssertionError("river runs in a circle")
+
+
+def is_on_the_map_edge(world, flat_index):
+    row, column = divmod(flat_index, world.W)
+    return row in (0, world.H - 1) or column in (0, world.W - 1)
+
+
+def test_rivers_rise_in_the_high_ground_and_end_in_a_lake_or_the_sea():
+    for seed in (3, 6):
+        world = build(seed, routes=False, strip=False)
+        land_heights = world.height[world.land]
+        assert world.height[world.river].max() >= np.quantile(land_heights, 0.85)
+        for flat_index in np.flatnonzero(world.river.ravel())[::7].tolist():
+            mouth = river_mouth_of(world, flat_index)
+            row, column = divmod(mouth, world.W)
+            assert not world.land[row, column] or world.lake[row, column] or is_on_the_map_edge(world, mouth)

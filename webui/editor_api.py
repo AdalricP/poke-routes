@@ -1,7 +1,6 @@
 """Region editor + bench paint backend (kept out of server.py, like region_api.py).
 
-POST /api/editor/generate   {seed, preset?, geography?} -> editor document for a fresh region
-                            preset: generic (default; no towns, no landmarks) | arklarna
+POST /api/editor/generate   {seed, geography?} -> editor document for a fresh region (no towns yet)
                             geography: continent | coast | ... (generic only; default: the seed picks)
 GET  /api/editor/list                              -> saved regions under region_out/
 POST /api/editor/load       {name}                 -> document from region_out/<name>/region.json
@@ -114,7 +113,7 @@ def post(h, u, srv) -> None:
         if p == "/api/editor/generate":
             seed = max(0, min(2 ** 31 - 1, int(b.get("seed", 1))))
             geography_kind = b.get("geography") or None
-            return h._json(edit.generate_doc(seed, str(b.get("preset") or "generic"), geography_kind))
+            return h._json(edit.generate_doc(seed, geography_kind=geography_kind))
         if p == "/api/editor/load":
             f = OUT / _name(b.get("name")) / "region.json"
             if not f.exists():
