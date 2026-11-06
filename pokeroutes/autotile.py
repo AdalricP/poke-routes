@@ -23,7 +23,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from .classify import BLOCKED_CLASSES, FALLBACK, SURFABLE_CLASSES, WALKABLE_CLASSES
+from .classify import BLOCKED_CLASSES, FALLBACK, SURFABLE_CLASSES, WALKABLE_CLASSES, seal_waterfalls
 from .layout import Layout
 from .learn import cross, neighbourhood
 
@@ -140,7 +140,7 @@ class Autotiler:
         ``fixed`` maps (y, x) -> metatile id for cells that must not change
         (hand-placed features, stamps)."""
         rng = random.Random(seed)
-        cls = self.prepare(cls)
+        cls = self.prepare(seal_waterfalls(cls))
         h, w = cls.shape
         grid = np.full((h, w), -1, dtype=np.int32)
         fixed = fixed or {}
