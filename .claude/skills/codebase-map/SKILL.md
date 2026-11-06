@@ -147,8 +147,12 @@ Walkable: `gptdhyvzqn`. Surfable: `wbD`. Blocked: `frkul`.
 
 ## Tests and checks (run from the repo root)
 
+Keep checks lean: run the tests for the files you touched (`python3 -m pytest -q webui/tests/test_<area>.py`) plus `node --check` on edited JS; the full suite runs in parallel in ~30 s with `-n auto` (pytest-xdist). For the UI, use `tools/ui_check.py` (one screenshot + page errors, exit 1 on errors) instead of writing a new Playwright script; for generator looks, `tools/count_generation_glitches.py` counts known defects.
+
 ```sh
-python3 -m pytest -q webui/tests            # job queue (with fake_claude.py) + region network
+python3 -m pytest -q -n auto webui/tests    # whole suite in parallel (~30 s)
+PORT=8841 IMPROVE_WORKERS=0 python3 webui/server.py &   # own port for UI checks
+python3 tools/ui_check.py --port 8841 --out out/check.png map generate-map open-first-route
 node webui/tests/shell-logic.test.js        # shell pure logic
 node webui/tests/dock-layout-logic.test.js  # docking layout tree
 node webui/tests/editor-logic.test.js       # region editor pure logic
