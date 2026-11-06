@@ -99,7 +99,7 @@ Walkable: `gptdhyvzqn`. Surfable: `wb`. Blocked: `frkul`.
   - `shell.js`: menus, docks, console, keys. Its public surface is `window.Shell`.
   - `bench.js`: Scene, Inspector, Hierarchy, Timeline, files, paint. Its public surface is `window.Bench`.
   - `shell-logic.js`: pure functions (shortcuts, layout, undo, `specToParams`).
-  - `editor/app.js` and `editor/logic.js`: the region editor (Geography, Map, Story tabs; route gates are set in the Map inspector).
+  - `editor/app.js` and `editor/logic.js`: the region editor (Geography and Map tabs; route gates are set in the Map inspector). Routes can sit beside either in a split centre (`shell.js`, `split_*` in `shell-logic.js`).
   - `agent.js`: the Agent tab.
 - **Reloading after edits**:
   - Generator edits (`pokeroutes/*.py`) are picked up by the running server automatically (`server.G()` reloads when file mtimes change).
