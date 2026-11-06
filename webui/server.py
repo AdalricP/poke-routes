@@ -91,21 +91,34 @@ def atlas(ts: str = TILESET):
 
 
 def build_atlas(p, primary_sym: str, secondary_sym: str, png_url: str):
-    """(png bytes, metadata) for every metatile of a tileset pair."""
+    """(png bytes, metadata) for every metatile of a tileset pair, plus extra cells for the
+    other frames of any metatile that animates (water, flowers, waterfalls...) so the browser
+    can play them instead of showing a dead scene."""
     from PIL import Image
 
     n_pri, n_sec = p.metatile_count()
     ids = list(range(n_pri)) + [NUM_PRIMARY_METATILES + i for i in range(n_sec)]
-    rows = (len(ids) + ATLAS_COLS - 1) // ATLAS_COLS
+    anim = p.animated_metatiles()  # metatile id -> frame count, for the ones that animate
+    extra = [(mid, f) for mid, nf in anim.items() for f in range(1, nf)]
+    rows = (len(ids) + len(extra) + ATLAS_COLS - 1) // ATLAS_COLS
     img = np.zeros((rows * 16, ATLAS_COLS * 16, 4), dtype=np.uint8)
+    index = {}
     for n, mid in enumerate(ids):
         y, x = (n // ATLAS_COLS) * 16, (n % ATLAS_COLS) * 16
         img[y:y + 16, x:x + 16, :3] = p.render_metatile(mid)
         img[y:y + 16, x:x + 16, 3] = 255
+        index[str(mid)] = n
+    anim_index: dict = {}
+    for k, (mid, f) in enumerate(extra):
+        n = len(ids) + k
+        y, x = (n // ATLAS_COLS) * 16, (n % ATLAS_COLS) * 16
+        img[y:y + 16, x:x + 16, :3] = p.render_metatile(mid, frame=f)
+        img[y:y + 16, x:x + 16, 3] = 255
+        anim_index.setdefault(str(mid), []).append(n)
     buf = io.BytesIO()
     Image.fromarray(img).save(buf, "PNG", optimize=True)
     meta = {"png": png_url, "cell": 16, "columns": ATLAS_COLS, "count": len(ids),
-            "index": {str(m): i for i, m in enumerate(ids)}, "primary": primary_sym, "secondary": secondary_sym}
+            "index": index, "primary": primary_sym, "secondary": secondary_sym, "anim": anim_index}
     return buf.getvalue(), meta
 
 
