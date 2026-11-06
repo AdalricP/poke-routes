@@ -18,6 +18,7 @@ BIOME_TILESET = {
     "mountain": "general_lavaridge",  # Route 112
     "volcanic": "general_lavaridge",  # Mt. Chimney / Jagged Pass rock (the Route 113 model draws cliff interiors as brick)
 }
+ROUTE_EFFECTS = ("none", "leaves", "snow", "rain", "ash")
 
 
 @dataclass
@@ -56,6 +57,7 @@ class RouteSpec:
     species_file: str = ""
     music: str = "MUS_ROUTE104"
     weather: str = "WEATHER_SUNNY"
+    effect: str = "none"
     exclude_areas: List[str] = field(default_factory=list)  # special areas already used elsewhere
     # braided-linear skeleton (see braid.py): the route is a line of sections; in each,
     # the main lane may split into 2-3 parallel lanes that rejoin at the next node
@@ -78,6 +80,8 @@ class RouteSpec:
     def __post_init__(self) -> None:
         if not self.tileset:
             self.tileset = BIOME_TILESET.get(self.biome, "general_fortree")
+        if self.effect not in ROUTE_EFFECTS:
+            raise ValueError(f"route {self.name!r}: effect {self.effect!r} is not one of {', '.join(ROUTE_EFFECTS)}")
 
     @property
     def width(self) -> int:

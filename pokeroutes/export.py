@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw
 
 from .classify import CLASS_COLORS
 from .generate import Route, reachable
+from .route_effects import effect_summary_for_route, emerald_weather_for_route
 
 ZONE_COLORS = {
     "main": (240, 200, 90), "branch": (120, 200, 255), "loop": (255, 140, 200), "dead_end": (200, 160, 255),
@@ -81,6 +82,7 @@ def scene_dict(route: Route) -> dict:
         "id": s.id,
         "seed": s.seed,
         "biome": s.biome,
+        **effect_summary_for_route(s),
         "width": route.w,
         "height": route.h,
         "grid": ["".join(row) for row in route.cls],
@@ -237,7 +239,7 @@ def write_emerald(route: Route, layout, out: Path, primary: str, secondary: str,
     mapsec = f"MAPSEC_{cname}"
     m = {
         "id": f"MAP_{cname}", "name": s.id, "layout": f"LAYOUT_{cname}", "music": s.music,
-        "region": "REGION_HOENN", "region_map_section": mapsec, "requires_flash": False, "weather": s.weather,
+        "region": "REGION_HOENN", "region_map_section": mapsec, "requires_flash": False, "weather": emerald_weather_for_route(s),
         "map_type": "MAP_TYPE_ROUTE", "allow_cycling": True, "allow_escaping": False, "allow_running": True,
         "show_map_name": True, "battle_scene": "MAP_BATTLE_SCENE_NORMAL",
         "connections": conns or None,
@@ -521,4 +523,5 @@ def report(route: Route) -> dict:
         "zones": {k: sum(1 for z in route.zones if z.kind == k) for k in sorted({z.kind for z in route.zones})},
         "events": {k: sum(1 for e in route.events if e.kind == k) for k in sorted({e.kind for e in route.events})},
         "special_areas": [z.name for z in route.zones if z.kind == "special"],
+        **effect_summary_for_route(route.spec),
     }

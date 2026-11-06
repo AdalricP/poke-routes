@@ -40,9 +40,11 @@ Use this instead of exploring with grep/sed. Jump straight to the file and funct
    - **Ground texturing**, applied after the learned tiler: `pokeroutes/ground.py` (`texture_open_ground` for light-grass patches and flower clumps, `tile_with_false_walls`).
    - **Rule tiler** (hand-made tilesets): `pokeroutes/ruletile.py`, `ArkTiler`.
    - **Reading tilesets and rendering metatiles**: `pokeroutes/tileset.py`, `load_pair`.
+   - **Scene-preview breeze** (tree crowns, tall grass, flowers swaying 1 px; preview only, not in the ROM): `pokeroutes/breeze.py`, added to the atlas `anim` and listed in `meta.breeze` by `webui/server.py` `build_atlas`.
 7. **Export**: `pokeroutes/export.py`.
    - `seal_edges`, `write_emerald` (map.bin, border.bin, map.json, scripts.inc)
    - `write_scene` (scene.json), `report` (report.json)
+   - Route `effect` (none/leaves/snow/rain/ash) → Emerald weather and notes: `pokeroutes/route_effects.py`. The Scene draws it as a particle overlay (bench.js, `tick_route_effect`).
    - `debug_image` (plan.png), `stage_sheet` (stages.png), `grade_for_biome`
 8. **CLI**: `pokeroutes/cli.py`. `_generate_and_write` is the whole route path end to end.
    - `python3 -m pokeroutes generate SPEC [-o OUT] [--seed N] [--stages] [--tileset learned|ark]`
