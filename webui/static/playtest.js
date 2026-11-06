@@ -120,6 +120,22 @@
     session.current_move = null;
     session.text_box = null;
     session.grass_rustles = new Map();
+    announce_player_position();
+  }
+
+  function player_position_on_the_map() {
+    if (!session.is_open || !session.play_world || !session.player) return null;
+    const facing_frame = Logic.player_sheet_frame(session.player.facing, null, 0);
+    const position = {
+      route_name: hooks.playtest_route_name(), x: session.player.x, y: session.player.y,
+      width: session.play_world.width, height: session.play_world.height,
+      sheet: current_sheets().walking || null, frame_index: facing_frame.frame_index, is_mirrored: facing_frame.is_mirrored,
+    };
+    return position;
+  }
+
+  function announce_player_position() {
+    window.dispatchEvent(new CustomEvent("pokeroutes-player-on-map", { detail: player_position_on_the_map() }));
   }
 
   function show_toast(toast_text) {
@@ -219,6 +235,7 @@
     if (session.current_move || session.text_box || session.player.facing === direction) return;
     session.player.facing = direction;
     session.turn_lock_until = now + Logic.turn_in_place_duration_in_milliseconds;
+    announce_player_position();
   }
 
   function release_direction(direction) {
@@ -279,6 +296,7 @@
     if (finished_move.kind === "push_boulder") session.play_world = Logic.world_with_boulder_pushed(session.play_world, finished_move.boulder_from, finished_move.boulder_to);
     if (finished_move.kind !== "bump" && finished_move.kind !== "push_boulder") roll_for_wild_encounter();
     forget_grass_rustles_away_from_player(now);
+    announce_player_position();
   }
 
   function forget_grass_rustles_away_from_player(now) {
@@ -713,6 +731,7 @@
     session.overlay = null;
     session.play_world = null;
     release_all_keys();
+    announce_player_position();
   }
 
   window.addEventListener("keydown", handle_key_down, true);

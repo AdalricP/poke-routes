@@ -75,6 +75,7 @@
 [data-ed="insp"] .row .rst:hover { color: var(--ink); }
 [data-ed="insp"] .exits2 { list-style: none; padding: 0; margin: 4px 0 8px; }
 [data-ed="insp"] .exits2 li { display: grid; grid-template-columns: 50px 1fr; gap: 6px; align-items: center; font-size: 12.5px; margin-bottom: 4px; }
+[data-ed="insp"] .exits2 li.exit-line { display: block; }
 [data-ed="insp"] .exits2 .to { grid-column: 1 / -1; color: var(--ink-3); margin-top: -3px; }
 [data-ed="insp"] .warns { color: var(--warn); font-size: 12.5px; padding-left: 16px; margin: 6px 0; }
 [data-ed="insp"] .story { color: var(--ink-2); font-size: 12.5px; }

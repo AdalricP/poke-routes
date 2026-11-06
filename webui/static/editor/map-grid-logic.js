@@ -3,8 +3,6 @@
   const EMPTY_MARK = ".", ROUTE_MARK = "r", TOWN_MARK = "t";
   const MARK_OF_BRUSH = { route: ROUTE_MARK, town: TOWN_MARK, erase: EMPTY_MARK };
   const STEP_OF_SIDE = { east: [1, 0], west: [-1, 0], south: [0, 1], north: [0, -1] };
-  const METRO_LINE_COLOURS = ["#f39700", "#e60012", "#00a7db", "#009944", "#d7c447", "#9b7cb6", "#00ada9", "#bb641d", "#e85298", "#6cbb5a", "#b6007a", "#0079c2"];
-  const SEA_LINE_COLOUR = "#3d8fd1";
 
   function grid_of_doc(doc) {
     const map_grid = doc.map_grid || {};
@@ -95,52 +93,6 @@
     return corner_points;
   }
 
-  function through_exits_of_route(grid, route) {
-    const cells = route.grid_cells || [];
-    const exits = route.exits || [];
-    if (cells.length === 1) return exits.slice(0, 2);
-    const first_exit = exits.find((exit) => same_cell(grid_cell_of_exit(grid, exit), cells[0]));
-    const last_exit = exits.find((exit) => exit !== first_exit && same_cell(grid_cell_of_exit(grid, exit), cells[cells.length - 1]));
-    const through_exits = [first_exit, last_exit].filter(Boolean);
-    return through_exits;
-  }
-
-  function first_and_last_through_exit(grid, route, through_exits) {
-    const cells = route.grid_cells || [];
-    const starts_at_first_cell = (exit) => same_cell(grid_cell_of_exit(grid, exit), cells[0]);
-    const first_exit = through_exits.find(starts_at_first_cell) || null;
-    const last_exit = through_exits.find((exit) => exit !== first_exit) || null;
-    const end_exits = { first_exit, last_exit };
-    return end_exits;
-  }
-
-  function metro_lines_of_route(grid, route) {
-    const cells = route.grid_cells || [];
-    if (!cells.length) return [];
-    const through_exits = through_exits_of_route(grid, route);
-    const { first_exit, last_exit } = first_and_last_through_exit(grid, route, through_exits);
-    const centre_of = (cell) => region_centre_of_grid_cell(grid, cell);
-    const lead_in = first_exit ? [centre_of(neighbour_across_exit(grid, first_exit))] : [];
-    const lead_out = last_exit ? [centre_of(neighbour_across_exit(grid, last_exit))] : [];
-    const main_line = without_points_in_line(lead_in.concat(cells.map(centre_of), lead_out));
-    const side_exits = (route.exits || []).filter((exit) => !through_exits.includes(exit));
-    const side_lines = side_exits.map((exit) => [centre_of(grid_cell_of_exit(grid, exit)), centre_of(neighbour_across_exit(grid, exit))]);
-    const lines = [main_line].concat(side_lines);
-    return lines;
-  }
-
-  function terminus_of_route(grid, route) {
-    const cells = route.grid_cells || [];
-    if (!route.goal || !cells.length) return null;
-    const end_cell = cells[cells.length - 1];
-    const before_cell = cells.length > 1 ? cells[cells.length - 2] : null;
-    const exit_cell = before_cell ? null : (route.exits || []).map((exit) => neighbour_across_exit(grid, exit))[0];
-    const towards_cell = before_cell || exit_cell;
-    const heading = towards_cell ? [end_cell[0] - towards_cell[0], end_cell[1] - towards_cell[1]] : [1, 0];
-    const terminus = { point: region_centre_of_grid_cell(grid, end_cell), across: [heading[1], heading[0]] };
-    return terminus;
-  }
-
   function label_anchor_of_route(grid, route) {
     const cells = route.grid_cells || [];
     if (!cells.length) return null;
@@ -155,51 +107,73 @@
     return anchor;
   }
 
-  function neighbour_route_names(doc, route) {
-    const names = (route.exits || []).map((exit) => exit.to).filter((name) => doc.routes.some((other) => other.name === name));
-    const incoming = doc.routes.filter((other) => (other.exits || []).some((exit) => exit.to === route.name)).map((other) => other.name);
-    const neighbour_names = new Set(names.concat(incoming));
-    return neighbour_names;
+  function cell_key(cell) {
+    const key = cell[0] + "," + cell[1];
+    return key;
   }
 
-  function stable_number_of_name(name) {
-    const number = [...String(name)].reduce((total, character) => (total * 31 + character.charCodeAt(0)) % 9973, 7);
-    return number;
+  function cell_key_set(cells) {
+    const keys = new Set((cells || []).map(cell_key));
+    return keys;
   }
 
-  function line_colour_for_route(doc, route, colours_so_far) {
-    if (route.mode === "sea") return SEA_LINE_COLOUR;
-    const taken = new Set([...neighbour_route_names(doc, route)].map((name) => colours_so_far[name]).filter(Boolean));
-    const first_choice = stable_number_of_name(route.name);
-    const offsets = METRO_LINE_COLOURS.map((_colour, offset) => METRO_LINE_COLOURS[(first_choice + offset) % METRO_LINE_COLOURS.length]);
-    const colour = offsets.find((candidate) => !taken.has(candidate)) || offsets[0];
-    return colour;
-  }
-
-  function route_line_colours(doc) {
-    const colours = {};
-    const routes_by_name = doc.routes.slice().sort((route, other) => (route.name < other.name ? -1 : route.name > other.name ? 1 : 0));
-    for (const route of routes_by_name) colours[route.name] = line_colour_for_route(doc, route, colours);
-    return colours;
-  }
-
-  function town_cell_set(town) {
-    const cell_keys = new Set((town.grid_cells || []).map((cell) => cell[0] + "," + cell[1]));
-    return cell_keys;
+  function pieces_of_cells(grid, cells, inset_in_region_cells) {
+    const keys = cell_key_set(cells);
+    const has_neighbour = (cell, step) => keys.has(cell_key([cell[0] + step[0], cell[1] + step[1]]));
+    const inset_towards = (cell, step) => (has_neighbour(cell, step) ? -inset_in_region_cells : inset_in_region_cells);
+    const piece_of_cell = (cell) => [
+      cell[0] * grid.cell + inset_towards(cell, [-1, 0]), cell[1] * grid.cell + inset_towards(cell, [0, -1]),
+      (cell[0] + 1) * grid.cell - inset_towards(cell, [1, 0]), (cell[1] + 1) * grid.cell - inset_towards(cell, [0, 1]),
+    ];
+    const pieces = (cells || []).map(piece_of_cell);
+    return pieces;
   }
 
   function station_pieces_of_town(grid, town, inset_in_region_cells) {
-    const cell_keys = town_cell_set(town);
-    const has_neighbour = (cell, step) => cell_keys.has((cell[0] + step[0]) + "," + (cell[1] + step[1]));
-    const piece_of_cell = (cell) => {
-      const left = cell[0] * grid.cell + (has_neighbour(cell, [-1, 0]) ? -inset_in_region_cells : inset_in_region_cells);
-      const top = cell[1] * grid.cell + (has_neighbour(cell, [0, -1]) ? -inset_in_region_cells : inset_in_region_cells);
-      const right = (cell[0] + 1) * grid.cell + (has_neighbour(cell, [1, 0]) ? inset_in_region_cells : -inset_in_region_cells);
-      const bottom = (cell[1] + 1) * grid.cell + (has_neighbour(cell, [0, 1]) ? inset_in_region_cells : -inset_in_region_cells);
-      return [left, top, right, bottom];
-    };
-    const pieces = (town.grid_cells || []).map(piece_of_cell);
+    const pieces = pieces_of_cells(grid, town.grid_cells, inset_in_region_cells);
     return pieces;
+  }
+
+  function joint_of_exit(grid, exit, inset_in_region_cells, joint_share) {
+    const cell = grid_cell_of_exit(grid, exit);
+    const [step_column, step_row] = STEP_OF_SIDE[exit.side];
+    const [centre_x, centre_y] = region_centre_of_grid_cell(grid, cell);
+    const half_width = grid.cell * joint_share / 2;
+    const reach = inset_in_region_cells * 2;
+    const edge_x = centre_x + step_column * grid.cell / 2, edge_y = centre_y + step_row * grid.cell / 2;
+    const joint = step_column
+      ? [edge_x - reach, centre_y - half_width, edge_x + reach, centre_y + half_width]
+      : [centre_x - half_width, edge_y - reach, centre_x + half_width, edge_y + reach];
+    return joint;
+  }
+
+  function joints_of_route(grid, route, inset_in_region_cells, joint_share) {
+    const joints = (route.exits || []).map((exit) => joint_of_exit(grid, exit, inset_in_region_cells, joint_share));
+    return joints;
+  }
+
+  function outline_segments_of_cells(grid, cells) {
+    const keys = cell_key_set(cells);
+    const size = grid.cell;
+    const sides = [
+      { step: [0, -1], from: [0, 0], to: [1, 0] }, { step: [1, 0], from: [1, 0], to: [1, 1] },
+      { step: [0, 1], from: [1, 1], to: [0, 1] }, { step: [-1, 0], from: [0, 1], to: [0, 0] },
+    ];
+    const open_sides_of = (cell) => sides.filter((side) => !keys.has(cell_key([cell[0] + side.step[0], cell[1] + side.step[1]])));
+    const segment_of = (cell, side) => [[(cell[0] + side.from[0]) * size, (cell[1] + side.from[1]) * size], [(cell[0] + side.to[0]) * size, (cell[1] + side.to[1]) * size]];
+    const segments = (cells || []).flatMap((cell) => open_sides_of(cell).map((side) => segment_of(cell, side)));
+    return segments;
+  }
+
+  function route_key_options(doc) {
+    const options = doc.routes.filter((route) => route.grid_key).map((route) => ({ key: route.grid_key, name: route.name }));
+    return options;
+  }
+
+  function cells_a_route_stroke_paints(grid, stroke_cells, route_key) {
+    if (!route_key) return cells_the_brush_changes(grid, stroke_cells, "route");
+    const paintable_cells = stroke_cells.filter((cell) => is_inside_grid(grid, cell) && mark_at(grid, cell) !== TOWN_MARK);
+    return paintable_cells;
   }
 
   function town_at_grid_cell(doc, cell) {
@@ -219,11 +193,11 @@
   }
 
   const api = {
-    EMPTY_MARK, ROUTE_MARK, TOWN_MARK, METRO_LINE_COLOURS, SEA_LINE_COLOUR,
+    EMPTY_MARK, ROUTE_MARK, TOWN_MARK,
     grid_of_doc, is_inside_grid, grid_cell_at, mark_at, same_cell, cells_between, stroke_with_cell, mark_after_brush,
-    cells_the_brush_changes, region_centre_of_grid_cell, grid_cell_of_exit, neighbour_across_exit, without_points_in_line,
-    metro_lines_of_route, terminus_of_route, label_anchor_of_route, route_line_colours, station_pieces_of_town, town_at_grid_cell, route_at_grid_cell,
-    grid_cells_of_place,
+    cells_the_brush_changes, cells_a_route_stroke_paints, region_centre_of_grid_cell, grid_cell_of_exit, neighbour_across_exit,
+    without_points_in_line, label_anchor_of_route, pieces_of_cells, station_pieces_of_town, joints_of_route, outline_segments_of_cells,
+    route_key_options, town_at_grid_cell, route_at_grid_cell, grid_cells_of_place,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.MAP_GRID = api;
