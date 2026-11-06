@@ -40,9 +40,11 @@ Use this instead of exploring with grep/sed. Jump straight to the file and funct
    - **Ground texturing**, applied after the learned tiler: `pokeroutes/ground.py` (`texture_open_ground` for light-grass patches and flower clumps, `tile_with_false_walls`).
    - **Rule tiler** (hand-made tilesets): `pokeroutes/ruletile.py`, `ArkTiler`.
    - **Reading tilesets and rendering metatiles**: `pokeroutes/tileset.py`, `load_pair`.
+   - **Scene-preview breeze** (tree crowns, tall grass, flowers swaying 1 px; preview only, not in the ROM): `pokeroutes/breeze.py`, added to the atlas `anim` and listed in `meta.breeze` by `webui/server.py` `build_atlas`.
 7. **Export**: `pokeroutes/export.py`.
    - `seal_edges`, `write_emerald` (map.bin, border.bin, map.json, scripts.inc)
    - `write_scene` (scene.json), `report` (report.json)
+   - Route `effect` (none/leaves/snow/rain/ash) → Emerald weather and notes: `pokeroutes/route_effects.py`. The Scene draws it as a particle overlay (bench.js, `tick_route_effect`).
    - `debug_image` (plan.png), `stage_sheet` (stages.png), `grade_for_biome`
 8. **CLI**: `pokeroutes/cli.py`. `_generate_and_write` is the whole route path end to end.
    - `python3 -m pokeroutes generate SPEC [-o OUT] [--seed N] [--stages] [--tileset learned|ark]`
@@ -73,7 +75,8 @@ Walkable: `gptdhyvzqn`. Surfable: `wb`. Blocked: `frkul`.
 - **Specs**:
   - `export.route_spec` turns each region route into a RouteSpec dict.
   - `export.write_all` writes `region_out/<seed>/routes/*.yaml`.
-- **Hand editing**: `edit.py`, used by the editor's recompute, add-route and town actions (`recompute`, `add_route`, `add_town`, `delete_town`, `generate_doc`, `save`, `load`).
+- **Hand editing**: `edit.py`, used by the editor's recompute, add-route, draw-route and town actions (`recompute`, `add_route`, `draw_route`, `add_town`, `delete_town`, `generate_doc`, `save`, `load`).
+- **Drawn routes**: `drawn.py` (freehand stroke corners → cells → pieces between the towns/routes it touches → route rects via `Network._grow`; open-ground ends are dead ends; `add_drawn_line`, `without_drawn_line`). `network.build_network` keeps drawn links (`kept_drawn_links`) and skips tree links between towns a drawn line joins (`TownGroups`).
 - **CLI**: `python3 -m pokeroutes.region generate --seed N [--preset arklarna] [--geography KIND]` (`region/cli.py`, `generate`) writes `region_out/N/`.
 
 ## Web UI (`webui/`)
@@ -84,15 +87,16 @@ Walkable: `gptdhyvzqn`. Surfable: `wb`. Blocked: `frkul`.
   - Read-only endpoints: `/api/options`, `/api/spec-schema`, `/api/atlas`.
 - **Other API modules**:
   - `shell_api.py`: `/api/tilers`, `/api/scene`, `/api/spec-parse`, `/api/region-specs.zip`, `/api/commits`, `/api/retile`, plus the redirects.
-  - `editor_api.py`: `/api/editor/*` (generate, load, recompute, add-route, save, spec, render, export, list).
+  - `editor_api.py`: `/api/editor/*` (generate, load, recompute, add-route, draw-route, add-town, delete-town, save, spec, render, export, list).
   - `region_api.py`: `/api/region`, `/api/region.png`, `/api/region-spec`.
+  - `paint_palette.py`: `/api/paint-palette?id=` (what the Tiles tab can paint: classes, samples, objects, exact tiles per tiler); `/api/retile` (in `editor_api.py`) takes those classes.
 - **Agent jobs**: `improve.py` runs the job queue and launches `claude`. `route_tools.py` is the stdio MCP server that provides your `routes` tools.
 - **Front end** (`webui/static/`):
   - `shell.html`: layout and docks.
   - `shell.js`: menus, docks, console, keys. Its public surface is `window.Shell`.
   - `bench.js`: Scene, Inspector, Hierarchy, Timeline, files, paint. Its public surface is `window.Bench`.
   - `shell-logic.js`: pure functions (shortcuts, layout, undo, `specToParams`).
-  - `editor/app.js` and `editor/logic.js`: the region editor (Geography, Routes A, Story, Routes B tabs).
+  - `editor/app.js` and `editor/logic.js`: the region editor (Geography, Map, Story tabs; route gates are set in the Map inspector).
   - `agent.js`: the Agent tab.
 - **Reloading after edits**:
   - Generator edits (`pokeroutes/*.py`) are picked up by the running server automatically (`server.G()` reloads when file mtimes change).

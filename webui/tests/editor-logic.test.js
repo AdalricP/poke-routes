@@ -373,6 +373,124 @@ test("towns placed by hand: next free name, only on dry land away from other tow
   assert.strictEqual(ED.town_spot_problem(d, 20, 6), "");
 });
 
+function place_of(doc, kind, id) {
+  const obj = kind === "city" ? doc.cities.find((c) => c.id === id) : ED.routeByName(doc, id);
+  return { kind, id, obj };
+}
+
+function paint(cells) {
+  let stroke = ED.start_stroke(cells[0]);
+  for (const cell of cells.slice(1)) stroke = ED.extend_stroke(stroke, cell);
+  return ED.stroke_corners(stroke);
+}
+
+test("freehand strokes snap to straight runs and ignore a wobble of one cell", () => {
+  assert.deepStrictEqual(paint([[0, 0], [3, 1], [6, 0], [9, 1]]), [[0, 0], [9, 0]]);
+  assert.deepStrictEqual(paint([[0, 0], [1, 0], [5, 0], [5, 3], [5, 8]]), [[0, 0], [5, 0], [5, 8]]);
+  assert.deepStrictEqual(paint([[2, 2]]), [[2, 2]]);
+});
+
+test("freehand strokes turn where the pointer leaves the run, even on a fast jump", () => {
+  assert.deepStrictEqual(paint([[0, 0], [6, 0], [6, 6], [12, 6]]), [[0, 0], [6, 0], [6, 6], [12, 6]]);
+  assert.deepStrictEqual(paint([[0, 0], [8, 9]]), [[0, 0], [0, 9], [8, 9]]);
+  const cells = ED.cells_of_corners(paint([[0, 0], [6, 0], [6, 6], [12, 6]]));
+  for (let k = 1; k < cells.length; k++) assert.strictEqual(Math.abs(cells[k][0] - cells[k - 1][0]) + Math.abs(cells[k][1] - cells[k - 1][1]), 1);
+});
+
+test("drawn lines: waypoints and legs snap to right-angle corners", () => {
+  assert.deepStrictEqual(ED.corners_of_line([[0, 0], [5, 3]], ["h"]), [[0, 0], [5, 0], [5, 3]]);
+  assert.deepStrictEqual(ED.corners_of_line([[0, 0], [5, 3]], ["v"]), [[0, 0], [0, 3], [5, 3]]);
+  assert.deepStrictEqual(ED.corners_of_line([[0, 0], [4, 0], [4, 0]], ["h", "h"]), [[0, 0], [4, 0]]);
+  assert.deepStrictEqual(ED.corners_of_line([[2, 2], [6, 6], [9, 2]], ["h", "v"]), [[2, 2], [6, 2], [6, 6], [6, 2], [9, 2]]);
+});
+
+test("drawn lines: corners become 4-connected cells, both ends included", () => {
+  const cells = ED.cells_of_corners([[0, 0], [3, 0], [3, -2]]);
+  assert.deepStrictEqual(cells, [[0, 0], [1, 0], [2, 0], [3, 0], [3, -1], [3, -2]]);
+  for (let k = 1; k < cells.length; k++) assert.strictEqual(Math.abs(cells[k][0] - cells[k - 1][0]) + Math.abs(cells[k][1] - cells[k - 1][1]), 1);
+});
+
+test("drawn lines: a town anchors at its centre, a route where it was clicked", () => {
+  const d = makeDoc();
+  assert.deepStrictEqual(ED.anchor_of_place(place_of(d, "city", "a"), 6.2, 11.7), [7, 12]);
+  assert.deepStrictEqual(ED.anchor_of_place(place_of(d, "route", "Eins"), 12.6, 9.1), [12, 9]);
+});
+
+test("freehand strokes: water and open ground are fine, a stroke has to touch a place and leave it", () => {
+  const d = makeDoc();
+  d.grids.lake[18 * d.W + 7] = 1;
+  assert.strictEqual(ED.stroke_problem(d, ED.cells_of_corners([[7, 12], [7, 20], [20, 20]])), "");
+  assert.strictEqual(ED.stroke_problem(d, ED.cells_of_corners([[20, 20], [20, 22]])), "start or end the route on a town or a route");
+  assert.strictEqual(ED.stroke_problem(d, ED.cells_of_corners([[6, 11], [8, 11]])), "that stroke only runs over towns and routes that are already there");
+  assert.match(ED.stroke_problem(d, ED.cells_of_corners([[7, 12], [7, 28]])), /map edge/);
+  assert.strictEqual(ED.stroke_problem(d, ED.cells_of_corners([[0 + 20, 20], [30, 20], [30, 12]])), "");
+});
+
+function doc_with_drawn_line() {
+  const d = makeDoc();
+  d.links.push({ name: "Drawn line 1", kind: "drawn", routes: ["Drei"], waypoints: [[7, 12], [7, 20], [20, 20]], legs: ["v", "h"],
+    src_ref: { city: "a" }, dst_ref: { route: "Zwei" } });
+  d.routes.push({ name: "Drei", id: "Drei", map: "MAP_DREI", rect: [4, 15, 22, 24], link: "Drawn line 1", drawn: true, pinned: true,
+    path: [[7, 15], [7, 20], [20, 20]], exits: [{ side: "north", cell: [7, 15], to: "Ahlen" }, { side: "east", cell: [21, 20], to: "Zwei" }] });
+  d.routes[1].exits.push({ side: "south", cell: [20, 16], to: "Drei" });
+  d.story = [{ name: "rival", at: "Drei" }];
+  return d;
+}
+
+test("drawn lines: a drawn route finds its line; others have none", () => {
+  const d = doc_with_drawn_line();
+  assert.strictEqual(ED.drawn_line_of_route(d, ED.routeByName(d, "Drei")).name, "Drawn line 1");
+  assert.strictEqual(ED.drawn_line_of_route(d, ED.routeByName(d, "Eins")), null);
+});
+
+test("drawn lines: moving a bend copies the waypoints", () => {
+  const waypoints = [[1, 1], [5, 1], [5, 5]];
+  const moved = ED.with_waypoint_moved(waypoints, 1, 6, 2);
+  assert.deepStrictEqual(moved, [[1, 1], [6, 2], [5, 5]]);
+  assert.deepStrictEqual(waypoints[1], [5, 1]);
+});
+
+test("drawn lines: deleting one removes its routes, the exits into them, the line and story places", () => {
+  const d = doc_with_drawn_line();
+  assert.ok(ED.delete_drawn_line(d, "Drawn line 1"));
+  assert.ok(!ED.routeByName(d, "Drei"));
+  assert.ok(!d.routes.some((r) => r.exits.some((e) => e.to === "Drei")));
+  assert.ok(!d.links.some((l) => l.name === "Drawn line 1"));
+  assert.strictEqual(d.story[0].at, "");
+  assert.strictEqual(ED.delete_drawn_line(d, "Drawn line 1"), false);
+});
+
+test("town map: route bands keep only their corners and run into the towns they reach", () => {
+  assert.deepStrictEqual(ED.without_straight_runs([[0, 0], [1, 0], [2, 0], [2, 1], [2, 2]]), [[0, 0], [2, 0], [2, 2]]);
+  const d = makeDoc();
+  const lines = ED.town_map_route_lines(d);
+  const into_ahlen = lines.filter((l) => l.route.name === "Eins" && l.points[l.points.length - 1][0] === 7.5);
+  assert.strictEqual(into_ahlen.length, 1);
+  assert.deepStrictEqual(into_ahlen[0].points[into_ahlen[0].points.length - 1], [7.5, 12.5]);
+  ED.routeByName(d, "Zwei").path = [[21, 10], [22, 10]];
+  const zwei_to_eins = ED.town_map_route_lines(d).find((l) => l.route.name === "Zwei" && l.points.length > 3);
+  assert.deepStrictEqual(zwei_to_eins.points, [[21.5, 10.5], [21.5, 12.5], [19.5, 12.5], [18.5, 12.5]]);
+  assert.deepStrictEqual(ED.point_halfway_along([[0, 0], [4, 0], [4, 4]]), [4, 0]);
+});
+
+test("town map: the sea is lighter along the coast, land and lakes get their own colours", () => {
+  const d = makeDoc();
+  const distance = ED.sea_distance_to_land(d, 3);
+  assert.strictEqual(distance[10 * d.W + 4], 0);
+  assert.strictEqual(distance[10 * d.W + 3], 1);
+  assert.strictEqual(distance[10 * d.W + 0], 4);
+  const layers = { height: true, biome: true, water: true };
+  assert.deepStrictEqual(ED.town_map_cell_color(d, 10 * d.W + 3, layers, 1, distance), ED.TOWN_MAP_RGB.halo);
+  assert.deepStrictEqual(ED.town_map_cell_color(d, 10 * d.W + 0, layers, 1, distance), ED.TOWN_MAP_RGB.sea);
+  d.grids.lake[12 * d.W + 20] = 1;
+  assert.deepStrictEqual(ED.town_map_cell_color(d, 12 * d.W + 20, layers, 1, distance), ED.TOWN_MAP_RGB.lake);
+  const data = new Uint8ClampedArray(d.W * 2 * d.H * 2 * 4);
+  ED.renderTownMap(d, layers, 2, data, null, null, distance);
+  for (let o = 3; o < data.length; o += 4) assert.strictEqual(data[o], 255);
+  const halo_pixel = ((10 * 2) * d.W * 2 + 3 * 2 + 1) * 4;
+  assert.deepStrictEqual(Array.from(data.slice(halo_pixel, halo_pixel + 3)), ED.TOWN_MAP_RGB.halo);
+});
+
 if (process.env.REGION_DOC) {
   test("real region document: decode, edit, encode", () => {
     const wire = JSON.parse(fs.readFileSync(process.env.REGION_DOC, "utf8"));

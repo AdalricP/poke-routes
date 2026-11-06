@@ -9,6 +9,7 @@ API
     GET  /api/atlas?tiler=ark    metatile atlas for the Arklarna tilesets (learned atlas: no query)
     GET  /api/atlas.png?tiler=ark
     GET  /api/tilers             which tilers this server can use
+    GET  /api/paint-palette?id=ID   what the Tiles tab can paint on that route (paint_palette.py)
     GET  /api/scene?id=ID        scene.json of a generated route (attachment)
     GET  /api/region-specs.zip?seed=N   region.json + routes/*.yaml of a region
     POST /api/spec-parse {text}  parse a spec file (YAML or JSON) into an object
@@ -81,9 +82,11 @@ def ark_tiles(route, warnings):
 def ark_atlas(srv):
     global _ark_atlas
     if _ark_atlas is None:
+        from pokeroutes.breeze import breeze_plan_for_ark_class_table
         from pokeroutes.ruletile import PRIMARY_SYMBOL, SECONDARY_SYMBOL
 
-        _ark_atlas = srv.build_atlas(ark_tiler().pair(), PRIMARY_SYMBOL, SECONDARY_SYMBOL, "/api/atlas.png?tiler=ark")
+        _ark_atlas = srv.build_atlas(ark_tiler().pair(), PRIMARY_SYMBOL, SECONDARY_SYMBOL, "/api/atlas.png?tiler=ark",
+                                     breeze_plan_for_ark_class_table(ark_tiler().c))
     return _ark_atlas
 
 
@@ -112,6 +115,10 @@ def _redirect(h, where: str):
 def handle(h, method: str, u, srv) -> bool:
     """Serve the request and return True, or return False to let server.py handle it."""
     q = parse_qs(u.query)
+    import route_items
+
+    if route_items.handle(h, method, u, q, srv):
+        return True
     if method == "GET":
         if u.path in ("/", ""):
             return h._send(200, (STATIC / "shell.html").read_bytes(), "text/html; charset=utf-8") or True
@@ -128,6 +135,10 @@ def handle(h, method: str, u, srv) -> bool:
             if u.path == "/api/atlas.png":
                 return h._send(200, png, "image/png") or True
             return h._json(meta) or True
+        if u.path == "/api/paint-palette":
+            import paint_palette
+
+            return paint_palette.handle_get(h, q, srv)
         if u.path == "/api/tilers":
             ok, err = ark_available()
             return h._json({"tilers": [

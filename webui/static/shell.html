@@ -39,6 +39,10 @@
   <!-- toolbar -->
   <div class="toolbar" id="toolbar" role="toolbar" aria-label="Tools">
     <div class="tb-group" id="tbSceneTools" role="group" aria-label="Scene tools">
+      <button type="button" class="tb-btn on" id="tbMarkings" aria-pressed="true" title="Hide lanes, areas and item markers (they stop being clickable)" aria-label="Show markings">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5C4.6 3.5 2 6.2 1 8c1 1.8 3.6 4.5 7 4.5s6-2.7 7-4.5c-1-1.8-3.6-4.5-7-4.5zm0 7.3A2.8 2.8 0 118 5.2a2.8 2.8 0 010 5.6z" fill="currentColor"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/></svg>
+      </button>
+      <span class="tb-sep"></span>
       <button type="button" class="tb-btn" data-tool="select" title="Select (V)" aria-label="Select">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2l8 6.2-3.6.5 2 4.1-1.6.8-2-4.1L4 12z" fill="currentColor"/></svg>
       </button>
@@ -51,11 +55,17 @@
       <button type="button" class="tb-btn" data-tool="stamp" title="Stamp (S)" aria-label="Stamp">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2h4v4.5l2.5 1.5V10h-9V8L6 6.5zM2.5 11.5h11V14h-11z" fill="currentColor"/></svg>
       </button>
+      <button type="button" class="tb-btn" data-tool="item" title="Place items (I). Hidden items show a sparkle here only; in game they're invisible" aria-label="Item">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path fill-rule="evenodd" d="M8 2.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11zM2.6 7.3h3.6a1.9 1.9 0 0 1 3.6 0h3.6v1.4H9.8a1.9 1.9 0 0 1-3.6 0H2.6zM8 7.1a.9.9 0 1 1 0 1.8.9.9 0 0 1 0-1.8z" fill="currentColor"/></svg>
+      </button>
       <span class="tb-opts" id="paintOpts" hidden>
         <select id="paintClass" aria-label="Paint class" title="Class to paint"></select>
         <span class="ledge-rot" id="ledgeRot" hidden title="Ledge direction (R rotates)">
           <button type="button" class="ledge-dir-btn" data-dir="s" title="Faces south (R)" aria-label="Ledge faces south">
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v8M4.5 7l3.5 3.5L11.5 7" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="ledge-dir-btn" data-dir="j" title="Faces north (R)" aria-label="Ledge faces north" hidden>
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13.5v-8M4.5 9L8 5.5 11.5 9" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
           <button type="button" class="ledge-dir-btn" data-dir="e" title="Faces east (R)" aria-label="Ledge faces east">
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 8h8M7 4.5l3.5 3.5L7 11.5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -71,6 +81,12 @@
       </span>
       <span class="tb-opts" id="stampOpts" hidden>
         <select id="stampKind" aria-label="Stamp" title="Stamp"></select>
+      </span>
+      <span class="tb-opts" id="itemOpts" hidden>
+        <select id="itemKind" aria-label="Item kind" title="Visible Poké Ball, or a hidden item (the sparkle shows in the editor only; in game hidden items are invisible)"></select>
+        <input id="itemName" class="item-name" list="itemConstants" value="ITEM_POTION" spellcheck="false" aria-label="Item constant" title="Item constant (ITEM_*)">
+        <datalist id="itemConstants"></datalist>
+        <span class="tb-count" id="itemN"></span>
       </span>
     </div>
 
@@ -126,7 +142,7 @@
   <section class="dock" id="dockLeft" data-dock="left" aria-label="Hierarchy">
     <header class="dock-head">
       <button type="button" class="dock-tab on" data-left-tab="hierarchy">Hierarchy</button>
-      <button type="button" class="dock-tab" data-left-tab="tiles" title="Terrains and trees to paint with the Paint tool">Tiles</button>
+      <button type="button" class="dock-tab" data-left-tab="tiles" title="Terrain, objects and exact tiles to paint with the Paint tool">Tiles</button>
       <button type="button" class="dock-collapse" data-collapse="left" aria-label="Collapse Hierarchy" title="Collapse"></button>
     </header>
     <div class="dock-strip" data-expand="left" title="Show Hierarchy"><span>Hierarchy</span></div>
@@ -141,14 +157,19 @@
         <div class="terrain-grid" id="biomeGrid"></div>
       </div>
       <div id="leftTiles" class="tiles-pane" hidden>
-        <p class="tiles-note">Pick a terrain or a tree and paint it on the map; edges and corners fix themselves like the generator's own. Generate starts a fresh map without the paint.</p>
-        <div class="terrain-grid" id="terrainGrid"></div>
+        <p class="tiles-note">Pick anything this route's tileset can draw and paint it on the map: terrain joins its edges and corners like the generator's own, objects go down as their exact tiles with their own collision. Generate starts a fresh map without the paint.</p>
+        <div id="paletteSections"></div>
+        <details class="palette-section tiles-exact">
+          <summary class="palette-heading">Exact tiles</summary>
+          <p class="tiles-note">One metatile exactly as it is; the cells around it are left alone.</p>
+          <canvas id="exactTiles"></canvas>
+        </details>
       </div>
     </div>
     <div class="dock-extra imp-docked" id="dockLeftExtra" hidden></div>
   </section>
 
-  <!-- centre: scene / geography / route design A / story / route design B -->
+  <!-- centre: routes (scene) / geography / map / story -->
   <section class="dock center" id="dockCenter" aria-label="Views">
     <header class="dock-head">
       <div class="tabs" role="tablist">
@@ -156,7 +177,6 @@
         <button type="button" class="dock-tab" data-center="geography" role="tab" title="Heights, coast, rivers, biomes, legendary spots">Geography</button>
         <button type="button" class="dock-tab" data-center="region" role="tab" title="Towns and routes laid on the geography; double-click a route to open it in Routes">Map</button>
         <button type="button" class="dock-tab" data-center="story" role="tab" title="Story beats by hand: what happens where, which field move it gives">Story</button>
-        <button type="button" class="dock-tab" data-center="gates" role="tab" title="Route design B: what each route needs (HMs, story blocks) and where you can go at each beat">Routes B</button>
       </div>
     </header>
     <div class="dock-body views">
@@ -304,6 +324,13 @@
     <footer><span class="hint">Single keys only work when no text field has focus.</span><span class="grow"></span><button class="btn primary" value="ok">Close</button></footer>
   </form>
 </dialog>
+<dialog class="dlg" id="dlgAsk" aria-label="Question">
+  <form method="dialog">
+    <header id="askTitle"></header>
+    <div class="dlg-body"><p id="askMessage"></p><input type="text" id="askInput" class="ask-input" hidden></div>
+    <footer><span class="grow"></span><button class="btn" value="cancel" id="askCancel">Cancel</button><button class="btn primary" value="ok" id="askOk">OK</button></footer>
+  </form>
+</dialog>
 <dialog class="dlg" id="dlgAbout" aria-label="About">
   <form method="dialog">
     <header>About poke-routes</header>
@@ -321,6 +348,7 @@
 <script src="shell.js"></script>
 <script src="editor/logic.js"></script>
 <script src="editor/app.js"></script>
+<script src="route-items.js"></script>
 <script src="bench.js"></script>
 <script src="improve.js"></script>
 <script src="session-graph.js"></script>

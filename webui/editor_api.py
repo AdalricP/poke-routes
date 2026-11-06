@@ -17,6 +17,10 @@ POST /api/editor/generate-map {doc}                -> document with towns placed
                             "added_towns" and a "message" for the log
 POST /api/editor/add-route  {doc, src, dst}        -> document with a new link laid between two
                             places; refs are {"city": id} | {"route": name} | {"landmark": id}
+POST /api/editor/draw-route {doc, waypoints, legs?, replace?} -> document with a route painted by hand:
+                            waypoints are the stroke's corner cells (legs "h" | "v" per gap if they are not
+                            in line); it may start or end on open ground (a dead end) and cross water;
+                            replace redraws an earlier drawn line
 POST /api/editor/add-town   {doc, x, y, name?}     -> document with a town placed on land at cell (x, y)
 POST /api/editor/delete-town {doc, id}             -> document without that town (routes go stale)
 POST /api/editor/save       {doc, name}            -> writes region_out/<name>/ (region.json, routes/*.yaml)
@@ -27,7 +31,9 @@ POST /api/retile            {id, cells: [[x, y, cls], ...]}
                             bench paint: set classes on a generated route and re-tile it;
                             the export zip then carries the painted map. A cell given both a
                             class and a "#metatile" is an object (a whole tree): it gets that
-                            exact metatile and its neighbours keep theirs
+                            exact metatile and its neighbours keep theirs. Classes are the
+                            ones the route's tiler takes (paint_palette.paintable_class_codes);
+                            "o" only on an object cell, which is then blocked
 """
 from __future__ import annotations
 
@@ -48,8 +54,8 @@ sys.path.insert(0, str(ROOT))
 from pokeroutes.classify import LEDGE_CLASSES, defuse_ledge_corners  # noqa: E402
 OUT = ROOT / "region_out"
 MAX_BODY = 48 * 1024 * 1024
-PAINT_CLASSES = set("gptwfrsexaqdbhyvkzlnu")  # every class but "o" (other)
 highest_metatile_id = 1023
+OBJECT_CLASS = "o"
 metatile_overrides_by_route_id: dict = {}
 _lock = threading.Lock()
 
@@ -123,6 +129,9 @@ def post(h, u, srv) -> None:
             return h._json(edit.generate_map(b["doc"]))
         if p == "/api/editor/add-route":
             return h._json(edit.add_route(b["doc"], b.get("src") or {}, b.get("dst") or {}))
+        if p == "/api/editor/draw-route":
+            return h._json(edit.draw_route(b["doc"], list(b.get("waypoints") or []), list(b.get("legs") or []),
+                                           b.get("replace") or None))
         if p == "/api/editor/add-town":
             return h._json(edit.add_town(b["doc"], int(b["x"]), int(b["y"]), b.get("name")))
         if p == "/api/editor/delete-town":
@@ -165,8 +174,11 @@ def retile(srv, b: dict) -> dict:
     gid = str(b.get("id", ""))
     if gid not in srv._results:
         raise ValueError("unknown or expired route id; generate again")
+    import paint_palette
+
     route, final = srv._results[gid]
-    class_cells, metatile_cells = split_painted_cells_into_classes_and_metatiles(b.get("cells") or [], route.cls.shape)
+    allowed_class_codes = paint_palette.paintable_class_codes(srv, gid)
+    class_cells, metatile_cells = split_painted_cells_into_classes_and_metatiles(b.get("cells") or [], route.cls.shape, allowed_class_codes)
 
     painted_class_grid = route.cls.copy()
     for cell_x, cell_y, class_code in class_cells:
@@ -180,8 +192,9 @@ def retile(srv, b: dict) -> dict:
     for cell_x, cell_y, _class_code in class_cells:
         metatile_overrides.pop((cell_x, cell_y), None)
     metatile_overrides.update({(cell_x, cell_y): metatile_id for cell_x, cell_y, metatile_id in metatile_cells})
+    blocked_class_codes = paint_palette.blocked_class_codes(srv, gid)
     for (cell_x, cell_y), metatile_id in metatile_overrides.items():
-        layout.metatile[cell_y, cell_x] = metatile_id
+        apply_exact_metatile(layout, cell_x, cell_y, metatile_id, painted_class_grid[cell_y, cell_x] in blocked_class_codes)
     retiled_cell_count = int((layout.metatile != final.metatile).sum())
     route.cls = painted_class_grid
     srv._results[gid] = (route, layout)
@@ -191,18 +204,28 @@ def retile(srv, b: dict) -> dict:
     return retile_result
 
 
-def split_painted_cells_into_classes_and_metatiles(painted_cells, grid_shape) -> tuple:
+def apply_exact_metatile(layout, cell_x, cell_y, metatile_id, is_blocked) -> None:
+    layout.metatile[cell_y, cell_x] = metatile_id
+    if not is_blocked:
+        return
+    layout.collision[cell_y, cell_x] = 1
+    layout.elevation[cell_y, cell_x] = 0
+
+
+def split_painted_cells_into_classes_and_metatiles(painted_cells, grid_shape, allowed_class_codes) -> tuple:
     grid_height, grid_width = grid_shape
     class_cells, metatile_cells = [], []
     for painted_cell in painted_cells[:20000]:
         cell_x, cell_y, painted_value = int(painted_cell[0]), int(painted_cell[1]), str(painted_cell[2])
         if not (0 <= cell_y < grid_height and 0 <= cell_x < grid_width):
             continue
-        if painted_value in PAINT_CLASSES:
+        if painted_value in allowed_class_codes or painted_value == OBJECT_CLASS:
             class_cells.append((cell_x, cell_y, painted_value))
             continue
         if painted_value.startswith("#") and painted_value[1:].isdigit() and int(painted_value[1:]) <= highest_metatile_id:
             metatile_cells.append((cell_x, cell_y, int(painted_value[1:])))
+    metatile_positions = {(cell_x, cell_y) for cell_x, cell_y, _metatile_id in metatile_cells}
+    class_cells = [cell for cell in class_cells if cell[2] != OBJECT_CLASS or cell[:2] in metatile_positions]
     painted_cells_by_kind = (class_cells, metatile_cells)
     return painted_cells_by_kind
 
@@ -234,7 +257,12 @@ def retile_class_grid_with_route_tiler(srv, gid, route, final, painted_class_gri
     unchanged_neighbourhoods = np.array(keys(context_grid)) == np.array(keys(route.cls))
     fixed_metatiles = np.where(unchanged_neighbourhoods, final.metatile.astype(np.int64), -1)
     route_seed = int(getattr(route.spec, "seed", 0))
-    learned_layout = srv.tiler(srv.route_tileset(route.spec)).tile(painted_class_grid, seed=route_seed, fixed=fixed_metatiles)
+    tiling_grid = painted_class_grid.copy()
+    exact_positions = set(object_cells) | set(metatile_overrides_by_route_id.get(gid, {}))
+    for cell_x, cell_y in exact_positions:
+        if tiling_grid[cell_y, cell_x] == OBJECT_CLASS:
+            tiling_grid[cell_y, cell_x] = "g"
+    learned_layout = srv.tiler(srv.route_tileset(route.spec)).tile(tiling_grid, seed=route_seed, fixed=fixed_metatiles)
     # newly (re)tiled grass lands on the plain metatile; texture it like a fresh
     # generate() does, or a painted island's grass stays a flat, untextured block
     learned_layout = srv.G().ground.texture_open_ground(learned_layout, painted_class_grid, route_seed)

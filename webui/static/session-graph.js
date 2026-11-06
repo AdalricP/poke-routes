@@ -209,8 +209,9 @@
   }
 
   async function finish_current_session() {
-    const session_message = prompt("Name this session's commit. Everything since the session root becomes this one commit on main (the full history is kept):",
-      `session ${graph_state.graph.session.number}`);
+    const session_message = await window.Shell.ask({ title: "Finish session",
+      message: "Everything since the session root becomes this one commit on main (the full history is kept). Name it:",
+      input: `session ${graph_state.graph.session.number}`, ok_label: "Finish session" });
     if (session_message == null) return;
     find_in_panel("sgFinish").disabled = true;
     try {

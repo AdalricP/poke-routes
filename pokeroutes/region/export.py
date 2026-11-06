@@ -173,6 +173,9 @@ def _far_side(x, y, W_, H_) -> str:
     return min(d, key=d.get)
 
 
+ROUTE_EFFECT_FOR_REGION_WEATHER = {"WEATHER_VOLCANIC_ASH": "ash", "WEATHER_RAIN": "rain"}
+
+
 def route_spec(w: World, r: dict, idx: int) -> dict:
     x0, y0, x1, y1 = r["rect"]
     wm, hm = (x1 - x0) * CELL, (y1 - y0) * CELL
@@ -221,6 +224,7 @@ def route_spec(w: World, r: dict, idx: int) -> dict:
         "species_file": SPECIES_FILE_REL,
         "music": MUSIC.get(biome, "MUS_ROUTE104"),
         "weather": weather,
+        "effect": ROUTE_EFFECT_FOR_REGION_WEATHER.get(weather, "none"),
         "max_lanes": 3 if role in ("crossroads", "loop", "straight") else 2,
         "dead_end_chance": 0.45 if role == "dead_end" else 0.3,
         "ledge_chance": min(0.7, 0.25 + 0.1 * len(set("".join(reg["elevation"]["tiers"])))),

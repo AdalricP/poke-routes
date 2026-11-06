@@ -109,7 +109,7 @@ function skeleton() {
     { label: "Window", items: ids(["w-scene", "w-reset"]) },
     { label: "Help", items: ids(["keys", "about"]) },
   ];
-  const extra = ids(["tool-select", "tool-pan", "tool-paint", "tool-stamp", "tool-tile", "x-zin", "x-zout", "x-zfit", "x-help", "x-ledge-rot"]);
+  const extra = ids(["tool-select", "tool-pan", "tool-paint", "tool-stamp", "tool-tile", "x-zin", "x-zout", "x-zfit", "x-help", "x-ledge-rot", "tool-item", "x-item-delete"]);
   SL.attachShortcuts(menus, extra);
   return { menus, extra };
 }
@@ -203,6 +203,13 @@ test("layout survives blocked storage and junk", () => {
   assert.strictEqual(bad.bottom.size, 2000);
   assert.strictEqual(bad.center, "scene");
   assert.deepStrictEqual(bad.inspector, { fine: false });
+});
+
+test("a saved layout on the old Routes B tab opens the Map tab, keeping its tab order", () => {
+  const old = SL.sanitizeLayout({ v: 1, center: "gates", centerOrder: ["story", "gates", "region", "geography", "scene"] });
+  assert.strictEqual(old.center, "region");
+  assert.deepStrictEqual(old.centerOrder, ["story", "region", "geography", "scene"]);
+  assert.ok(!SL.defaultLayout().centerOrder.includes("gates"));
 });
 
 test("rects tile the window without overlap (default, 1440x900)", () => {
@@ -334,10 +341,28 @@ test("region route YAML spec -> params", () => {
   assert.strictEqual(params.biome, "riverland");
   assert.strictEqual(params.branches, 2);           // defaults kept
   assert.strictEqual(params.tileset, undefined);    // not a bench field
-  assert.strictEqual(params.exits.length, 2);       // a stand-in exit on the goal side
-  assert.deepStrictEqual(params.exits[1], { side: "east", at: 0.5, width: 2 });
+  assert.strictEqual(params.exits.length, 1);       // a dead end keeps its one exit
   assert.strictEqual(params.exits[0].to, "Kiefernheide");
   assert.deepStrictEqual(region, { name: "Route 3", region: spec.region, endings: ["cave"] });
+});
+
+test("scene exits lead to the routes and towns on the other side", () => {
+  const doc = {
+    routes: [
+      { name: "Route 1", exits: [{ side: "west", to: "Town 1", to_map: "MAP_TOWN1" }, { side: "north", to: "Route 2", to_map: "MAP_ROUTE2" }] },
+      { name: "Route 2", exits: [{ side: "south", to: "Route 1", to_map: "MAP_ROUTE1" }] },
+    ],
+    cities: [{ id: "town1", name: "Town 1" }],
+  };
+  const scene_exits = [{ side: "west", to: "MAP_TOWN1" }, { side: "north", to: "MAP_ROUTE2" }, { side: "east", to: "" }];
+  const [town, route, open_edge] = SL.exitConnections(scene_exits, doc, "Route 1");
+  assert.deepStrictEqual([town.kind, town.name, town.town.id], ["town", "Town 1", "town1"]);
+  assert.deepStrictEqual([route.kind, route.name, route.route.name], ["route", "Route 2", "Route 2"]);
+  assert.strictEqual(open_edge, null);
+  const without_doc = SL.exitConnections(scene_exits, null, "Route 1");
+  assert.deepStrictEqual(without_doc.map((c) => c && c.name), ["Town 1", "Route 2", null]);
+  assert.strictEqual(without_doc[0].kind, "unknown");
+  assert.deepStrictEqual(SL.exitConnections([], doc, "Route 1"), []);
 });
 
 test("saved spec file round trip", () => {
@@ -384,4 +409,67 @@ test("stroke interpolation and paint memory", () => {
   assert.strictEqual(SL.PAINT_KEY, "pokeroutes-paint-v1");
 });
 
+test("paint palette brushes: kinds, ledges, tree blocks, objects, exact tiles", () => {
+  const palette = {
+    tiler: "ark", terrain: [
+      { code: "g", group: "ground" }, { code: "F", group: "trees", snap_blocks: true },
+      { code: "s", group: "ledges" }, { code: "j", group: "ledges" }, { code: "e", group: "ledges" },
+    ],
+    unavailable: [{ code: "d" }],
+    objects: [{ id: "stump", cells: [[1, 2], [3, 4]], classes: [["o", "o"], ["g", "o"]] }],
+    tiles: { "7": "w" },
+  };
+  assert.deepStrictEqual(SL.brush_kind("F"), { kind: "terrain", key: "F" });
+  assert.deepStrictEqual(SL.brush_kind(SL.LEDGE_BRUSH), { kind: "ledge", key: "ledge" });
+  assert.deepStrictEqual(SL.brush_kind("object:split_oak"), { kind: "object", key: "split_oak" });
+  assert.deepStrictEqual(SL.brush_kind("tile:286"), { kind: "tile", key: "286" });
+  assert.deepStrictEqual(SL.palette_ledge_codes(palette), ["s", "j", "e"]);
+  assert.strictEqual(SL.next_ledge_code(palette, "s"), "j");
+  assert.strictEqual(SL.next_ledge_code(palette, "e"), "s");
+  assert.strictEqual(SL.next_ledge_code(null, "s"), "s");
+  assert.strictEqual(SL.palette_class_codes(palette), "gFsjed");
+  assert.strictEqual(SL.palette_terrain_entry(palette, "F").snap_blocks, true);
+  assert.strictEqual(SL.palette_terrain_entry(palette, "q"), null);
+  const snapped = SL.snap_cells_to_blocks([[3, 3, "F"], [4, 3, "F"]], 6, 5).map(([x, y]) => `${x},${y}`).sort();
+  assert.deepStrictEqual(snapped, ["2,2", "2,3", "3,2", "3,3", "4,2", "4,3", "5,2", "5,3"]);
+  assert.deepStrictEqual(SL.snap_cells_to_blocks([[4, 4, "f"]], 5, 5), [[4, 4, "f"]]);
+  const stump = SL.palette_object_entry(palette, "stump");
+  assert.deepStrictEqual(SL.object_stamp_cells(stump, 5, 5, 10, 10), [[5, 5, "o#1"], [6, 5, "o#2"], [5, 6, "g#3"], [6, 6, "o#4"]]);
+  assert.deepStrictEqual(SL.object_stamp_cells(stump, 9, 5, 10, 10), [], "an object never sticks out of the map");
+  assert.strictEqual(SL.exact_tile_value(palette, 7), "w#7");
+  assert.strictEqual(SL.exact_tile_value(palette, 99), "g#99");
+  assert.deepStrictEqual(SL.expand_paint_cells([[1, 2, "F#564"], [3, 4, "p"], [5, 6, "o#709"]]),
+    [[1, 2, "F"], [1, 2, "#564"], [3, 4, "p"], [5, 6, "o"], [5, 6, "#709"]]);
+});
+
 console.log(`shell-logic: ${n} tests passed`);
+
+test("placed items: one per cell, edit, remove, remembered per route", () => {
+  const ball = { kind: "item_ball", x: 3, y: 4, item: "ITEM_POTION" };
+  let items = SL.place_item([], ball);
+  items = SL.place_item(items, { kind: "hidden_item", x: 5, y: 6, item: "ITEM_NUGGET" });
+  items = SL.place_item(items, { kind: "hidden_item", x: 3, y: 4, item: "ITEM_ETHER" });
+  assert.strictEqual(items.length, 2);
+  assert.strictEqual(SL.placed_item_index(items, 3, 4), 1);
+  assert.strictEqual(items[1].item, "ITEM_ETHER");
+  items = SL.update_placed_item(items, 0, { item: "ITEM_PEARL" });
+  assert.strictEqual(items[0].item, "ITEM_PEARL");
+  assert.strictEqual(SL.remove_placed_item(items, 0).length, 1);
+  let memory = SL.remember_placed_items({}, "Route|48x80", items);
+  assert.strictEqual(memory["Route|48x80"].length, 2);
+  memory = SL.remember_placed_items(memory, "Route|48x80", []);
+  assert.deepStrictEqual(memory, {});
+});
+
+test("placed items: a regenerate shows what fit and remembers what did not", () => {
+  const remembered = [
+    { kind: "item_ball", x: 1, y: 1, item: "ITEM_POTION" },
+    { kind: "hidden_item", x: 2, y: 2, item: "ITEM_NUGGET" },
+    { kind: "item_ball", x: 3, y: 3, item: "ITEM_ETHER" },
+  ];
+  const result = { placed: [remembered[0], remembered[2]], skipped: [{ item: remembered[1], reason: "cell is not walkable" }] };
+  const merged = SL.merge_placement_result(remembered, result);
+  assert.deepStrictEqual(merged.shown, [remembered[0], remembered[2]]);
+  assert.deepStrictEqual(merged.remembered, remembered);
+  assert.deepStrictEqual(SL.merge_placement_result(remembered, null).shown, []);
+});

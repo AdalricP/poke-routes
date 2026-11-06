@@ -188,7 +188,7 @@
     keys: "Mod+/",
     // not in a menu: scene tools and plain-key zoom
     "tool-select": "v", "tool-pan": "h", "tool-paint": "b", "tool-stamp": "s", "x-zin": "=", "x-zout": "-", "x-zfit": "0", "x-help": "?",
-    "x-ledge-rot": "r",
+    "x-ledge-rot": "r", "tool-item": "i", "x-item-delete": "Delete",
   };
   const ALT_SHORTCUTS = { redo: "Mod+y", zin: "Mod+Shift+=" };
   // Modifier shortcuts that still must not fire while typing.
@@ -212,7 +212,8 @@
   const LAYOUT_KEY = "pokeroutes-shell-layout-v1";
   const CHROME = { menu: 26, toolbar: 34, status: 22, collapsed: 24, head: 26, splitter: 4 };
   const BOTTOM_TABS = ["console", "improve", "agent"];
-  const CENTER_TABS = ["scene", "geography", "region", "story", "gates"];
+  const CENTER_TABS = ["scene", "geography", "region", "story"];
+  const RETIRED_CENTER_TABS = { gates: "region" };
   const DEFAULT_LAYOUT = {
     v: 1,
     left: { size: 240, open: true, float: null },
@@ -241,8 +242,9 @@
       d[k].float = sanitizeFloat(s.float);
     }
     if (x.bottom && BOTTOM_TABS.includes(x.bottom.tab)) d.bottom.tab = x.bottom.tab;
-    if (CENTER_TABS.includes(x.center)) d.center = x.center;
-    d.centerOrder = sanitizeOrder(x.centerOrder, CENTER_TABS);
+    const center = RETIRED_CENTER_TABS[x.center] || x.center;
+    if (CENTER_TABS.includes(center)) d.center = center;
+    d.centerOrder = sanitizeOrder(without_retired_tabs(x.centerOrder), CENTER_TABS);
     d.bottomOrder = sanitizeOrder(x.bottomOrder, BOTTOM_TABS);
     if (x.inspector && typeof x.inspector === "object") {
       for (const [k, v] of Object.entries(x.inspector)) if (typeof v === "boolean" && /^[\w-]{1,40}$/.test(k)) d.inspector[k] = v;
@@ -254,6 +256,11 @@
       }
     }
     return d;
+  }
+
+  function without_retired_tabs(order) {
+    if (!Array.isArray(order)) return order;
+    return order.filter((tab) => !(tab in RETIRED_CENTER_TABS));
   }
 
   // A dragged-and-dropped tab order: keep it only if it's a reordering of the same set.
@@ -441,11 +448,6 @@
         return o;
       });
     }
-    // the bench needs two exits; a dead end gets a stand-in exit on its goal side
-    if (p.exits && p.exits.length < 2) {
-      const g = spec.region && spec.region.goal;
-      p.exits.push({ side: g ? g.side : "north", at: 0.5, width: 2 });
-    }
     const region = spec.region && typeof spec.region === "object" ? { name: p.name, region: spec.region, endings: spec.endings || [] } : null;
     return { params: p, region };
   }
@@ -455,6 +457,39 @@
     const out = { format: "poke-routes-spec", version: 1, params: JSON.parse(JSON.stringify(params)) };
     if (region && region.region) { out.region = region.region; if (region.endings && region.endings.length) out.endings = region.endings; }
     return out;
+  }
+
+  // ------------------------------------------------------------ region connections
+  // Which place each Scene exit leads to, read from the region document the route came
+  // from: [{name, kind: "route" | "town", route, town} | null] in exit order.
+  function name_from_map_constant(map_constant) {
+    const words = String(map_constant || "").replace(/^MAP_/, "").toLowerCase().split("_").filter(Boolean);
+    return words.map((word) => word.replace(/^([a-z]+)(\d+)$/, "$1 $2")).map((word) => word[0].toUpperCase() + word.slice(1)).join(" ");
+  }
+  function region_exit_for(scene_exit, region_exits, used_region_exits) {
+    const matches_side_and_map = (region_exit) => region_exit.to_map === scene_exit.to && region_exit.side === scene_exit.side;
+    const matches_map = (region_exit) => region_exit.to_map === scene_exit.to;
+    const unused = region_exits.filter((region_exit) => !used_region_exits.has(region_exit));
+    return unused.find(matches_side_and_map) || unused.find(matches_map) || null;
+  }
+  function connection_for(region_exit, region_document) {
+    const route = (region_document.routes || []).find((candidate) => candidate.name === region_exit.to) || null;
+    const town = route ? null : (region_document.cities || []).find((candidate) => candidate.name === region_exit.to) || null;
+    if (!route && !town) return null;
+    return { name: region_exit.to, kind: route ? "route" : "town", route, town };
+  }
+  function exitConnections(scene_exits, region_document, route_name) {
+    const exits = scene_exits || [];
+    const region_route = region_document && (region_document.routes || []).find((route) => route.name === route_name);
+    if (!region_route) return exits.map((scene_exit) => (scene_exit.to ? { name: name_from_map_constant(scene_exit.to), kind: "unknown", route: null, town: null } : null));
+    const used_region_exits = new Set();
+    return exits.map((scene_exit) => {
+      if (!scene_exit.to) return null;
+      const region_exit = region_exit_for(scene_exit, region_route.exits || [], used_region_exits);
+      if (!region_exit) return null;
+      used_region_exits.add(region_exit);
+      return connection_for(region_exit, region_document);
+    });
   }
 
   function safeFileName(s, ext) {
@@ -506,6 +541,40 @@
   function paintList(map) {
     return Object.entries(map || {}).map(([k, c]) => { const [x, y] = k.split(",").map(Number); return [x, y, c]; });
   }
+  // Items placed by hand in the Routes view ([{kind, x, y, item}]), remembered per route
+  // name + size like paint and sent to /api/route-items after every generate.
+  const PLACED_ITEMS_KEY = "pokeroutes-placed-items-v1";
+  const PLACEABLE_ITEM_KINDS = ["item_ball", "hidden_item"];
+  function placed_item_index(items, x, y) {
+    return (items || []).findIndex((item) => item.x === x && item.y === y);
+  }
+  function place_item(items, new_item) {
+    const others = (items || []).filter((item) => item.x !== new_item.x || item.y !== new_item.y);
+    return others.concat([Object.assign({}, new_item)]);
+  }
+  function update_placed_item(items, index, changes) {
+    return (items || []).map((item, item_index) => (item_index === index ? Object.assign({}, item, changes) : item));
+  }
+  function remove_placed_item(items, index) {
+    return (items || []).filter((item, item_index) => item_index !== index);
+  }
+  // memory: {paintKey: items}; an empty list forgets the route
+  function remember_placed_items(memory, route_key, items) {
+    const out = Object.assign({}, memory || {});
+    if (items && items.length) out[route_key] = items.map((item) => Object.assign({}, item));
+    else delete out[route_key];
+    return out;
+  }
+  // After a regenerate the server answers {placed, skipped}: the placed ones are what the
+  // map now shows; skipped ones stay remembered so they come back when the cell is walkable again.
+  function merge_placement_result(remembered, result) {
+    const placed = (result && result.placed) || [];
+    const skipped = ((result && result.skipped) || []).map((entry) => entry.item).filter((item) => item && typeof item === "object");
+    const shown = placed.map((item) => Object.assign({}, item));
+    const kept = shown.concat(skipped.filter((item) => placed_item_index(shown, item.x, item.y) < 0));
+    const order = (item) => placed_item_index(remembered, item.x, item.y);
+    return { shown, remembered: kept.sort((a, b) => order(a) - order(b)) };
+  }
   // Classes GBA metatiles draw at least 2 cells wide (trees are 2x2, a 1-cell pond has no tiles).
   const TWO_WIDE = "fw";
   // The generator's stage_cleanup (pokeroutes/generate.py) for a paint stroke: around the
@@ -544,14 +613,91 @@
     return s.cells.map(([dx, dy, k]) => [x + dx, y + dy, k]).filter(([cx, cy]) => cx >= 0 && cy >= 0 && cx < W && cy < H);
   }
 
+  // ------------------------------------------------------------ paint palette (Tiles tab)
+  const LEDGE_BRUSH = "ledge";
+
+  function brush_kind(brush) {
+    const separator_index = String(brush).indexOf(":");
+    if (separator_index < 0) return brush === LEDGE_BRUSH ? { kind: "ledge", key: brush } : { kind: "terrain", key: brush };
+    return { kind: brush.slice(0, separator_index), key: brush.slice(separator_index + 1) };
+  }
+
+  function palette_ledge_codes(palette) {
+    if (!palette) return [];
+    return palette.terrain.filter((entry) => entry.group === "ledges").map((entry) => entry.code);
+  }
+
+  function palette_terrain_entry(palette, code) {
+    if (!palette) return null;
+    return palette.terrain.find((entry) => entry.code === code) || null;
+  }
+
+  function palette_object_entry(palette, object_id) {
+    if (!palette) return null;
+    return palette.objects.find((entry) => entry.id === object_id) || null;
+  }
+
+  function palette_class_codes(palette) {
+    if (!palette) return "";
+    return palette.terrain.concat(palette.unavailable).map((entry) => entry.code).join("");
+  }
+
+  function next_ledge_code(palette, current_code) {
+    const ledge_codes = palette_ledge_codes(palette);
+    if (!ledge_codes.length) return current_code;
+    const current_index = ledge_codes.indexOf(current_code);
+    return ledge_codes[(current_index + 1) % ledge_codes.length];
+  }
+
+  function snap_cells_to_blocks(cells, map_width, map_height) {
+    const snapped = new Map();
+    for (const [cell_x, cell_y, code] of cells) {
+      const block_left = cell_x - (cell_x % 2), block_top = cell_y - (cell_y % 2);
+      for (const [offset_x, offset_y] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+        const snapped_x = block_left + offset_x, snapped_y = block_top + offset_y;
+        if (snapped_x >= map_width || snapped_y >= map_height) continue;
+        snapped.set(`${snapped_x},${snapped_y}`, [snapped_x, snapped_y, code]);
+      }
+    }
+    return [...snapped.values()];
+  }
+
+  function object_stamp_cells(object_entry, center_x, center_y, map_width, map_height) {
+    const object_height = object_entry.cells.length, object_width = object_entry.cells[0].length;
+    const left = center_x - Math.floor((object_width - 1) / 2), top = center_y - Math.floor((object_height - 1) / 2);
+    if (left < 0 || top < 0 || left + object_width > map_width || top + object_height > map_height) return [];
+    const stamp_cells = [];
+    object_entry.cells.forEach((metatile_row, row_index) => metatile_row.forEach((metatile_id, column_index) => {
+      stamp_cells.push([left + column_index, top + row_index, `${object_entry.classes[row_index][column_index]}#${metatile_id}`]);
+    }));
+    return stamp_cells;
+  }
+
+  function exact_tile_value(palette, metatile_id) {
+    const tile_class = (palette && palette.tiles && palette.tiles[String(metatile_id)]) || "g";
+    return `${tile_class}#${metatile_id}`;
+  }
+
+  function expand_paint_cells(cells) {
+    return cells.flatMap(([cell_x, cell_y, value]) => {
+      const exact_match = /^([A-Za-z])(#\d+)$/.exec(value);
+      if (!exact_match) return [[cell_x, cell_y, value]];
+      return [[cell_x, cell_y, exact_match[1]], [cell_x, cell_y, exact_match[2]]];
+    });
+  }
+
   const api = {
     isMacPlatform, parseShortcut, formatShortcut, eventKey, matchShortcut, focusKind, allowedIn,
     flattenMenus, findShortcut, shortcutClashes, SHORTCUTS, ALT_SHORTCUTS, NOT_IN_FIELDS, attachShortcuts,
     LAYOUT_KEY, CHROME, BOTTOM_TABS, CENTER_TABS, defaultLayout, sanitizeLayout, loadLayout, saveLayout,
     computeRects, dragSize, nearHomeEdge, MIN_CENTER, MIN_SIDE,
-    History, RECENT_KEY, pushRecent, recentLabel, specToParams, paramsToSpecFile, safeFileName,
+    History, RECENT_KEY, pushRecent, recentLabel, specToParams, paramsToSpecFile, safeFileName, exitConnections,
     STAMPS, brushCells, stampCells, lineCells, PAINT_KEY, paintKey, mergePaint, paintList,
+    PLACED_ITEMS_KEY, PLACEABLE_ITEM_KINDS, placed_item_index, place_item, update_placed_item, remove_placed_item,
+    remember_placed_items, merge_placement_result,
     TWO_WIDE, tidyPaint,
+    LEDGE_BRUSH, brush_kind, palette_ledge_codes, palette_terrain_entry, palette_object_entry, palette_class_codes,
+    next_ledge_code, snap_cells_to_blocks, object_stamp_cells, exact_tile_value, expand_paint_cells,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.SL = api;

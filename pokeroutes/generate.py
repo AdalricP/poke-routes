@@ -19,6 +19,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from .classify import ONE_WAY_LEDGE_STEPS
 from .noise import fbm
 from .spec import Exit, RouteSpec
 
@@ -238,7 +239,8 @@ def _thin_water(route: Route) -> int:
 # ---------------------------------------------------------------- reachability
 
 def reachable(cls: np.ndarray, starts: Sequence[Cell]) -> np.ndarray:
-    """Flood fill honouring one-way south ledges."""
+    """Flood fill honouring one-way ledges: south ledges are hopped going south, north
+    ledges going north."""
     h, w = cls.shape
     seen = np.zeros((h, w), dtype=bool)
     stack = [s for s in starts if cls[s] in WALKABLE]
@@ -251,10 +253,12 @@ def reachable(cls: np.ndarray, starts: Sequence[Cell]) -> np.ndarray:
             if not (0 <= ny < h and 0 <= nx < w) or seen[ny, nx]:
                 continue
             c = cls[ny, nx]
-            if c == "s":
-                if dy == 1 and ny + 1 < h and cls[ny + 1, nx] in WALKABLE and not seen[ny + 1, nx]:
-                    seen[ny + 1, nx] = True
-                    stack.append((ny + 1, nx))
+            if c in ONE_WAY_LEDGE_STEPS:
+                landing_y, landing_x = ny + dy, nx + dx
+                hops = (dy, dx) == ONE_WAY_LEDGE_STEPS[c] and 0 <= landing_y < h and 0 <= landing_x < w
+                if hops and cls[landing_y, landing_x] in WALKABLE and not seen[landing_y, landing_x]:
+                    seen[landing_y, landing_x] = True
+                    stack.append((landing_y, landing_x))
                 continue
             if c in WALKABLE:
                 seen[ny, nx] = True
@@ -287,7 +291,7 @@ def stage_connect(route: Route) -> None:
 
 
 def can_leave(cls: np.ndarray, exits: Sequence[Cell]) -> np.ndarray:
-    """Cells from which some exit can still be walked to (ledges only go south)."""
+    """Cells from which some exit can still be walked to (ledges are one-way)."""
     h, w = cls.shape
     seen = np.zeros((h, w), dtype=bool)
     stack = [c for c in exits if cls[c] in WALKABLE]
@@ -296,8 +300,10 @@ def can_leave(cls: np.ndarray, exits: Sequence[Cell]) -> np.ndarray:
     while stack:
         y, x = stack.pop()
         prev = [(y + dy, x + dx) for dy, dx in DIRS4]
-        if y >= 2 and cls[y - 1, x] == "s":
-            prev.append((y - 2, x))  # jumped down onto (y, x)
+        for ledge, (step_y, step_x) in ONE_WAY_LEDGE_STEPS.items():
+            ledge_y, ledge_x = y - step_y, x - step_x
+            if 0 <= ledge_y < h and 0 <= ledge_x < w and cls[ledge_y, ledge_x] == ledge:
+                prev.append((ledge_y - step_y, ledge_x - step_x))
         for ny, nx in prev:
             if 0 <= ny < h and 0 <= nx < w and not seen[ny, nx] and cls[ny, nx] in WALKABLE:
                 seen[ny, nx] = True

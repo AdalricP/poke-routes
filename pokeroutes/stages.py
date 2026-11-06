@@ -209,7 +209,7 @@ def stage_clearings(route: Route) -> None:
         cells = n.cells()
         carve(route, cells)
         route.zones.append(Zone("clearing", cells, f"{n.kind} {n.id}", {"center": (n.y, n.x), "node": n.kind}))
-    from .purpose import lane_purposes, record
+    from .purpose import goal_purpose, lane_purposes, record
 
     for n in p.nodes:
         if n.hy or n.hx:
@@ -221,6 +221,7 @@ def stage_clearings(route: Route) -> None:
             if kind == "rest_stop":
                 route.props.append({"kind": "bench", "y": n.y + n.oy + n.hy - 1, "x": n.x + n.ox + n.hx - 2, "why": kind})
     lane_purposes(route, p, carve, ground_class(route), grass_class(route), _item)
+    goal_purpose(route, ground_class(route), grass_class(route), _item)
     for k, end in enumerate(p.endings):
         kind = "secret_exit" if end["kind"] == "secret" else "road"
         record(route, kind, end["path"][0], to=end["exit"].to or end["exit"].side)
@@ -1364,13 +1365,13 @@ def stage_dressing(route: Route) -> None:
             y, x = int(rng.integers(min(ys) + 1, max(ys))), int(rng.integers(min(xs) + 1, max(xs)))
             block = [(y, x), (y + 1, x), (y, x + 1), (y + 1, x + 1)]
             ring = [(y + dy, x + dx) for dy in range(-1, 3) for dx in range(-1, 3)]
-            if all(c in cells and route.cls[c] in (ground_class(route), grass_class(route)) for c in block) and not any(c in lane_core or c in crit for c in ring):
+            if all(c in cells and route.inside(*c) and route.cls[c] in (ground_class(route), grass_class(route)) for c in block) and not any(c in lane_core or c in crit for c in ring):
                 kind = wall_class(route) if rng.random() < 0.6 else code("BOULDER", "r")
                 for c in block:
                     route.cls[c] = kind
                 route.props.append({"kind": "lone_tree" if kind == "f" else "boulders", "y": y, "x": x})
         for (y, x) in z.cells:
-            if route.cls[y, x] == "g" and rng.random() < 0.08:
+            if route.inside(y, x) and route.cls[y, x] == "g" and rng.random() < 0.08:
                 route.props.append({"kind": "flowers", "y": int(y), "x": int(x)})
     _furniture(route, p)
     # flower borders along meadow lanes
