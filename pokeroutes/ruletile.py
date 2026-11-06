@@ -288,7 +288,7 @@ def tile_route(tiler: ArkTiler, route) -> Layout:
     walk = set("gpt")
     H, W = cls.shape
     for e in route.events:
-        if e.kind != "sign" or sign is None or (e.y, e.x) in fixed:
+        if e.kind != "sign" or sign is None or (e.y, e.x) in fixed or str(cls[e.y, e.x]) not in walk:
             continue
         nb = sum(1 for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1))
                  if 0 <= e.y + dy < H and 0 <= e.x + dx < W and str(cls[e.y + dy, e.x + dx]) in walk)

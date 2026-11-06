@@ -57,6 +57,9 @@
           <button type="button" class="ledge-dir-btn" data-dir="s" title="Faces south (R)" aria-label="Ledge faces south">
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v8M4.5 7l3.5 3.5L11.5 7" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
+          <button type="button" class="ledge-dir-btn" data-dir="j" title="Faces north (R)" aria-label="Ledge faces north" hidden>
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13.5v-8M4.5 9L8 5.5 11.5 9" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
           <button type="button" class="ledge-dir-btn" data-dir="e" title="Faces east (R)" aria-label="Ledge faces east">
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 8h8M7 4.5l3.5 3.5L7 11.5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
@@ -127,7 +130,7 @@
   <section class="dock" id="dockLeft" data-dock="left" aria-label="Hierarchy">
     <header class="dock-head">
       <button type="button" class="dock-tab on" data-left-tab="hierarchy">Hierarchy</button>
-      <button type="button" class="dock-tab" data-left-tab="tiles" title="Terrains and trees to paint with the Paint tool">Tiles</button>
+      <button type="button" class="dock-tab" data-left-tab="tiles" title="Terrain, objects and exact tiles to paint with the Paint tool">Tiles</button>
       <button type="button" class="dock-collapse" data-collapse="left" aria-label="Collapse Hierarchy" title="Collapse"></button>
     </header>
     <div class="dock-strip" data-expand="left" title="Show Hierarchy"><span>Hierarchy</span></div>
@@ -138,8 +141,13 @@
         <ul class="tree" id="mapTree" role="tree" aria-label="Places and layers" hidden></ul>
       </div>
       <div id="leftTiles" class="tiles-pane" hidden>
-        <p class="tiles-note">Pick a terrain or a tree and paint it on the map; edges and corners fix themselves like the generator's own. Generate starts a fresh map without the paint.</p>
-        <div class="terrain-grid" id="terrainGrid"></div>
+        <p class="tiles-note">Pick anything this route's tileset can draw and paint it on the map: terrain joins its edges and corners like the generator's own, objects go down as their exact tiles with their own collision. Generate starts a fresh map without the paint.</p>
+        <div id="paletteSections"></div>
+        <details class="palette-section tiles-exact">
+          <summary class="palette-heading">Exact tiles</summary>
+          <p class="tiles-note">One metatile exactly as it is; the cells around it are left alone.</p>
+          <canvas id="exactTiles"></canvas>
+        </details>
       </div>
     </div>
     <div class="dock-extra imp-docked" id="dockLeftExtra" hidden></div>

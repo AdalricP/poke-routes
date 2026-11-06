@@ -384,4 +384,37 @@ test("stroke interpolation and paint memory", () => {
   assert.strictEqual(SL.PAINT_KEY, "pokeroutes-paint-v1");
 });
 
+test("paint palette brushes: kinds, ledges, tree blocks, objects, exact tiles", () => {
+  const palette = {
+    tiler: "ark", terrain: [
+      { code: "g", group: "ground" }, { code: "F", group: "trees", snap_blocks: true },
+      { code: "s", group: "ledges" }, { code: "j", group: "ledges" }, { code: "e", group: "ledges" },
+    ],
+    unavailable: [{ code: "d" }],
+    objects: [{ id: "stump", cells: [[1, 2], [3, 4]], classes: [["o", "o"], ["g", "o"]] }],
+    tiles: { "7": "w" },
+  };
+  assert.deepStrictEqual(SL.brush_kind("F"), { kind: "terrain", key: "F" });
+  assert.deepStrictEqual(SL.brush_kind(SL.LEDGE_BRUSH), { kind: "ledge", key: "ledge" });
+  assert.deepStrictEqual(SL.brush_kind("object:split_oak"), { kind: "object", key: "split_oak" });
+  assert.deepStrictEqual(SL.brush_kind("tile:286"), { kind: "tile", key: "286" });
+  assert.deepStrictEqual(SL.palette_ledge_codes(palette), ["s", "j", "e"]);
+  assert.strictEqual(SL.next_ledge_code(palette, "s"), "j");
+  assert.strictEqual(SL.next_ledge_code(palette, "e"), "s");
+  assert.strictEqual(SL.next_ledge_code(null, "s"), "s");
+  assert.strictEqual(SL.palette_class_codes(palette), "gFsjed");
+  assert.strictEqual(SL.palette_terrain_entry(palette, "F").snap_blocks, true);
+  assert.strictEqual(SL.palette_terrain_entry(palette, "q"), null);
+  const snapped = SL.snap_cells_to_blocks([[3, 3, "F"], [4, 3, "F"]], 6, 5).map(([x, y]) => `${x},${y}`).sort();
+  assert.deepStrictEqual(snapped, ["2,2", "2,3", "3,2", "3,3", "4,2", "4,3", "5,2", "5,3"]);
+  assert.deepStrictEqual(SL.snap_cells_to_blocks([[4, 4, "f"]], 5, 5), [[4, 4, "f"]]);
+  const stump = SL.palette_object_entry(palette, "stump");
+  assert.deepStrictEqual(SL.object_stamp_cells(stump, 5, 5, 10, 10), [[5, 5, "o#1"], [6, 5, "o#2"], [5, 6, "g#3"], [6, 6, "o#4"]]);
+  assert.deepStrictEqual(SL.object_stamp_cells(stump, 9, 5, 10, 10), [], "an object never sticks out of the map");
+  assert.strictEqual(SL.exact_tile_value(palette, 7), "w#7");
+  assert.strictEqual(SL.exact_tile_value(palette, 99), "g#99");
+  assert.deepStrictEqual(SL.expand_paint_cells([[1, 2, "F#564"], [3, 4, "p"], [5, 6, "o#709"]]),
+    [[1, 2, "F"], [1, 2, "#564"], [3, 4, "p"], [5, 6, "o"], [5, 6, "#709"]]);
+});
+
 console.log(`shell-logic: ${n} tests passed`);

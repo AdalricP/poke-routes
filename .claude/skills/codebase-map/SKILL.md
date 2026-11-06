@@ -85,6 +85,7 @@ Walkable: `gptdhyvzqn`. Surfable: `wb`. Blocked: `frkul`.
   - `shell_api.py`: `/api/tilers`, `/api/scene`, `/api/spec-parse`, `/api/region-specs.zip`, `/api/commits`, `/api/retile`, plus the redirects.
   - `editor_api.py`: `/api/editor/*` (generate, load, recompute, add-route, save, spec, render, export, list).
   - `region_api.py`: `/api/region`, `/api/region.png`, `/api/region-spec`.
+  - `paint_palette.py`: `/api/paint-palette?id=` (what the Tiles tab can paint: classes, samples, objects, exact tiles per tiler); `/api/retile` (in `editor_api.py`) takes those classes.
 - **Agent jobs**: `improve.py` runs the job queue and launches `claude`. `route_tools.py` is the stdio MCP server that provides your `routes` tools.
 - **Front end** (`webui/static/`):
   - `shell.html`: layout and docks.
