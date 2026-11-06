@@ -11,6 +11,7 @@ from typing import Dict, List
 import numpy as np
 import yaml
 
+from .route_geography import geography_spec_fields, geography_summary
 from .world import BIOME_NAMES, CELL, SPEC_BIOME, World
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,7 +20,7 @@ SPECIES_FILE_REL = "../../../../arklarna/design/pokedex.json"  # from region_out
 MEANDER = {"straight": 0.45, "turn": 0.55, "crossroads": 0.5, "dead_end": 0.65, "coastal": 0.5,
            "mountain_pass": 0.35, "river_crossing": 0.5, "loop": 0.6, "sea": 0.3}
 TALL = {"meadow": 0.4, "forest": 0.3, "riverland": 0.35, "beach": 0.2, "desert": 0.1, "mountain": 0.15, "volcanic": 0.08}
-MUSIC = {"forest": "MUS_ROUTE104", "meadow": "MUS_ROUTE101", "riverland": "MUS_ROUTE119", "beach": "MUS_ROUTE110",
+MUSIC = {"forest": "MUS_ROUTE104", "meadow": "MUS_ROUTE101", "plains": "MUS_ROUTE101", "riverland": "MUS_ROUTE119", "beach": "MUS_ROUTE110",
          "desert": "MUS_ROUTE111", "mountain": "MUS_ROUTE113", "volcanic": "MUS_ROUTE113"}
 SIDES = ("north", "east", "south", "west")
 
@@ -225,6 +226,7 @@ def route_spec(w: World, r: dict, idx: int) -> dict:
         "ledge_chance": min(0.7, 0.25 + 0.1 * len(set("".join(reg["elevation"]["tiers"])))),
         "region": reg,
     }
+    apply_geography_to_spec(spec, reg, r["mode"] == "sea")
     if role == "dead_end" and reg["goal"]:
         spec["endings"] = [{"kind": "special", "side": reg["goal"]["side"], "area": reg["goal"]["landmark"] or "auto"}]
     # route design B: what it takes to get onto this route (field move, story beat)
@@ -235,6 +237,15 @@ def route_spec(w: World, r: dict, idx: int) -> dict:
         if k not in ("region", "size", "name", "id", "exits"):
             spec[k] = v
     return spec
+
+
+def apply_geography_to_spec(spec: dict, region_block: dict, is_sea_route: bool) -> None:
+    geography_fields = geography_spec_fields(region_block, is_sea_route)
+    spec.update(geography_fields)
+    spec["music"] = MUSIC.get(spec["biome"], spec["music"])
+    summary = geography_summary(region_block, geography_fields)
+    region_block["geography"] = summary
+    region_block["biome"]["note"] = summary["note"]
 
 
 class _Dumper(yaml.SafeDumper):

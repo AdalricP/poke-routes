@@ -335,13 +335,16 @@ def _beacons(route: Route, p) -> None:
 # ------------------------------------------------------------------ water
 
 def stage_lakes(route: Route) -> None:
+    from . import region_water
+
     b = route.spec.biome
     if b in TREE_BIOMES:
         _bend_obstacles(route)
     if b == "riverland":
-        _rivers(route)
+        if not region_water.has_region_rivers(route):
+            _rivers(route)
         _streams(route, 3)
-    if b == "beach":
+    if b == "beach" and not region_water.has_region_sea(route):
         _sea(route)
     if b == "desert":
         _desert(route)
@@ -349,6 +352,7 @@ def stage_lakes(route: Route) -> None:
         _open_desert(route)
     if b == "mountain":
         _terraces(route)
+    region_water.paint_region_water(route)
     if b != "desert":  # no ponds in the sand
         _ponds(route, route.spec.lakes if b != "riverland" else max(1, route.spec.lakes // 2))
     route.snap("water")
