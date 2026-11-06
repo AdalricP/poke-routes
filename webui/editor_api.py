@@ -159,7 +159,8 @@ def retile(srv, b: dict) -> dict:
     painted_class_grid = route.cls.copy()
     for cell_x, cell_y, class_code in class_cells:
         painted_class_grid[cell_y, cell_x] = class_code
-    if any(class_code in LEDGE_CLASSES for _, _, class_code in class_cells):
+    painted_ledges = any(class_code in LEDGE_CLASSES for _, _, class_code in class_cells)
+    if painted_ledges and not route_tiler_joins_ledge_corners(srv, gid):
         painted_class_grid = defuse_ledge_corners(painted_class_grid)
     object_cells = {(x, y) for x, y, _ in class_cells} & {(x, y) for x, y, _ in metatile_cells}
     layout = retile_class_grid_with_route_tiler(srv, gid, route, final, painted_class_grid, object_cells)
@@ -192,6 +193,14 @@ def split_painted_cells_into_classes_and_metatiles(painted_cells, grid_shape) ->
             metatile_cells.append((cell_x, cell_y, int(painted_value[1:])))
     painted_cells_by_kind = (class_cells, metatile_cells)
     return painted_cells_by_kind
+
+
+def route_tiler_joins_ledge_corners(srv, gid) -> bool:
+    if gid not in srv._ark_ids:
+        return False
+    import shell_api
+
+    return shell_api.ark_tiler().joins_ledge_corners()
 
 
 def retile_class_grid_with_route_tiler(srv, gid, route, final, painted_class_grid, object_cells=()):
