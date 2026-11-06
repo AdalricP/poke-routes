@@ -638,7 +638,8 @@ def build_network(w: World, keep: Optional[List[dict]] = None, plan: Optional[Li
     if w.preset == "arklarna" and all(town_id in C for town_id in ARKLARNA_TOWNS):
         arklarna_links(w, net, C, add, links)
     else:
-        town_links(w, net, C, add)
+        town_links(w, net, C, add, towns_joined_by_drawn_lines(plan))
+    links.extend(kept_drawn_links(plan, pins))
     # links drawn by hand in the editor
     for ul in plan:
         if ul.get("kind") != "user":
@@ -652,17 +653,12 @@ def build_network(w: World, keep: Optional[List[dict]] = None, plan: Optional[Li
                               src_ref=ul.get("src_ref"), dst_ref=ul.get("dst_ref"), routes=[]))
             w.log.append(f"{ul['name']}: an end is gone; not laid")
     add_back_gates(net)
-    classify(w, net)
-    for n in net.nodes:  # roles the owner set by hand stay
-        man = (n.get("keep") or {}).get("manual") or {}
-        if n["kind"] == "route" and man.get("role"):
-            n["role"] = man["role"]
-    name_routes(w, net)
+    settle_routes(w, net)
     w.links = []
     for lk in links:
         d = dict(name=lk["name"], kind=lk["kind"], mode=lk.get("mode", "land"),
                  routes=[net.nodes[k]["name"] for k in lk.get("routes", [])], landmark=lk.get("landmark"))
-        for k in ("dropped", "src_ref", "dst_ref"):
+        for k in ("dropped", "src_ref", "dst_ref", "waypoints", "legs"):
             if lk.get(k):
                 d[k] = lk[k]
         w.links.append(d)
@@ -671,6 +667,54 @@ def build_network(w: World, keep: Optional[List[dict]] = None, plan: Optional[Li
     w.log.append(f"routes: {len(w.routes)} ({', '.join(r['name'] + ':' + r['role'] for r in w.routes)})")
     return net
 
+
+def settle_routes(w: World, net: Network) -> None:
+    classify(w, net)
+    for n in net.nodes:  # roles the owner set by hand stay
+        man = (n.get("keep") or {}).get("manual") or {}
+        if n["kind"] == "route" and man.get("role"):
+            n["role"] = man["role"]
+    name_routes(w, net)
+
+
+def kept_drawn_links(plan: List[dict], pins: Dict[str, List[int]]) -> List[dict]:
+    kept = []
+    for drawn in plan:
+        if drawn.get("kind") != "drawn" or not pins.get(drawn["name"]):
+            continue
+        record = {k: v for k, v in drawn.items() if k != "routes"}
+        record["routes"] = pins[drawn["name"]]
+        kept.append(record)
+    return kept
+
+
+def towns_joined_by_drawn_lines(plan: List[dict]) -> List[Tuple[str, str]]:
+    pairs = []
+    for drawn in plan:
+        if drawn.get("kind") != "drawn" or drawn.get("dropped"):
+            continue
+        source, target = drawn.get("src_ref") or {}, drawn.get("dst_ref") or {}
+        if "city" in source and "city" in target:
+            pairs.append((source["city"], target["city"]))
+    return pairs
+
+
+class TownGroups:
+    def __init__(self, pairs: List[Tuple[str, str]]):
+        self.parent: Dict[str, str] = {}
+        for town_id, other_town_id in pairs:
+            self.join(town_id, other_town_id)
+
+    def root(self, town_id: str) -> str:
+        while self.parent.get(town_id, town_id) != town_id:
+            town_id = self.parent[town_id]
+        return town_id
+
+    def join(self, town_id: str, other_town_id: str) -> None:
+        self.parent[self.root(town_id)] = self.root(other_town_id)
+
+    def joined(self, town_id: str, other_town_id: str) -> bool:
+        return self.root(town_id) == self.root(other_town_id)
 
 
 def arklarna_links(w: World, net: Network, C: Dict[str, int], add, links: List[dict]) -> None:
@@ -727,8 +771,12 @@ def arklarna_links(w: World, net: Network, C: Dict[str, int], add, links: List[d
              dst=[(C["pilsau"], 2.0)] + [(k, 0.0) for k in first]))
 
 
-def town_links(w: World, net: Network, C: Dict[str, int], add) -> None:
+def town_links(w: World, net: Network, C: Dict[str, int], add, drawn_pairs: Optional[List[Tuple[str, str]]] = None) -> None:
+    groups = TownGroups(drawn_pairs or [])
     for town, other_town in town_tree(w.cities):
+        if groups.joined(town.id, other_town.id):
+            continue
+        groups.join(town.id, other_town.id)
         mode = "land" if same_landmass(w, town, other_town) else "sea"
         add(dict(name=f"{town.name}-{other_town.name}", kind="main", mode=mode,
                  src=[(C[town.id], 0)], dst=[(C[other_town.id], 0)]))
@@ -767,7 +815,7 @@ def route_json(w: World, net: Network, n: dict) -> dict:
              goal=n.get("goal"), goal_landmark=n.get("goal_landmark"), biome_code=n.get("biome_code"),
              kind_link=n.get("kind_link"))
     old = n.get("keep") or {}
-    for k in ("pinned", "manual", "spec_overrides", "gate"):  # editor state rides along
+    for k in ("pinned", "manual", "spec_overrides", "gate", "drawn"):  # editor state rides along
         if old.get(k):
             d[k] = old[k]
     return d
@@ -865,13 +913,7 @@ def lay_around(net: Network, link: dict, pins: List[int]) -> None:
 def user_link(w: World, net: Network, ul: dict) -> Optional[dict]:
     """A link the owner drew: {name, src_ref, dst_ref}; refs are {city|route|landmark: id}."""
     def node(ref):
-        if not ref:
-            return None
-        for n in net.nodes:
-            if ("city" in ref and n["kind"] == "city" and n.get("id") == ref["city"]) or \
-                    ("route" in ref and n["kind"] == "route" and n.get("name") == ref["route"]):
-                return n["idx"]
-        return None
+        return node_for_ref(net, ref)
 
     s = node(ul.get("src_ref"))
     if s is None:
@@ -903,3 +945,13 @@ def user_link(w: World, net: Network, ul: dict) -> Optional[dict]:
             return None
         link["dst"] = [(d, 0.0)]
     return link
+
+
+def node_for_ref(net: Network, ref: Optional[dict]) -> Optional[int]:
+    if not ref:
+        return None
+    for n in net.nodes:
+        if ("city" in ref and n["kind"] == "city" and n.get("id") == ref["city"]) or \
+                ("route" in ref and n["kind"] == "route" and n.get("name") == ref["route"]):
+            return n["idx"]
+    return None

@@ -25,7 +25,7 @@ from typing import Dict, List, Optional
 import numpy as np
 from scipy import ndimage as ndi
 
-from . import network, terrain
+from . import drawn, network, terrain
 from .world import CELL, City, Landmark, World
 
 FORMAT = "pokeroutes-region-edit"
@@ -239,6 +239,36 @@ def add_route(doc: dict, src_ref: dict, dst_ref: dict) -> dict:
     out = finish(w, doc, doc.get("stale", []))
     out["added"] = [r["name"] for r in new]
     return out
+
+
+def draw_route(doc: dict, waypoints: list, legs: list, src_ref: dict, dst_ref: dict,
+               replace: Optional[str] = None) -> dict:
+    """Lay a line drawn by hand (waypoints and legs, see drawn.py). ``replace`` names an
+    earlier drawn line to redraw. Every other route stays; the new ones come back pinned."""
+    w = doc_to_world(doc)
+    if len(waypoints) < 2:
+        raise ValueError("a drawn route needs a start and an end")
+    if replace:
+        drawn.without_drawn_line(w, replace)
+    line = dict(name=replace or drawn.next_line_name(w), waypoints=waypoints, legs=legs,
+                src_ref=src_ref, dst_ref=dst_ref)
+    added = drawn.add_drawn_line(w, line)
+    pin_drawn_routes_and_their_ends(w, added, src_ref, dst_ref)
+    w.log.append(f"editor: {line['name']} drawn as {', '.join(added)}")
+    out = finish(w, doc, doc.get("stale", []))
+    out["added"] = added
+    out["line"] = line["name"]
+    return out
+
+
+def pin_drawn_routes_and_their_ends(w: World, added: List[str], src_ref: dict, dst_ref: dict) -> None:
+    ends = {(ref or {}).get("route") for ref in (src_ref, dst_ref)}
+    for route in w.routes:
+        if route["name"] in added:
+            route["pinned"] = True
+            route["drawn"] = True
+        if route["name"] in ends:
+            route["pinned"] = True
 
 
 TOWN_SIZE = (10, 9)
