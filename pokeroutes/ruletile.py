@@ -216,6 +216,11 @@ class ArkTiler:
                 return False
             return blk[by][bx] in letters
 
+        def pres_same(bx, by, letter):
+            if not (0 <= bx < BW and 0 <= by < BH):
+                return False
+            return blk[by][bx] == letter
+
         orth = sum(1 << i for i, d in enumerate(self.bits) if d in ("N", "E", "S", "W"))
         for letter in letters:
             k = C[letter]
@@ -228,6 +233,10 @@ class ArkTiler:
                     b = (own | pres(bx - 1, by, letter) * 2 | pres(bx + 1, by, letter) * 4 |
                          pres(bx, by + 1, letter) * 8 | pres(bx - 1, by + 1, letter) * 16 |
                          pres(bx + 1, by + 1, letter) * 32)
+                    if not own:
+                        b = (pres_same(bx - 1, by, letter) * 2 | pres_same(bx + 1, by, letter) * 4 |
+                             pres_same(bx, by + 1, letter) * 8 | pres_same(bx - 1, by + 1, letter) * 16 |
+                             pres_same(bx + 1, by + 1, letter) * 32)
                     key = f"{(bx + by) % nph},{px},{py},{b}"
                     c = grid[y][x]
                     if own:
