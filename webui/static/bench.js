@@ -1507,7 +1507,7 @@
         b.onclick = (ev) => { ev.stopPropagation(); n.eye.toggle(); };
         row.append(b);
       }
-      if (n.follow) row.append(follow_button(n.follow));
+
       row.onclick = () => {
         if (n.sel) select(n.sel);
         else if (n.run) n.run();
@@ -1855,20 +1855,28 @@
     const font_size = Math.round(Math.max(11, Math.min(14, s * 0.7)));
     g.font = `600 ${font_size}px Inter, system-ui, sans-serif`;
     g.textBaseline = "middle";
-    connections.forEach((connection, exit_index) => {
-      const scene_exit = route.exits[exit_index];
-      if (!connection || !scene_exit || !scene_exit.cells.length) return;
-      const text = `${ARROW_OUT_OF_SIDE[scene_exit.side] || "→"} ${connection.name}`;
+    (route.exits || []).forEach((scene_exit, exit_index) => {
+      const connection = connections[exit_index];
+      const destination_name = connection ? connection.name : readable_map_name(scene_exit.to);
+      if (!destination_name || !scene_exit.cells.length) return;
+      const text = `${ARROW_OUT_OF_SIDE[scene_exit.side] || "→"} ${destination_name}`;
       const box = connection_label_box(scene_exit, g.measureText(text).width, font_size + 8, ox, oy, s);
-      g.fillStyle = connection.kind === "unknown" ? "rgba(28,28,28,0.7)" : "rgba(20,40,64,0.92)";
-      g.fillRect(box.x, box.y, box.w, box.h);
-      g.strokeStyle = "#9cc6f0";
-      g.lineWidth = 1;
-      g.strokeRect(box.x + 0.5, box.y + 0.5, box.w - 1, box.h - 1);
-      g.fillStyle = "#eef5fc";
+      g.lineJoin = "round";
+      g.lineWidth = 3;
+      g.strokeStyle = "rgba(24,32,24,0.85)";
+      g.strokeText(text, box.x + 6, box.y + box.h / 2 + 1);
+      g.fillStyle = "#fbfaf2";
       g.fillText(text, box.x + 6, box.y + box.h / 2 + 1);
-      state.connection_labels.push(Object.assign({ i: exit_index }, box));
+      if (connection) state.connection_labels.push(Object.assign({ i: exit_index }, box));
     });
+  }
+  function readable_map_name(map_constant) {
+    if (!map_constant) return "";
+    const without_prefix = String(map_constant).replace(/^MAP_/, "");
+    const route_match = without_prefix.match(/^ROUTE_?(\d+)$/);
+    if (route_match) return `Route ${Number(route_match[1])}`;
+    const readable_name = without_prefix.toLowerCase().split("_").filter(Boolean).map((word) => word[0].toUpperCase() + word.slice(1)).join(" ");
+    return readable_name;
   }
 
   function show_center_tab(tab) {
@@ -1906,6 +1914,7 @@
       case "geography":
         return "Generate geography";
       case "region":
+        return "Generate map";
       case "story":
         return "Generate routes";
       default:
@@ -2312,7 +2321,6 @@
     $("areaInput").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); addSpecial(); } });
     $("exitAdd").onclick = () => { if (state.exits.length < 4) { state.exits.push({ side: "west", at: 0.5, width: 3 }); renderExits(); edited("exits"); } };
     fill_brush_select();
-    $("exactTiles").onclick = pick_exact_tile_from_palette;
     $("ledgeRot").querySelectorAll(".ledge-dir-btn").forEach((b) => { b.onclick = () => { choose_ledge(b.dataset.dir); }; });
     const sk = $("stampKind");
     for (const [k, s] of Object.entries(SL.STAMPS)) sk.append(Object.assign(el("option", "", s.label), { value: k }));
@@ -2357,8 +2365,6 @@
   const EMPTY_PALETTE = { tiler: "", tileset: "", terrain: [], unavailable: [], objects: [], tiles: {} };
   const PALETTE_GROUPS = [["ground", "Ground"], ["water", "Water"], ["trees", "Trees"], ["rock", "Rock"], ["ledges", "Ledges"]];
   const terrain_preview_size_in_pixels = 40;
-  const exact_tile_size_in_pixels = 24;
-  const exact_tile_columns = 8;
 
   async function load_paint_palette(route_result) {
     const palette_key = `${route_result.tiler}|${route_result.tileset}`;
@@ -2571,7 +2577,7 @@
     if (!ledge_entries.length) return [];
     const current_ledge = ledge_entries.find((entry) => entry.code === state.ledgeDir) || ledge_entries[0];
     const ledge_is_selected = painting && state.brush === LEDGE_BRUSH;
-    const ledge_button = palette_button(LEDGE_BRUSH, current_ledge.name, `Paint ${current_ledge.name}; click again or press R to turn it`, sample_rows(current_ledge), ledge_is_selected,
+    const ledge_button = palette_button(LEDGE_BRUSH, current_ledge.name.replace("jump ", ""), `Paint ${current_ledge.name}; click again or press R to turn it`, sample_rows(current_ledge), ledge_is_selected,
       () => (ledge_is_selected ? rotateLedgeDir() : choose_ledge(current_ledge.code)));
     return [ledge_button];
   }
@@ -2640,7 +2646,6 @@
     }
     if (state.palette.objects.length) sections.append(palette_section("Objects", object_buttons()));
     if (state.palette.unavailable.length) sections.append(unavailable_note(state.palette.unavailable));
-    render_exact_tiles();
   }
 
   function unavailable_note(unavailable_entries) {
@@ -2649,41 +2654,8 @@
     return note;
   }
 
-  function exact_tile_ids() {
-    if (!state.palette || !state.atlas) return [];
-    const atlas_index = state.atlas.meta.index;
-    return Object.keys(state.palette.tiles).map(Number).filter((metatile_id) => atlas_index[metatile_id] != null).sort((a, b) => a - b);
-  }
 
-  function render_exact_tiles() {
-    const tiles_canvas = $("exactTiles");
-    const metatile_ids = exact_tile_ids();
-    tiles_canvas.width = exact_tile_columns * exact_tile_size_in_pixels;
-    tiles_canvas.height = Math.max(1, Math.ceil(metatile_ids.length / exact_tile_columns)) * exact_tile_size_in_pixels;
-    tiles_canvas.dataset.ids = metatile_ids.join(",");
-    const tiles_context = tiles_canvas.getContext("2d");
-    const { kind, key } = SL.brush_kind(state.brush);
-    metatile_ids.forEach((metatile_id, position) => {
-      const cell_left = (position % exact_tile_columns) * exact_tile_size_in_pixels, cell_top = Math.floor(position / exact_tile_columns) * exact_tile_size_in_pixels;
-      draw_metatile(tiles_context, metatile_id, cell_left, cell_top, exact_tile_size_in_pixels);
-      if (kind !== "tile" || +key !== metatile_id) return;
-      tiles_context.strokeStyle = "#ffde59";
-      tiles_context.lineWidth = 2;
-      tiles_context.strokeRect(cell_left + 1, cell_top + 1, exact_tile_size_in_pixels - 2, exact_tile_size_in_pixels - 2);
-    });
-  }
 
-  function pick_exact_tile_from_palette(click_event) {
-    const tiles_canvas = $("exactTiles");
-    const bounds = tiles_canvas.getBoundingClientRect();
-    const scale = tiles_canvas.width / bounds.width;
-    const column = Math.floor(((click_event.clientX - bounds.left) * scale) / exact_tile_size_in_pixels);
-    const row = Math.floor(((click_event.clientY - bounds.top) * scale) / exact_tile_size_in_pixels);
-    const metatile_ids = (tiles_canvas.dataset.ids || "").split(",").filter(Boolean);
-    const metatile_id = metatile_ids[row * exact_tile_columns + column];
-    if (metatile_id == null) return;
-    choose_brush("tile:" + metatile_id);
-  }
 
   function is_improve_tab_shown() {
     const improve_tab_button = document.querySelector('[data-bottom="improve"]');
