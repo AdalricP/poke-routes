@@ -19,7 +19,7 @@
   const VIEW_KEY = "pokeroutes-shell-view-v1";
   // Brushes come from the route's paint palette (GET /api/paint-palette, webui/paint_palette.py):
   // every class its tiler draws, its objects and its exact tiles. One "ledge" brush covers every
-  // ledge direction; state.ledgeDir picks the class.
+  // ledge direction; state.ledgeDir picks the class and R turns it clockwise.
   const LEDGE_BRUSH = SL.LEDGE_BRUSH;
   const store = Shell.store;
 
@@ -49,7 +49,7 @@
     hover: null, hoverArea: null, sel: null,
     playing: false, timer: null, busy: false,
     specials: [], exits: [], tab: "dex",
-    tool: "select", paint: { cells: new Map(), busy: false }, ledgeDir: "s", brush: "g", palette: null, palettes: {},
+    tool: "select", paint: { cells: new Map(), objects: [], busy: false }, ledgeDir: "s", brush: "g", brush_size: viewSaved.brush_size || 1, palette: null, palettes: {},
     region: sget(REGION_KEY),      // {name, region, endings} or null
     file: { handle: null, name: "" },
     saved: "", generated: "",
@@ -58,7 +58,7 @@
     connection_labels: [],     // screen boxes of the exit labels drawn on the Scene: {x, y, w, h, i}
   };
   const undoStack = new SL.History(150, 800);
-  function saveView() { sset(VIEW_KEY, { layer: state.layer, ov: state.ov }); }
+  function saveView() { sset(VIEW_KEY, { layer: state.layer, ov: state.ov, brush_size: state.brush_size }); }
 
   // ------------------------------------------------------------ inspector controls
   // Built from /api/spec-schema (RouteSpec's dataclass fields), so new generator
@@ -67,18 +67,24 @@
     { name: "biome", kind: "str", default: "forest", group: "route", choices: ["forest", "meadow", "riverland"] },
     { name: "width", kind: "int", default: 48, group: "route", min: 24, max: 96, step: 2 },
     { name: "height", kind: "int", default: 80, group: "route", min: 24, max: 112, step: 2 },
-    { name: "meander", kind: "float", default: 0.6, group: "shape", min: 0, max: 1, step: 0.05 },
-    { name: "branches", kind: "int", default: 2, group: "shape", min: 0, max: 8 },
-    { name: "loops", kind: "int", default: 1, group: "shape", min: 0, max: 4 },
-    { name: "dead_ends", kind: "int", default: 1, group: "shape", min: 0, max: 6 },
-    { name: "clearings", kind: "int", default: 3, group: "shape", min: 0, max: 8 },
-    { name: "lakes", kind: "int", default: 1, group: "shape", min: 0, max: 4 },
+    { name: "meander", kind: "float", default: 0.6, group: "shape", label: "winding", min: 0, max: 1, step: 0.05 },
+    { name: "max_lanes", kind: "int", default: 3, group: "shape", label: "paths to the exit", min: 1, max: 3 },
+    { name: "dead_ends", kind: "int", default: 1, group: "shape", label: "side areas", min: 0, max: 6 },
+    { name: "lakes", kind: "int", default: 1, group: "shape", label: "water", min: 0, max: 4 },
     { name: "tall_grass", kind: "float", default: 0.35, group: "shape", min: 0, max: 0.9, step: 0.05 },
-    { name: "road", kind: "bool", default: true, group: "shape", label: "Dirt road" },
+    { name: "ledge_chance", kind: "float", default: 0.35, group: "shape", label: "ledges", min: 0, max: 1, step: 0.05 },
+    { name: "road", kind: "bool", default: true, group: "shape", label: "dirt road" },
+    { name: "clearings", kind: "int", default: 3, group: "advanced", min: 0, max: 8 },
     { name: "hidden_paths", kind: "int", default: 2, group: "secrets", min: 0, max: 6 },
     { name: "hidden_items", kind: "int", default: 4, group: "secrets", min: 0, max: 12 },
   ], exit_fields: [] };
-  const FIRST_RUN = { width: 64, height: 72, meander: 0.7, branches: 3, dead_ends: 2, clearings: 4, tall_grass: 0.3 };
+  const FIRST_RUN = { width: 64, height: 72, meander: 0.7, dead_ends: 2, clearings: 4, tall_grass: 0.3 };
+  const SHAPE_CONTROL_ORDER = ["meander", "max_lanes", "dead_ends", "lakes", "tall_grass", "ledge_chance", "road"];
+  const FIELD_TOOLTIPS = {
+    meander: "How far the main path swings and turns", max_lanes: "Parallel paths that braid toward the exit",
+    dead_ends: "Side paths that end at an item, lookout or pocket", lakes: "Ponds along the route",
+    ledge_chance: "One-way ledges between paths", road: "Dirt road along the main path",
+  };
   const DEFAULT_EXITS = [{ side: "south", at: 0.45, width: 2 }, { side: "north", at: 0.6, width: 2 }, { side: "east", at: 0.35, width: 3 }];
   const DEFAULT_SPECIALS = ["auto", "auto", "pond"];
   const controls = {};
@@ -86,9 +92,7 @@
   let fid = 0;
   let pendingGenerate = false;
 
-  const SHORT_LABELS = { road: "Dirt road" }; // the server's hint text is a sentence; the Inspector wants a name
   function labelOf(f) {
-    if (SHORT_LABELS[f.name]) return SHORT_LABELS[f.name];
     if (f.label) return f.label.charAt(0).toUpperCase() + f.label.slice(1);
     const t = f.name.replace(/_/g, " ");
     return t.charAt(0).toUpperCase() + t.slice(1);
@@ -99,7 +103,7 @@
     const id = "f-" + f.name + "-" + (++fid);
     const lab = el("label", "", labelOf(f));
     lab.htmlFor = id;
-    lab.title = f.name;
+    lab.title = FIELD_TOOLTIPS[f.name] || f.name.replace(/_/g, " ");
     row.append(lab);
     let get, set;
     if (f.kind === "bool") {
@@ -161,20 +165,32 @@
     return { el: row, get, set, field: f };
   }
 
-  const GROUPS = ["route", "shape", "secrets", "encounters", "other"];
+  const GROUPS = ["route", "shape", "secrets", "encounters", "advanced"];
+  function shape_control_rank(field) {
+    const rank = SHAPE_CONTROL_ORDER.indexOf(field.name);
+    return rank < 0 ? SHAPE_CONTROL_ORDER.length : rank;
+  }
+  function fields_in_inspector_order(fields) {
+    const ordered_fields = fields.slice().sort((first_field, second_field) => shape_control_rank(first_field) - shape_control_rank(second_field));
+    return ordered_fields;
+  }
   function buildControls(saved) {
     for (const g of GROUPS) $("g-" + g).innerHTML = "";
     for (const k of Object.keys(controls)) delete controls[k];
-    for (const f of schema.fields) {
-      if (f.name === "seed") continue; // has its own box with the dice
+    for (const f of fields_in_inspector_order(schema.fields)) {
+      if (f.name === "seed") continue; // has its own box
       const v = saved && saved[f.name] != null ? saved[f.name] : FIRST_RUN[f.name] != null && !saved ? FIRST_RUN[f.name] : f.default;
       const c = makeControl(f, v);
-      ($("g-" + f.group) || $("g-other")).append(c.el);
+      ($("g-" + f.group) || $("g-advanced")).append(c.el);
       controls[f.name] = c;
     }
-    $("sec-other").hidden = !$("g-other").children.length;
-    $("sec-encounters").hidden = !$("g-encounters").children.length;
+    set_fold_empty($("sec-advanced"), !$("g-advanced").children.length);
     sizeWarn();
+  }
+
+  function set_fold_empty(fold, is_empty) {
+    fold.dataset.hiddenByContent = String(is_empty);
+    fold.hidden = is_empty || (!!state.result && is_object_focused(state.sel));
   }
 
   function sizeWarn() {
@@ -205,45 +221,80 @@
     edited("special_areas");
   }
 
+  function exit_summary_text(scene_exit) {
+    const destination_name = scene_exit.to ? readable_map_name(scene_exit.to) : "";
+    const summary_text = `${scene_exit.side} · ${scene_exit.width} wide${destination_name ? " → " + destination_name : ""}`;
+    return summary_text;
+  }
+
+  function exit_list_row(scene_exit, exit_index) {
+    const list_row = el("li", state.sel && state.sel.type === "exit" && state.sel.i === exit_index ? "sel" : "");
+    const select_button = Object.assign(el("button", "exit-pick", exit_summary_text(scene_exit)), { type: "button" });
+    select_button.onclick = () => select({ type: "exit", i: exit_index });
+    const remove_button = Object.assign(el("button", "x", "×"), { type: "button", disabled: state.exits.length <= 1 });
+    remove_button.setAttribute("aria-label", `Remove exit ${exit_index + 1}`);
+    remove_button.onclick = () => remove_exit(exit_index);
+    list_row.append(select_button, remove_button);
+    return list_row;
+  }
+
   function renderExits() {
     const ol = $("exits");
     ol.innerHTML = "";
-    state.exits.forEach((e, i) => {
-      const li = el("li");
-      const sel = el("select");
-      sel.setAttribute("aria-label", `Exit ${i + 1} side`);
-      ["north", "south", "east", "west"].forEach((s) => sel.append(Object.assign(el("option", "", s), { value: s, selected: s === e.side })));
-      const rng = Object.assign(el("input"), { type: "range", min: 0, max: 1, step: 0.05, value: e.at, title: "Position along the edge" });
-      rng.setAttribute("aria-label", `Exit ${i + 1} position`);
-      const num = Object.assign(el("input"), { type: "number", min: 1, max: 6, value: e.width, title: "Width" });
-      num.setAttribute("aria-label", `Exit ${i + 1} width`);
-      const x = el("button", "x", "×");
-      x.type = "button";
-      x.disabled = state.exits.length <= 1;
-      x.setAttribute("aria-label", `Remove exit ${i + 1}`);
-      if (e.to) li.title = "to " + e.to;
-      sel.onchange = () => { e.side = sel.value; edited("exits"); };
-      rng.oninput = () => { e.at = +rng.value; edited("exits:" + i, true); };
-      num.onchange = () => { e.width = Math.max(1, Math.min(6, parseInt(num.value, 10) || 3)); num.value = e.width; edited("exits"); };
-      x.onclick = () => { state.exits.splice(i, 1); renderExits(); edited("exits"); };
-      li.append(sel, rng, num, x, exit_destination_input(e, i));
-      ol.append(li);
-    });
-    fill_exit_destination_choices();
+    state.exits.forEach((scene_exit, exit_index) => ol.append(exit_list_row(scene_exit, exit_index)));
     $("exitAdd").disabled = state.exits.length >= 4;
   }
 
+  function remove_exit(exit_index) {
+    state.exits.splice(exit_index, 1);
+    if (state.sel && state.sel.type === "exit") state.sel = null;
+    renderExits();
+    renderSelection();
+    edited("exits");
+  }
+
+  function exit_side_select(scene_exit) {
+    const side_select = el("select");
+    ["north", "south", "east", "west"].forEach((side) => side_select.append(Object.assign(el("option", "", side), { value: side, selected: side === scene_exit.side })));
+    side_select.onchange = () => { scene_exit.side = side_select.value; renderExits(); edited("exits"); };
+    return side_select;
+  }
+
+  function exit_position_slider(scene_exit, exit_index) {
+    const position_slider = Object.assign(el("input"), { type: "range", min: 0, max: 1, step: 0.05, value: scene_exit.at });
+    position_slider.oninput = () => { scene_exit.at = +position_slider.value; edited("exits:" + exit_index, true); };
+    return position_slider;
+  }
+
+  function exit_width_input(scene_exit) {
+    const width_input = Object.assign(el("input"), { type: "number", min: 1, max: 6, value: scene_exit.width });
+    width_input.onchange = () => {
+      scene_exit.width = Math.max(1, Math.min(6, parseInt(width_input.value, 10) || 3));
+      width_input.value = scene_exit.width;
+      renderExits();
+      edited("exits");
+    };
+    return width_input;
+  }
+
+  function inspector_property_row(label_text, control) {
+    const property_row = el("div", "prop");
+    property_row.append(el("label", "", label_text), control);
+    return property_row;
+  }
+
   function exit_destination_input(scene_exit, exit_index) {
-    const destination_input = Object.assign(el("input", "exit-to"), { type: "text", placeholder: "goes to… (town or route)" });
+    const destination_input = Object.assign(el("input", "exit-to"), { type: "text" });
     destination_input.setAttribute("list", "exitDestinations");
     destination_input.setAttribute("aria-label", `Exit ${exit_index + 1} goes to`);
     destination_input.value = scene_exit.to ? readable_map_name(scene_exit.to) : "";
-    destination_input.title = "Where this exit leads. Pick a town or route from the open region, or type a map name.";
+    destination_input.title = "A town or route of the open region, or a map name";
     destination_input.onfocus = fill_exit_destination_choices;
     destination_input.onchange = () => {
       const destination_name = destination_input.value.trim();
       scene_exit.to = destination_name ? map_constant_for_place(destination_name) : "";
       scene_exit.to_set_by_hand = !!destination_name;
+      renderExits();
       edited("exits");
     };
     return destination_input;
@@ -364,7 +415,10 @@
       sset(STORE_KEY, params());
       autoGenerate();
     } else if (e.kind === "paint") {
-      if (state.result && state.result.id === e.id && await retile(side === "before" ? e.old : e.cells, true)) storePaint(state.result, e[side]);
+      if (!state.result || state.result.id !== e.id || !(await retile(side === "before" ? e.old : e.cells, true))) return;
+      storePaint(state.result, e[side]);
+      store_painted_objects(state.result, e["objects_" + side] || []);
+      if (state.sel && state.sel.type === "object") select(null);
     } else if (e.kind === "items") {
       route_items.restore(e[side]);
     }
@@ -441,6 +495,7 @@
       const atlas = await atlasFor(res.atlas || "/api/atlas");
       await new Promise((r) => requestAnimationFrame(r));
       const resized = !state.result || state.result.width !== res.width || state.result.height !== res.height;
+      res.generated_class_rows = res.stages[res.stages.length - 1].cls.slice();
       state.result = res;
       state.atlas = atlas;
       await load_paint_palette(res);
@@ -458,7 +513,8 @@
       sset(SL.RECENT_KEY, SL.pushRecent(sget(SL.RECENT_KEY), p, 10, Date.now()));
       reportToConsole(res, (performance.now() - t0) / 1000);
       // a fresh map starts unpainted; only the page-load generate puts the last paint back
-      if (opts && opts.keepPaint) { updatePaintCount(); await reapplyPaint(); } else storePaint(res, {});
+      if (opts && opts.keepPaint) await reapplyPaint();
+      else { storePaint(res, {}); store_painted_objects(res, []); }
       await route_items.on_new_route(res);
       if (prefs.playOnGenerate && !(opts && opts.auto) && res.stages.length > 1) { setStage(0, false); startPlay(); }
       else setStage(res.stages.length - 1, false);
@@ -698,7 +754,7 @@
     draw();
   }
 
-  // pointer: select / pan / paint / stamp
+  // pointer: select / pan / paint
   let drag = null;
   let wheelAcc = 0;
   let spaceDown = false;
@@ -709,11 +765,12 @@
     const { sx, sy } = pt(ev);
     const panBtn = ev.button === 1 || ev.button === 2 || spaceDown || state.tool === "pan";
     wrap.setPointerCapture(ev.pointerId);
-    if (!panBtn && (state.tool === "paint" || state.tool === "stamp") && ev.button === 0) {
+    if (!panBtn && state.tool === "paint" && ev.button === 0) {
       if (!canPaint(true) || state.paint.busy) { drag = null; return; }
       drag = { mode: "paint" };
       if (state.stage !== state.result.stages.length - 1) { stopPlay(); setStage(state.result.stages.length - 1, false); }
       state.paint.cells = new Map();
+      state.paint.objects = [];
       state.paint.last = null;
       paintAt(sx, sy);
       return;
@@ -744,7 +801,7 @@
     if (d.mode === "paint") { commitPaint(); return; }
     if (d.select && !d.moved) { const { sx, sy } = pt(ev); if (state.tool === "item") route_items.click(cellOf(sx, sy)); else pickAt(sx, sy); }
   });
-  wrap.addEventListener("pointercancel", () => { drag = null; wrap.classList.remove("dragging"); state.paint.cells = new Map(); draw(); });
+  wrap.addEventListener("pointercancel", () => { drag = null; wrap.classList.remove("dragging"); state.paint.cells = new Map(); state.paint.objects = []; draw(); });
   wrap.addEventListener("contextmenu", (ev) => ev.preventDefault());
   wrap.addEventListener("dblclick", () => { if (state.sel) focusSel(); });
   wrap.addEventListener("pointerleave", () => { state.hover = null; state.hoverArea = null; hideTip(); $("stCell").textContent = ""; draw(); });
@@ -823,6 +880,8 @@
     let hit = null;
     const placed_index = state.ov.events ? route_items.index_at(c.x, c.y) : -1;
     if (placed_index >= 0) hit = { type: "placed", i: placed_index };
+    const object_index = SL.object_instance_index_at(state.palette, painted_objects(r), c.x, c.y);
+    if (!hit && object_index >= 0) hit = { type: "object", i: object_index };
     if (!hit && state.ov.events) {
       const i = evs.findIndex((e) => e.x === c.x && e.y === c.y);
       if (i >= 0) hit = { type: "event", i };
@@ -995,7 +1054,7 @@
   }
   function should_show_route_effect(effect) {
     const has_preset = !!route_effect_presets[effect];
-    const is_route_on_screen = !!state.result && state.tileCanvases.length > 0 && Shell.layout.center === "scene" && !wrap.hidden;
+    const is_route_on_screen = !!state.result && state.tileCanvases.length > 0 && SL.center_tabs_shown(Shell.layout).includes("scene") && !wrap.hidden;
     return has_preset && is_route_on_screen;
   }
   function tick_route_effect(time_in_milliseconds) {
@@ -1099,7 +1158,6 @@
   function hoverCells() {
     const h = state.hover, r = state.result;
     if (state.tool === "paint") return brush_cells_at(h.x, h.y).map(([x, y]) => [x, y]);
-    if (state.tool === "stamp") return SL.stampCells($("stampKind").value, h.x, h.y, r.width, r.height);
     return [[h.x, h.y]];
   }
 
@@ -1203,6 +1261,12 @@
     } else if (sel.type === "placed") {
       const item = route_items.selected_item();
       if (item) g.strokeRect(ox + item.x * s - 1.5, oy + item.y * s - 1.5, s + 3, s + 3);
+    } else if (sel.type === "object") {
+      const object_instance = painted_objects(r)[sel.i];
+      if (object_instance) {
+        const [x0, y0, x1, y1] = object_instance_box(object_instance);
+        g.strokeRect(ox + x0 * s - 1.5, oy + y0 * s - 1.5, (x1 - x0) * s + 3, (y1 - y0) * s + 3);
+      }
     } else if (sel.type === "exit") {
       const x = r.exits[sel.i];
       if (x && x.cells.length) {
@@ -1223,102 +1287,136 @@
     return [x0, y0, x1, y1];
   }
 
-  // ------------------------------------------------------------ paint / stamp (POST /api/retile)
+  // ------------------------------------------------------------ paint (POST /api/retile)
   function canPaint(loud) {
     const r = state.result;
     if (!r) { if (loud) log("warn", "Generate a route before painting."); return false; }
     return true;
   }
-  // One ledge brush, rotated with the toolbar widget or the R key, instead of a
-  // separate tile per direction.
-  function updateLedgeUI() {
-    const ledge_codes = SL.palette_ledge_codes(state.palette);
-    if (ledge_codes.length && !ledge_codes.includes(state.ledgeDir)) state.ledgeDir = ledge_codes[0];
-    $("ledgeRot").hidden = state.brush !== LEDGE_BRUSH;
-    $("ledgeRot").querySelectorAll(".ledge-dir-btn").forEach((b) => {
-      b.hidden = !ledge_codes.includes(b.dataset.dir);
-      b.classList.toggle("on", b.dataset.dir === state.ledgeDir);
-    });
-    const selected_brush = SL.brush_kind(state.brush);
-    const selected_entry = selected_brush.kind === "terrain" ? SL.palette_terrain_entry(state.palette, selected_brush.key) : null;
-    const places_single_trees = !!(selected_entry && selected_entry.two_wide);
-    $("brushSize").hidden = !["terrain", "ledge"].includes(selected_brush.kind) || places_single_trees;
-  }
-  function rotateLedgeDir() {
-    state.ledgeDir = SL.next_ledge_code(state.palette, state.ledgeDir);
-    updateLedgeUI();
-    if (!$("leftTiles").hidden) render_paint_palette();
-  }
   function paintAt(sx, sy) {
-    const r = state.result;
     const c = cellOf(sx, sy);
     if (!c) { state.paint.last = null; return; }
-    if (state.tool === "stamp") {
-      if (state.paint.last && state.paint.last.x === c.x && state.paint.last.y === c.y) return;
-      for (const [x, y, k] of SL.stampCells($("stampKind").value, c.x, c.y, r.width, r.height)) state.paint.cells.set(`${x},${y}`, k);
-    } else {
-      const stroke_points = state.paint.last ? SL.lineCells(state.paint.last, c).slice(1) : [c];
-      for (const stroke_point of stroke_points) add_brush_cells_to_stroke(brush_cells_at(stroke_point.x, stroke_point.y));
-    }
+    const stroke_points = state.paint.last ? SL.lineCells(state.paint.last, c).slice(1) : [c];
+    for (const stroke_point of stroke_points) add_brush_to_stroke(stroke_point.x, stroke_point.y);
     state.paint.last = c;
     draw();
   }
+
+  const TREE_CLASS_CODES = "fFR";
+  const PLAIN_GROUND_CODE = "g";
+
+  function stroke_cells_with_freed_trees(stroke_cells, final_stage) {
+    const freed_tree_cells = SL.whole_trees_under_stroke(stroke_cells, final_stage.cls, TREE_CLASS_CODES, PLAIN_GROUND_CODE);
+    const all_cells = stroke_cells.concat(freed_tree_cells);
+    return all_cells;
+  }
+
+  function value_shown_at(route_result, remembered_cells, cell_x, cell_y) {
+    const remembered_value = remembered_cells[`${cell_x},${cell_y}`];
+    if (remembered_value && remembered_value.includes("#")) return remembered_value;
+    const final_stage = route_result.stages[route_result.stages.length - 1];
+    const class_codes = SL.palette_class_codes(state.palette);
+    const shown_class = final_stage.cls[cell_y][cell_x];
+    const plain_class = class_codes.includes(shown_class) ? shown_class : PLAIN_GROUND_CODE;
+    return plain_class;
+  }
+
+  function paintable_value(value) {
+    if (value.includes("#")) return value;
+    const class_codes = SL.palette_class_codes(state.palette);
+    const plain_value = class_codes.includes(value) ? value : PLAIN_GROUND_CODE;
+    return plain_value;
+  }
+
+  function changed_cells_of_stroke(route_result, cells_to_send, remembered_cells) {
+    const final_stage = route_result.stages[route_result.stages.length - 1];
+    const shown_exact = (cell_x, cell_y) => `${final_stage.cls[cell_y][cell_x]}#${final_stage.tiles[cell_y * route_result.width + cell_x]}`;
+    const covers_an_exact_tile = (cell_x, cell_y) => String(remembered_cells[`${cell_x},${cell_y}`] || "").includes("#");
+    const is_already_there = ([cell_x, cell_y, value]) => (value.includes("#") ? shown_exact(cell_x, cell_y) === value :
+      final_stage.cls[cell_y][cell_x] === value && !covers_an_exact_tile(cell_x, cell_y));
+    const changed_cells = cells_to_send.filter((cell) => !is_already_there(cell));
+    return changed_cells;
+  }
+
   async function commitPaint() {
     const r = state.result;
     const fin = r.stages[r.stages.length - 1];
-    const stroke = [...state.paint.cells].map(([k, cls]) => [...k.split(",").map(Number), cls]);
-    const cells = [], old = [];
-    const class_codes = SL.palette_class_codes(state.palette);
-    const plain = (k) => (class_codes.includes(k) ? k : "g");
-    const remembered = savedPaint(r);
-    const isTree = (x, y) => String(remembered[`${x},${y}`] || "").includes("#");
-    for (const [x, y, k] of stroke.filter((c) => c[2].includes("#"))) {
-      const was = fin.cls[y][x] + "#" + fin.tiles[y * r.width + x];
-      if (was === k) continue;
-      const [was_class, was_tile] = was.split("#");
-      cells.push([x, y, k]);
-      old.push([x, y, (was_class === "o" ? "o" : plain(was_class)) + "#" + was_tile]);
-    }
-    const class_stroke = stroke.filter((c) => !c[2].includes("#"));
-    // the tidy pass leaves exact tiles and objects alone (a 1-wide tree is not a stray tree wall)
-    const tidy = SL.tidyPaint(fin.cls, class_stroke).filter(([x, y]) => !isTree(x, y));
-    for (const [x, y, cls] of class_stroke.concat(tidy)) {
-      const was = fin.cls[y][x];
-      if (was === cls && !isTree(x, y)) continue;
-      cells.push([x, y, cls]);
-      old.push([x, y, plain(was)]);
-    }
-    if (!cells.length) { state.paint.cells = new Map(); draw(); return; }
-    const before = savedPaint(r);
+    const stroke = [...state.paint.cells].map(([k, value]) => [...k.split(",").map(Number), value]);
+    const class_stroke = stroke.filter((cell) => !cell[2].includes("#"));
+    const remembered_cells = savedPaint(r);
+    const is_remembered_exact = (x, y) => String(remembered_cells[`${x},${y}`] || "").includes("#");
+    const tidy = SL.tidyPaint(fin.cls, class_stroke).filter(([x, y]) => !is_remembered_exact(x, y));
+    const painted_cells = stroke_cells_with_freed_trees(stroke.concat(tidy), fin);
+    const outcome = SL.apply_paint_stroke({
+      remembered_cells, remembered_objects: painted_objects(r), cells: Object.fromEntries(painted_cells.map(([x, y, value]) => [`${x},${y}`, value])),
+      objects: state.paint.objects, palette: state.palette, generated_class_rows: r.generated_class_rows,
+    });
+    const cells_to_send = changed_cells_of_stroke(r, painted_cells.concat(outcome.restore_cells).map(([x, y, value]) => [x, y, paintable_value(value)]), remembered_cells);
+    state.paint.objects = [];
+    if (!cells_to_send.length) { state.paint.cells = new Map(); draw(); return; }
+    const old = cells_to_send.map(([x, y]) => [x, y, value_shown_at(r, remembered_cells, x, y)]);
+    const objects_before = painted_objects(r);
     state.paint.busy = true;
     try {
-      const ok = await retile(cells);
-      if (!ok) return;
-      const after = SL.mergePaint(before, cells);
-      storePaint(r, after);
-      undoStack.push({ kind: "paint", id: r.id, cells, old, before, after });
+      if (!(await retile(cells_to_send))) return;
+      storePaint(r, outcome.cells);
+      store_painted_objects(r, outcome.objects);
+      undoStack.push({ kind: "paint", id: r.id, cells: cells_to_send, old, before: remembered_cells, after: outcome.cells, objects_before, objects_after: outcome.objects });
+      if (state.sel && state.sel.type === "object") select(null);
     } finally {
       state.paint.busy = false;
     }
   }
-  // paint memory per route name + size (see SL.paintKey)
+
+  async function remove_painted_object(object_index) {
+    const r = state.result;
+    const object_instance = painted_objects(r)[object_index];
+    if (!object_instance) return;
+    const remembered_cells = savedPaint(r);
+    const outcome = SL.apply_paint_stroke({
+      remembered_cells, remembered_objects: [object_instance], lift: [object_instance], cells: {}, objects: [], palette: state.palette, generated_class_rows: r.generated_class_rows,
+    });
+    const remaining_objects = painted_objects(r).filter((_instance, index) => index !== object_index);
+    const cells_to_send = outcome.restore_cells.map(([x, y, value]) => [x, y, paintable_value(value)]);
+    const old = cells_to_send.map(([x, y]) => [x, y, value_shown_at(r, remembered_cells, x, y)]);
+    if (!(await retile(cells_to_send))) return;
+    storePaint(r, outcome.cells);
+    store_painted_objects(r, remaining_objects);
+    undoStack.push({ kind: "paint", id: r.id, cells: cells_to_send, old, before: remembered_cells, after: outcome.cells, objects_before: painted_objects_before_removal(object_instance, remaining_objects, object_index), objects_after: remaining_objects });
+    select(null);
+  }
+
+  function painted_objects_before_removal(object_instance, remaining_objects, object_index) {
+    const objects_before = remaining_objects.slice();
+    objects_before.splice(object_index, 0, object_instance);
+    return objects_before;
+  }
+
+  // paint memory per route name + size (see SL.paintKey); whole objects are remembered beside it
   function savedPaint(r) { const all = sget(SL.PAINT_KEY) || {}; return (r && all[SL.paintKey(r)]) || {}; }
   function storePaint(r, map) {
     const all = sget(SL.PAINT_KEY) || {};
     if (map && Object.keys(map).length) all[SL.paintKey(r)] = map; else delete all[SL.paintKey(r)];
     sset(SL.PAINT_KEY, all);
-    updatePaintCount();
   }
-  function updatePaintCount() {
-    const n = state.result ? Object.keys(savedPaint(state.result)).length : 0;
-    $("paintN").textContent = n ? `${n} painted` : "";
+  function painted_objects(route_result) {
+    const all_painted_objects = sget(SL.PAINT_OBJECTS_KEY) || {};
+    const route_objects = (route_result && all_painted_objects[SL.paintKey(route_result)]) || [];
+    return route_objects;
+  }
+  function store_painted_objects(route_result, object_instances) {
+    const all_painted_objects = sget(SL.PAINT_OBJECTS_KEY) || {};
+    if (object_instances && object_instances.length) all_painted_objects[SL.paintKey(route_result)] = object_instances;
+    else delete all_painted_objects[SL.paintKey(route_result)];
+    sset(SL.PAINT_OBJECTS_KEY, all_painted_objects);
+    renderTree();
   }
   // a new route with remembered paint: put it back
   async function reapplyPaint() {
     const r = state.result;
     const cells = SL.paintList(savedPaint(r));
     if (!cells.length) return;
-    if (await retile(cells, true)) log("info", `Put back ${cells.length} painted cells on ${r.name} (Generate starts it fresh)`);
+    if (await retile(cells, true)) log("info", `Put back ${cells.length} painted cells on ${r.name}`);
   }
   async function retile(cells, quiet) {
     const r = state.result;
@@ -1348,12 +1446,10 @@
   function setTool(t) {
     state.tool = t;
     document.querySelectorAll("[data-tool]").forEach((b) => { b.classList.toggle("on", b.dataset.tool === t); b.setAttribute("aria-pressed", b.dataset.tool === t); });
-    $("paintOpts").hidden = t !== "paint";
-    $("stampOpts").hidden = t !== "stamp";
     $("itemOpts").hidden = t !== "item";
-    wrap.className = "view scene tool-" + t;
-    if (t === "paint" || t === "stamp") { canPaint(true); updatePaintCount(); }
-    if (t === "paint") { updateLedgeUI(); show_left_tab("tiles"); }
+    for (const tool_class of [...wrap.classList].filter((class_name) => class_name.startsWith("tool-"))) wrap.classList.remove(tool_class);
+    wrap.classList.add("tool-" + t);
+    if (t === "paint") { canPaint(true); show_left_tab("tiles"); }
     hideTip();
     draw();
   }
@@ -1362,8 +1458,16 @@
   function select(sel) {
     state.sel = sel;
     renderTree();
+    renderExits();
     renderSelection();
     draw();
+  }
+
+  function object_instance_box(object_instance) {
+    const footprint_cells = SL.instance_footprint_keys(state.palette, object_instance).map((cell_key) => cell_key.split(",").map(Number));
+    const box = [Math.min(...footprint_cells.map((cell) => cell[0])), Math.min(...footprint_cells.map((cell) => cell[1])),
+      Math.max(...footprint_cells.map((cell) => cell[0])) + 1, Math.max(...footprint_cells.map((cell) => cell[1])) + 1];
+    return box;
   }
 
   function selBBox(sel) {
@@ -1373,6 +1477,7 @@
     if (sel.type === "event") { const e = r.events[sel.i]; return e && [e.x - 2, e.y - 2, e.x + 3, e.y + 3]; }
     if (sel.type === "exit") { const x = r.exits[sel.i]; return x && x.cells.length ? bboxOf(x.cells) : null; }
     if (sel.type === "placed") return route_items.selected_box();
+    if (sel.type === "object") { const object_instance = painted_objects(r)[sel.i]; return object_instance ? object_instance_box(object_instance) : null; }
     return null;
   }
   function presentAt(sel) {
@@ -1393,21 +1498,31 @@
 
   const KIND_NAMES = { main: "Main lane", branch: "Branch", loop: "Loop", dead_end: "Dead end", hidden: "Hidden trail", trail: "Area trail",
     special: "Special area", clearing: "Clearing", lake: "Lake", hidden_item: "Hidden item", cut_tree: "Cut tree", rock_smash: "Smashable rock",
-    sealed_gate: "Sealed stone (opened by a lever)", gate_switch: "Hidden lever",
-    strength_boulder: "Strength boulder", story_blocker: "Someone in the way (story gate)" };
-  const kname = (k) => KIND_NAMES[k] || String(k).replace(/_/g, " ");
+    sealed_gate: "Sealed stone", gate_switch: "Hidden lever", item_ball: "Poké Ball", berry_tree: "Berry tree", npc: "Person",
+    strength_boulder: "Strength boulder", story_blocker: "Someone in the way" };
+  const kname = (k) => KIND_NAMES[k] || String(k).replace(/_/g, " ").replace(/^./, (first_letter) => first_letter.toUpperCase());
+  const EVENT_FIELD_LABELS = { item: "item", flag: "flag", text: "text", script: "script", role: "role", type: "kind of sign", why: "placed for", trainer: "trainer" };
 
-  function renderSelection() {
-    const box = $("selBody");
-    box.innerHTML = "";
-    const sel = state.sel, r = state.result;
-    if (!sel || !r) { box.append(el("p", "muted", "Nothing selected. Click something in the Scene or Hierarchy.")); return; }
+  function is_object_focused(sel) {
+    const focuses_one_object = !!sel && sel.type !== "route";
+    return focuses_one_object;
+  }
+
+  function show_inspector_folds_for(sel) {
+    const focuses_one_object = is_object_focused(sel) && !!state.result;
+    for (const fold of document.querySelectorAll("#form > details.fold")) {
+      if (fold.id === "foldSel") { fold.hidden = !focuses_one_object; continue; }
+      fold.hidden = focuses_one_object || fold.dataset.hiddenByContent === "true";
+    }
+  }
+
+  function selection_title_helpers(box) {
     const title = (txt, color, cls) => {
-      const h = el("div", "sel-title");
+      const summary = $("selSummary");
       const ic = el("span", "ic" + (cls ? " " + cls : ""));
       ic.style.background = color || "#888";
-      h.append(ic, el("span", "", txt));
-      box.append(h);
+      summary.innerHTML = "";
+      summary.append(ic, el("span", "", txt));
     };
     const kv = (rows) => {
       const dl = el("dl", "kv");
@@ -1416,71 +1531,148 @@
     };
     const actions = () => {
       const a = el("div", "sel-actions");
-      const f = el("button", "btn", "Frame");
-      f.type = "button";
-      f.title = "Frame in the Scene view (F)";
+      const f = Object.assign(el("button", "btn", "Frame"), { type: "button", title: "F" });
       f.onclick = focusSel;
       a.append(f);
       box.append(a);
       return a;
     };
-    if (sel.type === "route") {
-      title(r.name, "#4d90d6");
-      kv([["id", r.route_id], ["seed", r.seed], ["size", `${r.width} × ${r.height}`], ["biome", r.biome], ["tiler", r.tiler === "ark" ? "Ark rule tiles" : `learned (${r.tileset || "general_fortree"})`],
-        ["stages", r.stages.length], ["zones", r.zones.length], ["events", r.events.length], ["exportable", r.exportable ? "yes" : "no (too big)"]]);
-      return;
+    return { title, kv, actions };
+  }
+
+  function renderSelection() {
+    const box = $("selBody");
+    box.innerHTML = "";
+    const sel = state.sel, r = state.result;
+    show_inspector_folds_for(sel);
+    if (!is_object_focused(sel) || !r) return;
+    const helpers = selection_title_helpers(box);
+    switch (sel.type) {
+      case "zone": render_zone_inspector(box, helpers, r.zones[sel.i]); return;
+      case "event": render_event_inspector(helpers, r.events[sel.i]); return;
+      case "placed": route_items.render_selection(box, helpers); return;
+      case "object": render_object_inspector(box, helpers, painted_objects(r)[sel.i]); return;
+      case "exit": render_exit_inspector(box, helpers, sel.i); return;
+      default:
     }
-    if (sel.type === "zone") {
-      const z = r.zones[sel.i];
-      if (!z) return;
-      const isPath = PR.PATH_KINDS.includes(z.kind);
-      title(z.name || kname(z.kind), isPath ? PR.PATH_COLORS[z.kind] : z.kind === "special" ? "#f0a94a" : z.kind === "lake" ? PR.CLASS_COLORS.w : PR.CLASS_COLORS.g);
-      const bb = z.bbox || bboxOf(z.cells);
-      const added = r.stages.findIndex((st) => st.zones > sel.i);
-      kv([["kind", kname(z.kind)], ["cells", z.cells.length], ["bounds", `x ${bb[0]}-${bb[2] - 1}, y ${bb[1]}-${bb[3] - 1}`],
-        ["ledge", z.ledge ? z.ledge.join(", ") : null], ["added in", added >= 0 ? `stage ${added + 1} (${r.stages[added].name})` : null]]);
-      if (z.area) {
-        const a = z.area;
-        kv([["species", a.species || "none"], ["archetype", a.archetype], ["shiny", a.shiny_boost > 1 ? `x${a.shiny_boost}` : null],
-          ["habitats", Array.isArray(a.habitats) ? a.habitats.join(", ") : a.habitats]]);
-        if (a.description) box.append(el("p", "sel-desc", a.description));
-        const table = (r.encounters && r.encounters.areas || {})[a.id];
-        if (table && table.length) {
-          box.append(heading("Encounters here"));
-          box.append(encTable(PR.encounterRows(table).map((x) => [nameCell(x.name, x.shiny_boost > 1 ? `shiny x${x.shiny_boost}` : x.rarity), `${x.levels[0]}-${x.levels[1]}`, pctCell(x.pct)]),
-            ["species", "lv", "share"]));
-        }
-      }
-      actions();
-      return;
+  }
+
+  function lane_number_of(zone) {
+    const lane_number_match = /lane (\d+)/.exec(zone.name || "");
+    return lane_number_match ? lane_number_match[1] : null;
+  }
+
+  function purpose_zone_of_lane(route_result, lane_zone) {
+    const lane_number = lane_number_of(lane_zone);
+    if (!lane_number) return null;
+    const ends_with_lane_number = (zone) => zone.kind === "clearing" && new RegExp(` ${lane_number}$`).test(zone.name || "");
+    const purpose_zone = route_result.zones.find(ends_with_lane_number) || null;
+    return purpose_zone;
+  }
+
+  function is_event_on_lane(event, lane_cell_keys, purpose_zone) {
+    const near_lane = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([offset_x, offset_y]) => lane_cell_keys.has(`${event.x + offset_x},${event.y + offset_y}`));
+    if (near_lane || !purpose_zone || !purpose_zone.bbox) return near_lane;
+    const [x0, y0, x1, y1] = purpose_zone.bbox;
+    const inside_purpose_area = event.x >= x0 && event.x < x1 && event.y >= y0 && event.y < y1;
+    return inside_purpose_area;
+  }
+
+  function lane_contents_list(route_result, lane_zone, purpose_zone) {
+    const lane_cell_keys = new Set(lane_zone.cells.map(([y, x]) => `${x},${y}`));
+    const contents_list = el("ul", "sel-contents");
+    route_result.events.forEach((event, event_index) => {
+      if (!is_event_on_lane(event, lane_cell_keys, purpose_zone)) return;
+      const content_button = Object.assign(el("button", "", `${kname(event.kind)}${event.item ? " · " + event.item : ""}`), { type: "button" });
+      content_button.onclick = () => select({ type: "event", i: event_index });
+      const content_row = el("li");
+      content_row.append(content_button);
+      contents_list.append(content_row);
+    });
+    return contents_list;
+  }
+
+  function render_zone_inspector(box, helpers, zone) {
+    if (!zone) return;
+    const r = state.result;
+    const is_lane = PR.PATH_KINDS.includes(zone.kind);
+    helpers.title(zone.name || kname(zone.kind), is_lane ? PR.PATH_COLORS[zone.kind] : zone.kind === "special" ? "#f0a94a" : zone.kind === "lake" ? PR.CLASS_COLORS.w : PR.CLASS_COLORS.g);
+    if (is_lane) { render_lane_details(box, helpers, r, zone); return; }
+    const bb = zone.bbox || bboxOf(zone.cells);
+    helpers.kv([["kind", kname(zone.kind)], ["size", `${bb[2] - bb[0]} × ${bb[3] - bb[1]}`], ["at", `x ${bb[0]}, y ${bb[1]}`]]);
+    if (zone.area) render_special_area_details(box, helpers, r, zone.area);
+    helpers.actions();
+  }
+
+  function render_lane_details(box, helpers, route_result, lane_zone) {
+    const purpose_zone = purpose_zone_of_lane(route_result, lane_zone);
+    helpers.kv([["kind", kname(lane_zone.kind)], ["purpose", purpose_zone ? purpose_zone.name.replace(/ \d+$/, "") : null], ["length", `${lane_zone.cells.length} cells`],
+      ["ledge", lane_zone.ledge ? `x ${lane_zone.ledge[1]}–${lane_zone.ledge[2]}, y ${lane_zone.ledge[0]}` : null]]);
+    const contents_list = lane_contents_list(route_result, lane_zone, purpose_zone);
+    if (contents_list.children.length) { box.append(heading("Along it")); box.append(contents_list); }
+    helpers.actions();
+  }
+
+  function render_special_area_details(box, helpers, route_result, area) {
+    helpers.kv([["species", area.species || "none"], ["archetype", area.archetype], ["shiny", area.shiny_boost > 1 ? `x${area.shiny_boost}` : null]]);
+    const table = (route_result.encounters && route_result.encounters.areas || {})[area.id];
+    if (!table || !table.length) return;
+    box.append(heading("Encounters here"));
+    box.append(encTable(PR.encounterRows(table).map((x) => [nameCell(x.name, x.shiny_boost > 1 ? `shiny x${x.shiny_boost}` : x.rarity), `${x.levels[0]}-${x.levels[1]}`, pctCell(x.pct)]),
+      ["species", "lv", "share"]));
+  }
+
+  function render_event_inspector(helpers, event) {
+    if (!event) return;
+    helpers.title(kname(event.kind), event.kind === "hidden_item" ? "#e0453a" : event.kind === "cut_tree" ? "#6fcf6a" : "#b9b2a3");
+    const rows = [["at", `x ${event.x}, y ${event.y}`]];
+    for (const [field_name, field_value] of Object.entries(event)) {
+      if (["kind", "x", "y"].includes(field_name) || field_value === "" || field_value == null) continue;
+      rows.push([EVENT_FIELD_LABELS[field_name] || field_name.replace(/_/g, " "), field_value]);
     }
-    if (sel.type === "event") {
-      const e = r.events[sel.i];
-      if (!e) return;
-      title(kname(e.kind), e.kind === "hidden_item" ? "#e0453a" : e.kind === "cut_tree" ? "#6fcf6a" : "#b9b2a3");
-      const rows = [["kind", e.kind], ["cell", `x ${e.x}, y ${e.y}`]];
-      for (const [k, v] of Object.entries(e)) if (!["kind", "x", "y"].includes(k)) rows.push([k.replace(/_/g, " "), v]);
-      kv(rows);
-      actions();
-      return;
-    }
-    if (sel.type === "placed") { route_items.render_selection(box, { title, kv, actions }); return; }
-    if (sel.type === "exit") {
-      const x = r.exits[sel.i];
-      if (!x) return;
-      title(`Exit ${sel.i + 1}: ${x.side}`, "#9cc6f0");
-      const sp = state.exits[sel.i];
-      const connection = scene_connections()[sel.i];
-      kv([["side", x.side], ["to", x.to || "nothing (open edge)"], ["leads to", connection && connection.name], ["width", x.cells.length],
-        ["position", sp ? sp.at : null], ["role", sel.i < 2 ? "joined by the main road" : "extra exit"]]);
-      actions();
-      if (connection) box.querySelector(".sel-actions").append(follow_button(follow_action(sel.i, connection), "btn go"));
-    }
+    helpers.kv(rows);
+    helpers.actions();
+  }
+
+  function render_object_inspector(box, helpers, object_instance) {
+    if (!object_instance) return;
+    const object_entry = SL.palette_object_entry(state.palette, object_instance.object);
+    helpers.title(object_entry ? object_entry.name : object_instance.object.replace(/_/g, " "), "#c49a5a");
+    const [x0, y0, x1, y1] = object_instance_box(object_instance);
+    helpers.kv([["size", `${x1 - x0} × ${y1 - y0}`], ["at", `x ${x0}, y ${y0}`]]);
+    const delete_button = Object.assign(el("button", "btn", "Delete"), { type: "button", title: "Del" });
+    delete_button.onclick = () => remove_painted_object(state.sel.i);
+    helpers.actions().append(delete_button);
+  }
+
+  function render_exit_inspector(box, helpers, exit_index) {
+    const scene_exit = state.exits[exit_index];
+    if (!scene_exit) return;
+    helpers.title(`Exit ${exit_index + 1}`, "#9cc6f0");
+    box.append(inspector_property_row("Side", exit_side_select(scene_exit)), inspector_property_row("Position", exit_position_slider(scene_exit, exit_index)),
+      inspector_property_row("Width", exit_width_input(scene_exit)), inspector_property_row("Goes to", exit_destination_input(scene_exit, exit_index)));
+    fill_exit_destination_choices();
+    const remove_button = Object.assign(el("button", "btn", "Remove"), { type: "button", disabled: state.exits.length <= 1 });
+    remove_button.onclick = () => remove_exit(exit_index);
+    helpers.actions().append(remove_button);
   }
 
   // ------------------------------------------------------------ hierarchy
   const EYE = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5C4.4 3.5 2 6.6 1.3 8c.7 1.4 3.1 4.5 6.7 4.5s6-3.1 6.7-4.5C14 6.6 11.6 3.5 8 3.5zm0 7.2A2.7 2.7 0 1 1 8 5.3a2.7 2.7 0 0 1 0 5.4z" fill="currentColor"/></svg>';
   const EYE_OFF = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.3 2.3l11.4 11.4-.9.9-2.3-2.3c-.8.3-1.6.4-2.5.4-3.6 0-6-3.1-6.7-4.5.4-.8 1.3-2.1 2.6-3.1L1.4 3.2zM8 3.5c3.6 0 6 3.1 6.7 4.5-.3.6-.9 1.5-1.7 2.4L5.6 3.9c.7-.2 1.5-.4 2.4-.4z" fill="currentColor"/></svg>';
+
+  function object_tree_node(object_instance, object_index) {
+    const object_entry = SL.palette_object_entry(state.palette, object_instance.object);
+    const tree_node = {
+      id: "o:" + object_index, label: `${object_entry ? object_entry.name : object_instance.object} (${object_instance.x}, ${object_instance.y})`,
+      icon: { color: "#c49a5a" }, sel: { type: "object", i: object_index },
+    };
+    return tree_node;
+  }
+  function object_tree_nodes() {
+    const object_nodes = painted_objects(state.result).map(object_tree_node);
+    return object_nodes;
+  }
 
   function treeModel() {
     const r = state.result;
@@ -1519,13 +1711,13 @@
     return {
       id: "route", label: r.name, meta: `${r.width}×${r.height}`, sel: { type: "route" }, icon: { color: "#4d90d6" },
       children: [
-        ...back_tree_nodes(),
         { id: "g:exits", label: "Exits", meta: String(exits.length), group: true, children: exits },
         { id: "g:lanes", label: "Lanes", meta: String(lanes.length), group: true, children: lanes },
         { id: "g:special", label: "Special areas", meta: String(special.length), group: true, children: special },
         { id: "g:places", label: "Clearings & lakes", meta: String(places.length), group: true, children: places },
         { id: "g:items", label: "Items & events", meta: String(r.events.length), group: true, children: items },
         { id: "g:placed", label: "Placed items", meta: String(route_items.tree_nodes().length), group: true, children: route_items.tree_nodes() },
+        { id: "g:objects", label: "Placed objects", meta: String(object_tree_nodes().length), group: true, children: object_tree_nodes() },
         { id: "g:layers", label: "Layers", group: true, children: layers },
       ],
     };
@@ -1534,7 +1726,7 @@
   const selId = () => {
     const s = state.sel;
     if (!s) return "";
-    return s.type === "route" ? "route" : s.type === "zone" ? "z:" + s.i : s.type === "event" ? "e:" + s.i : s.type === "exit" ? "x:" + s.i : s.type === "placed" ? "p:" + s.i : "";
+    return s.type === "route" ? "route" : s.type === "zone" ? "z:" + s.i : s.type === "event" ? "e:" + s.i : s.type === "exit" ? "x:" + s.i : s.type === "placed" ? "p:" + s.i : s.type === "object" ? "o:" + s.i : "";
   };
 
   function renderTree() {
@@ -1586,7 +1778,6 @@
         else if (n.children) tw.onclick(new Event("click"));
       };
       row.ondblclick = () => {
-        if (n.follow) { n.follow.run(); return; }
         if (n.sel) { select(n.sel); focusSel(); }
       };
       li.append(row);
@@ -1784,7 +1975,6 @@
     } else {
       const em = r.emerald_encounters;
       if (!em) { box.append(el("p", "muted", "no wild table")); return; }
-      box.append(el("p", "hint", "Slot table for wild_encounters.json, levels clipped to the route's band."));
       for (const [key, label, rates] of [["land_mons", "Land", LAND_RATES], ["water_mons", "Surfing", WATER_RATES]]) {
         if (!em[key]) continue;
         box.append(heading(`${label} · rate ${em[key].encounter_rate}`));
@@ -1812,11 +2002,18 @@
       mode: mode_name, seed: seed_of_last_region, onOpenRoute: openInBench,
       host: {
         tools: $("tbMapTools"), side: $("mapInspector"), tree: $("mapTree"),
-        filter: () => $("hierFilter").value, icons: { eye: EYE, eye_off: EYE_OFF }, dice_icon: $("dice").innerHTML,
+        filter: () => $("hierFilter").value, icons: { eye: EYE, eye_off: EYE_OFF },
         log: (text, is_error) => log(is_error ? "error" : "info", text),
         onView: syncNonSceneToolbar,
+        is_active: () => SL.is_region_editor_tab(Shell.layout.center),
       },
     });
+    show_open_route_on_map();
+  }
+  function show_open_route_on_map() {
+    const editor_actions = region_editor();
+    if (!editor_actions || !editor_actions.set_open_route) return;
+    editor_actions.set_open_route(state.region ? state.region.name : null);
   }
   function current_region_seed() {
     const editor_document = region_editor() && region_editor().getDoc();
@@ -1832,6 +2029,8 @@
     state.region = region;
     if (region) sset(REGION_KEY, region); else sdel(REGION_KEY);
     renderRegionLink();
+    show_open_route_on_map();
+    sync_back_button();
     sset("pokeroutes-shell-region-seed", current_region_seed());
     Shell.setCenter("scene");
     log("info", `Opened ${p.name} from region ${current_region_seed()}`);
@@ -1852,7 +2051,7 @@
     const box = $("regionLink");
     box.innerHTML = "";
     const reg = state.region;
-    fold.hidden = !reg;
+    set_fold_empty(fold, !reg);
     if (!reg) return;
     const r = reg.region || {};
     const dl = el("dl", "kv");
@@ -1863,17 +2062,25 @@
     add("tags", (r.tags || []).join(", "));
     add("gate", describe_region_gate(r.gate));
     box.append(dl);
-    box.append(el("p", "hint", "Its region block (elevation, rivers, role) goes into Generate while the route keeps this name."));
     const b = el("button", "btn", "Detach from region");
     b.type = "button";
-    b.onclick = () => { state.region = null; state.route_trail = []; sdel(REGION_KEY); renderRegionLink(); renderTree(); log("info", "Detached the route from its region block"); };
+    b.onclick = detach_from_region;
     box.append(b);
-    if (state.route_trail.length) box.append(follow_button({ label: back_label(), run: go_back_a_route }, "btn go"));
+  }
+  function detach_from_region() {
+    state.region = null;
+    state.route_trail = [];
+    sdel(REGION_KEY);
+    renderRegionLink();
+    renderTree();
+    show_open_route_on_map();
+    sync_back_button();
+    log("info", "Detached the route from its region block");
   }
 
   // ------------------------------------------------------------ walking the region through its connections
   // An exit of a route opened from a region leads to the route or town on the other side;
-  // clicking it (its label on the map, its Hierarchy row, or the Inspector) opens that route.
+  // clicking its label on the map opens that route, and the Back button over the map returns.
   const ARROW_OUT_OF_SIDE = { north: "↑", south: "↓", east: "→", west: "←" };
   function open_region_document() {
     const editor_actions = region_editor();
@@ -1889,17 +2096,6 @@
     });
     return connections;
   }
-  function follow_action(exit_index, connection) {
-    const verb = connection.kind === "town" ? "Show" : "Open";
-    return { label: `${verb} ${connection.name}`, run: () => follow_connection(exit_index) };
-  }
-  function follow_button(follow, class_name) {
-    const button = el("button", class_name || "go", class_name ? follow.label : "go");
-    button.type = "button";
-    button.title = follow.label;
-    button.onclick = (ev) => { ev.stopPropagation(); follow.run(); };
-    return button;
-  }
   function exit_tree_node(scene_exit, exit_index, connection) {
     const destination = connection ? connection.name : scene_exit.to;
     const node = {
@@ -1907,15 +2103,14 @@
       meta: connection && connection.kind === "town" ? "town" : `${scene_exit.cells.length} wide`,
       icon: { color: "#9cc6f0" }, sel: { type: "exit", i: exit_index },
     };
-    if (connection) node.follow = follow_action(exit_index, connection);
     return node;
   }
-  function back_label() {
-    return `← Back to ${state.route_trail[state.route_trail.length - 1]}`;
-  }
-  function back_tree_nodes() {
-    if (!state.route_trail.length) return [];
-    return [{ id: "back", label: back_label(), icon: { color: "#9cc6f0" }, run: go_back_a_route }];
+  function sync_back_button() {
+    const back_button = $("sceneBack");
+    const previous_name = state.route_trail[state.route_trail.length - 1];
+    back_button.hidden = !previous_name;
+    back_button.textContent = previous_name ? `← ${previous_name}` : "";
+    back_button.title = previous_name ? `Back to ${previous_name}` : "";
   }
   function follow_connection(exit_index) {
     const connection = scene_connections()[exit_index];
@@ -1925,6 +2120,7 @@
     walk_to(connection.route, [...state.route_trail, state.region ? state.region.name : state.result.name]);
   }
   function go_back_a_route() {
+    if (!state.route_trail.length) return;
     const previous_name = state.route_trail[state.route_trail.length - 1];
     const region_document = open_region_document();
     const previous_route = region_document && (region_document.routes || []).find((route) => route.name === previous_name);
@@ -1988,11 +2184,10 @@
   }
 
   function show_center_tab(tab) {
-    $("viewScene").hidden = tab !== "scene";
-    $("viewMap").hidden = tab === "scene";
-    if (tab !== "scene") show_region_editor_in_mode(tab);
-    // the toolbar, hierarchy and inspector are shared: each shows the Scene's or the map editor's
-    // contents, while Generate and zoom stay and drive whichever view is showing
+    const region_tab_shown = SL.center_tabs_shown(Shell.layout).find(SL.is_region_editor_tab);
+    if (region_tab_shown) show_region_editor_in_mode(region_tab_shown);
+    // the toolbar, hierarchy and inspector are shared: each shows the active view's contents
+    // (Routes or the map editor), while Generate and zoom stay and drive the active view
     $("tbSceneTools").hidden = tab !== "scene";
     $("tbMapTools").hidden = tab === "scene";
     $("tree").hidden = tab !== "scene";
@@ -2023,15 +2218,9 @@
         return "Generate geography";
       case "region":
         return "Generate map";
-      case "story":
-        return "Generate routes";
       default:
         return "Generate";
     }
-  }
-  function is_routes_view() {
-    const routes_view_is_open = ["region", "story"].includes(Shell.layout.center);
-    return routes_view_is_open;
   }
   function syncNonSceneToolbar() {
     if (isScene()) return;
@@ -2043,13 +2232,12 @@
     if (sget("pokeroutes-shell-region-seed") !== doc.seed) sset("pokeroutes-shell-region-seed", doc.seed);
   }
   // Generate/Regenerate are shared between the toolbar and the Generate menu, and drive
-  // whichever view (Scene or the geography/region/story editor) is on screen.
+  // the active view (Routes or the geography / map editor).
   function doGenerate() {
     if (isScene()) { generate(); return; }
     const ea = region_editor();
     if (!ea) return;
     if (Shell.layout.center === "region" && ea.generate_map) { ea.generate_map(); return; }
-    if (is_routes_view()) { ea.recompute("routes"); return; }
     ea.generate();
   }
   function doRegenerate() {
@@ -2058,9 +2246,21 @@
     if (!ea) return;
     ea.generate(Math.floor(Math.random() * 100000));
   }
+  let shown_split_layout = JSON.stringify(Shell.layout.split);
+  function fit_views_after_split_change() {
+    const split_layout = JSON.stringify(Shell.layout.split);
+    if (split_layout === shown_split_layout) return;
+    shown_split_layout = split_layout;
+    requestAnimationFrame(() => {
+      resize();
+      fit();
+      if (region_editor()) region_editor().fit();
+    });
+  }
   Shell.onCenter((tab) => {
     show_center_tab(tab);
-    if (tab === "scene") requestAnimationFrame(resize);
+    requestAnimationFrame(resize);
+    fit_views_after_split_change();
     renderSelection();
   });
 
@@ -2252,7 +2452,6 @@
     row("Loop playback", chk("loop", "pLoop"));
     row("Fit view after Generate", sel("fit", "pFit", [["resize", "when the size changes"], ["always", "always"]]));
     row("Interface text", sel("ui", "pUi", [["12", "12 px (compact)"], ["13", "13 px"]]));
-    box.append(el("p", "hint", "Stored in this browser only. The panel layout is remembered separately (Window > Reset layout)."));
   }
   $("prefsReset").onclick = () => { Object.assign(prefs, PREF_DEFAULTS); savePrefs(); applyPrefs(); renderPrefs(); };
   function openPrefs() { renderPrefs(); Shell.openDialog("dlgPrefs"); }
@@ -2300,11 +2499,6 @@
         return names.map((n) => ({ label: n, run: () => region_editor().load(n) }));
       } },
       { sep: true },
-      { id: "import", label: "Import", items: [
-        { id: "imp-spec", label: "Spec file (JSON or YAML)…", run: openSpec },
-        { id: "imp-paste", label: "Spec from clipboard", run: pasteSpec },
-        { id: "imp-region", label: "Route from a region…", run: () => Shell.setCenter("region") },
-      ] },
       { id: "export", label: "Export", items: [
         { id: "exp-zip", label: "Porymap files (.zip)", enabled: () => hasRoute() && state.result.exportable, run: exportZip },
         { id: "exp-scene", label: "scene.json", enabled: hasRoute, run: exportScene },
@@ -2326,24 +2520,15 @@
       { id: "prefs", label: "Preferences…", run: openPrefs },
     ] },
     { label: "View", items: [
-      { id: "v-left", label: "Hierarchy", checked: () => Shell.layout.left.open, run: () => Shell.toggleDock("left") },
-      { id: "v-right", label: "Inspector", checked: () => Shell.layout.right.open, run: () => Shell.toggleDock("right") },
-      { id: "v-bottom", label: "Bottom panel", checked: () => Shell.layout.bottom.open, run: () => Shell.toggleDock("bottom") },
-      { sep: true },
       { id: "zin", label: "Zoom in", enabled: viewZoomable, run: zoomInView },
       { id: "zout", label: "Zoom out", enabled: viewZoomable, run: zoomOutView },
       { id: "zfit", label: "Fit to view", enabled: viewZoomable, run: fitView },
       { id: "z100", label: "Actual size (100%)", enabled: sceneRoute, run: () => zoomTo(1) },
       { id: "frame", label: "Frame selection", enabled: sceneRoute, run: focusSel },
       { sep: true },
-      { head: "Overlays" },
-      { id: "ov-areas", label: "Areas", checked: () => state.ov.areas, run: () => toggleOv("areas") },
-      { id: "ov-items", label: "Items", checked: () => state.ov.events, run: () => toggleOv("events") },
-      { id: "ov-classes", label: "Classes instead of tiles", checked: () => state.layer === "classes", run: () => setLayer(state.layer === "classes" ? "tiles" : "classes") },
-      { id: "ov-grid", label: "Grid", checked: () => state.ov.grid, run: () => toggleOv("grid") },
+      { id: "v-split", label: "Routes beside the Map", checked: () => !!Shell.layout.split, run: toggle_routes_beside_map },
+      { id: "v-back", label: "Back to the previous route", enabled: () => state.route_trail.length > 0, run: go_back_a_route },
       { sep: true },
-      { id: "v-autogen", label: "Generate on edit", checked: () => prefs.autogen, run: () => { prefs.autogen = !prefs.autogen; savePrefs(); } },
-      { id: "v-autoplay", label: "Play stages after Generate", checked: () => prefs.playOnGenerate, run: () => { prefs.playOnGenerate = !prefs.playOnGenerate; savePrefs(); } },
       { id: "v-stages", label: "Show stage", items: () => {
         const r = state.result;
         if (!r) return [{ label: "No route yet", enabled: false }];
@@ -2354,28 +2539,15 @@
       { id: "gen", label: "Generate", run: () => doGenerate() },
       { id: "regen", label: "Regenerate with new seed", run: () => doRegenerate() },
       { sep: true },
-      { id: "gen-region", label: "Generate region…", run: () => Shell.setCenter("geography") },
-      { sep: true },
       { id: "tiler", label: "Tiler", items: [
         { id: "t-learned", label: "Learned (Emerald General + Fortree)", radio: true, checked: () => prefs.tiler === "learned", run: () => setTiler("learned") },
         { id: "t-ark", label: "Ark rule tiles", radio: true, checked: () => prefs.tiler === "ark", enabled: () => !state.tilers || state.tilers.some((t) => t.id === "ark" && t.ok), run: () => setTiler("ark") },
       ] },
-      { sep: true },
-      { id: "play", label: "Play / pause tile animation", enabled: sceneRoute, run: (ev) => { if (ev && document.activeElement && document.activeElement.tagName === "BUTTON") document.activeElement.blur(); toggle_tile_animation(); } },
-      { id: "next", label: "Faster tile animation", enabled: sceneRoute, run: () => change_tile_animation_speed(1) },
-      { id: "prev", label: "Slower tile animation", enabled: sceneRoute, run: () => change_tile_animation_speed(-1) },
-      { id: "first", label: "Previous animation frame", enabled: sceneRoute, run: () => step_tile_animation(-1) },
-      { id: "last", label: "Next animation frame", enabled: sceneRoute, run: () => step_tile_animation(1) },
     ] },
     { label: "Window", items: [
-      { id: "w-scene", label: "Routes", radio: true, checked: () => Shell.layout.center === "scene", run: () => Shell.setCenter("scene") },
-      { id: "w-geography", label: "Geography editor", radio: true, checked: () => Shell.layout.center === "geography", run: () => Shell.setCenter("geography") },
-      { id: "w-region", label: "Map", radio: true, checked: () => Shell.layout.center === "region", run: () => Shell.setCenter("region") },
-      { id: "w-story", label: "Story", radio: true, checked: () => Shell.layout.center === "story", run: () => Shell.setCenter("story") },
-      { sep: true },
-      { id: "w-console", label: "Console", run: () => Shell.setBottom("console") },
-      { id: "w-improve", label: "Improve queue", enabled: is_improve_tab_shown, run: () => { Shell.setBottom("improve"); const t = document.getElementById("impText"); if (t) t.focus(); } },
-      { id: "w-agent", label: "Agent", run: () => { Shell.setBottom("agent"); const t = document.getElementById("agText"); if (t) t.focus(); } },
+      { id: "v-left", label: "Hierarchy", checked: () => Shell.layout.left.open, run: () => Shell.toggleDock("left") },
+      { id: "v-right", label: "Inspector", checked: () => Shell.layout.right.open, run: () => Shell.toggleDock("right") },
+      { id: "v-bottom", label: "Bottom panel", checked: () => Shell.layout.bottom.open, run: () => Shell.toggleDock("bottom") },
       { sep: true },
       { id: "w-reset", label: "Reset layout", run: () => Shell.resetLayout() },
     ] },
@@ -2386,20 +2558,42 @@
     ] },
   ];
 
-  // plain-letter keys belong to whichever view is open: outside Scene the map editor has its own (V R L F S B W A, ?)
+  function toggle_routes_beside_map() {
+    if (Shell.layout.split) { Shell.unsplit_center(Shell.layout.center); return; }
+    Shell.split_center("region", "left");
+  }
+
+  // plain-letter keys belong to whichever view is active: the map editor has its own (V R L F S B W D T, ?)
   const toolKey = (t, label) => ({ id: "tool-" + t, label, group: "Scene tools", enabled: isScene, run: () => setTool(t) });
+  const sceneKey = (id, label, run) => ({ id, label, group: "Scene view", enabled: sceneRoute, run });
   const extras = [
-    toolKey("select", "Select tool"), toolKey("pan", "Pan tool"), toolKey("paint", "Paint tool"), toolKey("stamp", "Stamp tool"),
-    toolKey("item", "Item tool"),
-    { id: "x-item-delete", label: "Delete placed item", group: "Scene tools", enabled: () => isScene() && route_items.has_selection(), run: () => route_items.delete_selected() },
-    { id: "x-zin", label: "Zoom in", group: "Scene view", enabled: sceneRoute, run: () => zoomBy(1) },
-    { id: "x-zout", label: "Zoom out", group: "Scene view", enabled: sceneRoute, run: () => zoomBy(-1) },
-    { id: "x-zfit", label: "Fit to view", group: "Scene view", enabled: sceneRoute, run: fit },
+    toolKey("select", "Select tool"), toolKey("pan", "Pan tool"), toolKey("paint", "Paint tool"), toolKey("item", "Item tool"),
+    { id: "x-item-delete", label: "Delete the selected item or object", group: "Scene tools", enabled: () => isScene() && has_deletable_selection(), run: delete_selection },
+    { id: "x-rotate", label: "Rotate clockwise", group: "Scene tools", enabled: () => isScene() && can_rotate(), run: rotate_brush_or_selection },
+    { id: "x-brush-smaller", label: "Smaller brush", group: "Scene tools", enabled: isScene, run: () => set_brush_size(state.brush_size - 1) },
+    { id: "x-brush-bigger", label: "Bigger brush", group: "Scene tools", enabled: isScene, run: () => set_brush_size(state.brush_size + 1) },
+    sceneKey("x-zin", "Zoom in", () => zoomBy(1)), sceneKey("x-zout", "Zoom out", () => zoomBy(-1)), sceneKey("x-zfit", "Fit to view", fit),
     { id: "x-help", label: "Keyboard shortcuts", group: "Help", enabled: isScene, run: () => Shell.showShortcuts() },
-    { id: "x-ledge-rot", label: "Rotate ledge or fence", group: "Scene tools",
-      enabled: () => isScene() && state.tool === "paint" && (state.brush === LEDGE_BRUSH || is_rotatable_object_selected()),
-      run: () => (state.brush === LEDGE_BRUSH ? rotateLedgeDir() : rotate_selected_object()) },
+    { id: "ov-areas", label: "Areas overlay", group: "Layers", run: () => toggleOv("areas") },
+    { id: "ov-items", label: "Items overlay", group: "Layers", run: () => toggleOv("events") },
+    { id: "ov-classes", label: "Classes instead of tiles", group: "Layers", run: () => setLayer(state.layer === "classes" ? "tiles" : "classes") },
+    { id: "ov-grid", label: "Grid", group: "Layers", run: () => toggleOv("grid") },
+    sceneKey("play", "Play / pause tile animation", (ev) => { if (ev && document.activeElement && document.activeElement.tagName === "BUTTON") document.activeElement.blur(); toggle_tile_animation(); }),
+    sceneKey("next", "Faster tile animation", () => change_tile_animation_speed(1)),
+    sceneKey("prev", "Slower tile animation", () => change_tile_animation_speed(-1)),
+    sceneKey("first", "Previous animation frame", () => step_tile_animation(-1)),
+    sceneKey("last", "Next animation frame", () => step_tile_animation(1)),
   ];
+
+  function has_deletable_selection() {
+    const selection = state.sel;
+    const is_deletable = route_items.has_selection() || (!!selection && selection.type === "object" && !!painted_objects(state.result)[selection.i]);
+    return is_deletable;
+  }
+  function delete_selection() {
+    if (state.sel && state.sel.type === "object") { remove_painted_object(state.sel.i); return; }
+    route_items.delete_selected();
+  }
 
   // ------------------------------------------------------------ wiring
   function initUI() {
@@ -2418,28 +2612,32 @@
     $("tbZoomOut").onclick = zoomOutView;
     $("tbFit").onclick = fitView;
     $("tbTiler").onchange = () => setTiler($("tbTiler").value);
-    $("paintClass").addEventListener("change", () => { choose_brush($("paintClass").value); });
     document.querySelectorAll("[data-left-tab]").forEach((tab_button) => { tab_button.onclick = () => show_left_tab(tab_button.dataset.leftTab); });
     $("tbMarkings").onclick = () => toggleOv("markings");
     $("tbUndo").onclick = () => run_menu_item("undo");
     $("tbRedo").onclick = () => run_menu_item("redo");
+    $("sceneBack").onclick = go_back_a_route;
     setInterval(sync_history_buttons, 500);
     sync_markings_button();
-    $("dice").onclick = doRegenerate;
     $("name").addEventListener("change", () => edited("name"));
     $("seed").addEventListener("change", () => edited("seed"));
     $("hierFilter").addEventListener("input", () => { if (mapView()) region_editor().refresh_tree(); });
     $("areaAdd").onclick = addSpecial;
     $("areaInput").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); addSpecial(); } });
-    $("exitAdd").onclick = () => { if (state.exits.length < 4) { state.exits.push({ side: "west", at: 0.5, width: 3 }); renderExits(); edited("exits"); } };
-    fill_brush_select();
-    $("ledgeRot").querySelectorAll(".ledge-dir-btn").forEach((b) => { b.onclick = () => { choose_ledge(b.dataset.dir); }; });
-    const sk = $("stampKind");
-    for (const [k, s] of Object.entries(SL.STAMPS)) sk.append(Object.assign(el("option", "", s.label), { value: k }));
+    $("exitAdd").onclick = add_exit;
+    render_brush_size_row();
     setTool("select");
     syncViewButtons();
     SL.attachShortcuts(menus, extras);
     Shell.setMenus(menus, extras);
+  }
+
+  function add_exit() {
+    if (state.exits.length >= 4) return;
+    state.exits.push({ side: "west", at: 0.5, width: 3 });
+    renderExits();
+    edited("exits");
+    select({ type: "exit", i: state.exits.length - 1 });
   }
 
   async function boot() {
@@ -2459,6 +2657,7 @@
     lastParams = params();
     renderRegionLink();
     renderTree();
+    renderSelection();
     updateTitle();
     new ResizeObserver(resize).observe(wrap);
     const q = new URLSearchParams(location.search);
@@ -2477,14 +2676,14 @@
   const EMPTY_PALETTE = { tiler: "", tileset: "", terrain: [], unavailable: [], objects: [], tiles: {} };
   const PALETTE_GROUPS = [["ground", "Ground"], ["water", "Water"], ["trees", "Trees"], ["rock", "Rock"], ["ledges", "Ledges"]];
   const terrain_preview_size_in_pixels = 40;
+  const BRUSH_SIZES = [1, 2, 3, 5];
 
   async function load_paint_palette(route_result) {
     const palette_key = `${route_result.tiler}|${route_result.tileset}`;
     if (!state.palettes[palette_key]) state.palettes[palette_key] = await fetch_paint_palette(route_result);
     state.palette = state.palettes[palette_key];
     if (!is_brush_available(state.brush)) state.brush = "g";
-    fill_brush_select();
-    updateLedgeUI();
+    keep_ledge_direction_available();
     if (!$("leftTiles").hidden) render_paint_palette();
   }
 
@@ -2501,10 +2700,14 @@
     const palette = state.palette, { kind, key } = SL.brush_kind(brush);
     if (kind === "ledge") return SL.palette_ledge_codes(palette).length > 0;
     if (kind === "object") return !!SL.palette_object_entry(palette, key);
-    if (kind === "stamp") return !!SL.STAMPS[key] && !!palette && palette.tiler === "learned";
     if (kind === "tile") return !!palette && palette.tiles[key] != null;
     const entry = SL.palette_terrain_entry(palette, key);
     return key === "g" || (!!entry && entry.group !== "ledges");
+  }
+
+  function keep_ledge_direction_available() {
+    const ledge_codes = SL.palette_ledge_codes(state.palette);
+    if (ledge_codes.length && !ledge_codes.includes(state.ledgeDir)) state.ledgeDir = ledge_codes[0];
   }
 
   function brush_cells_at(cell_x, cell_y) {
@@ -2513,25 +2716,37 @@
       const object_entry = SL.palette_object_entry(state.palette, key);
       return object_entry ? SL.object_stamp_cells(object_entry, cell_x, cell_y, r.width, r.height) : [];
     }
-    if (kind === "stamp") return SL.stampCells(key, cell_x, cell_y, r.width, r.height);
     if (kind === "tile") return [[cell_x, cell_y, SL.exact_tile_value(state.palette, key)]];
     return terrain_brush_cells_at(cell_x, cell_y, kind === "ledge" ? state.ledgeDir : key);
   }
 
-  function terrain_brush_cells_at(cell_x, cell_y, class_code) {
-    const r = state.result, entry = SL.palette_terrain_entry(state.palette, class_code);
-    const is_tree_brush = entry ? entry.two_wide : SL.TWO_WIDE.includes(class_code);
-    const one_tree_size_in_cells = 2;
-    const chosen_size = is_tree_brush ? one_tree_size_in_cells : +$("brushSize").value;
-    const brush_cells = SL.brushCells(cell_x, cell_y, chosen_size, class_code, r.width, r.height);
-    if (!entry || !entry.snap_blocks) return brush_cells;
-    return SL.snap_cells_to_blocks(brush_cells, r.width, r.height);
+  function is_tree_terrain(class_code) {
+    const entry = SL.palette_terrain_entry(state.palette, class_code);
+    const draws_whole_trees = entry ? entry.group === "trees" : TREE_CLASS_CODES.includes(class_code);
+    return draws_whole_trees;
   }
 
-  function add_brush_cells_to_stroke(brush_cells) {
-    const places_whole_objects = SL.brush_kind(state.brush).kind === "object";
-    if (places_whole_objects && brush_cells.some(([x, y]) => state.paint.cells.has(`${x},${y}`))) return;
+  function terrain_brush_cells_at(cell_x, cell_y, class_code) {
+    const r = state.result, entry = SL.palette_terrain_entry(state.palette, class_code);
+    if (is_tree_terrain(class_code)) {
+      const one_tree = SL.tree_block_keys_around(cell_x, cell_y, r.width, r.height).map((cell_key) => [...cell_key.split(",").map(Number), class_code]);
+      return one_tree;
+    }
+    const needs_two_cells = entry ? entry.two_wide : SL.TWO_WIDE.includes(class_code);
+    const chosen_size = needs_two_cells ? Math.max(2, state.brush_size) : state.brush_size;
+    const brush_cells = SL.brushCells(cell_x, cell_y, chosen_size, class_code, r.width, r.height);
+    return brush_cells;
+  }
+
+  function add_brush_to_stroke(cell_x, cell_y) {
+    const { kind, key } = SL.brush_kind(state.brush);
+    const brush_cells = brush_cells_at(cell_x, cell_y);
+    if (kind !== "object") { for (const [x, y, value] of brush_cells) state.paint.cells.set(`${x},${y}`, value); return; }
+    if (!brush_cells.length || brush_cells.some(([x, y]) => state.paint.cells.has(`${x},${y}`))) return;
     for (const [x, y, value] of brush_cells) state.paint.cells.set(`${x},${y}`, value);
+    const object_entry = SL.palette_object_entry(state.palette, key);
+    const top_left = SL.object_top_left(object_entry, cell_x, cell_y);
+    state.paint.objects.push({ object: key, x: top_left.x, y: top_left.y });
   }
 
   function draw_paint_value(graphics_context, cell_x, cell_y, value, screen_x, screen_y, cell_size_on_screen) {
@@ -2561,45 +2776,36 @@
       screen_x, screen_y, cell_size_on_screen, cell_size_on_screen);
   }
 
-  function brush_label(brush) {
-    const { kind, key } = SL.brush_kind(brush);
-    if (kind === "ledge") return "ledge";
-    if (kind === "object") return (SL.palette_object_entry(state.palette, key) || { name: key }).name;
-    if (kind === "stamp") return (SL.STAMPS[key] || { label: key }).label;
-    if (kind === "tile") return `tile #${key}`;
-    const entry = SL.palette_terrain_entry(state.palette, key);
-    return entry ? entry.name : (PR.CLASS_NAMES[key] || key);
-  }
-
-  function palette_brushes() {
-    const palette = state.palette || EMPTY_PALETTE;
-    const terrain_brushes = palette.terrain.filter((entry) => entry.group !== "ledges").map((entry) => entry.code);
-    const ledge_brushes = SL.palette_ledge_codes(palette).length ? [LEDGE_BRUSH] : [];
-    const object_brushes = palette.objects.map((entry) => "object:" + entry.id);
-    const stamp_brushes = palette.tiler === "learned" ? Object.keys(SL.STAMPS).map((name) => "stamp:" + name) : [];
-    return terrain_brushes.concat(ledge_brushes, object_brushes, stamp_brushes);
-  }
-
-  function fill_brush_select() {
-    const brush_select = $("paintClass");
-    brush_select.innerHTML = "";
-    const brushes = palette_brushes();
-    if (!brushes.includes(state.brush)) brushes.push(state.brush);
-    for (const brush of brushes) brush_select.append(Object.assign(el("option", "", brush_label(brush)), { value: brush }));
-    brush_select.value = state.brush;
-  }
-
   function choose_brush(brush) {
     state.brush = brush;
-    fill_brush_select();
     if (state.tool !== "paint") setTool("paint");
-    updateLedgeUI();
     render_paint_palette();
   }
 
   function choose_ledge(ledge_code) {
     state.ledgeDir = ledge_code;
     choose_brush(LEDGE_BRUSH);
+  }
+
+  function set_brush_size(requested_size) {
+    const smallest = BRUSH_SIZES[0], largest = BRUSH_SIZES[BRUSH_SIZES.length - 1];
+    const clamped_size = Math.max(smallest, Math.min(largest, requested_size));
+    const stepping_up = requested_size > state.brush_size;
+    state.brush_size = BRUSH_SIZES.includes(clamped_size) ? clamped_size : BRUSH_SIZES.find((size) => (stepping_up ? size > clamped_size : size >= clamped_size)) || largest;
+    saveView();
+    render_brush_size_row();
+    draw();
+  }
+
+  function render_brush_size_row() {
+    const size_row = $("brushSizeRow");
+    size_row.innerHTML = "";
+    size_row.append(el("span", "brush-size-label", "Size"));
+    for (const brush_size of BRUSH_SIZES) {
+      const size_button = Object.assign(el("button", "seg-btn" + (brush_size === state.brush_size ? " on" : ""), String(brush_size)), { type: "button", title: `${brush_size} × ${brush_size}  ([ ])` });
+      size_button.onclick = () => set_brush_size(brush_size);
+      size_row.append(size_button);
+    }
   }
 
   function show_left_tab(left_tab_name) {
@@ -2623,7 +2829,7 @@
       const biome_rgb = window.ED.BIOME_RGB[biome_code] || [58, 58, 58];
       const biome_button = el("button", "terrain-brush" + (biome_code === current_paint_biome ? " on" : ""));
       biome_button.type = "button";
-      biome_button.title = biome_code ? `Paint ${window.ED.BIOME_NAMES[biome_code]}` : "Clear paint: remove hand-painted biome (the next biome pass decides)";
+      biome_button.title = biome_code ? window.ED.BIOME_NAMES[biome_code] : "Remove painted biome";
       const biome_swatch = el("span", "biome-swatch");
       biome_swatch.style.background = `rgb(${biome_rgb.join(",")})`;
       biome_button.append(biome_swatch, el("span", "", biome_code ? window.ED.BIOME_NAMES[biome_code] : "clear paint"));
@@ -2648,18 +2854,6 @@
     return [entry.sample.slice(0, 2), entry.sample.slice(2, 4)];
   }
 
-  function stamp_rows(stamp_name) {
-    const stamp_cells = SL.STAMPS[stamp_name].cells;
-    const min_x = Math.min(...stamp_cells.map((cell) => cell[0])), min_y = Math.min(...stamp_cells.map((cell) => cell[1]));
-    const rows = [];
-    for (const [offset_x, offset_y, class_code] of stamp_cells) {
-      const entry = SL.palette_terrain_entry(state.palette, class_code);
-      const row = rows[offset_y - min_y] || (rows[offset_y - min_y] = []);
-      row[offset_x - min_x] = entry ? entry.sample[0] : null;
-    }
-    return rows;
-  }
-
   function palette_button(brush, label, title, cell_rows, is_on, on_choose) {
     const brush_button = el("button", "terrain-brush" + (is_on ? " on" : ""));
     brush_button.type = "button";
@@ -2682,15 +2876,15 @@
     const painting = state.tool === "paint";
     const entries_in_group = state.palette.terrain.filter((entry) => entry.group === group_name);
     if (group_name === "ledges") return single_ledge_button(entries_in_group, painting);
-    return entries_in_group.map((entry) => palette_button(entry.code, entry.name, `Paint ${entry.name}`, sample_rows(entry), painting && state.brush === entry.code, () => choose_brush(entry.code)));
+    return entries_in_group.map((entry) => palette_button(entry.code, entry.name, entry.name, sample_rows(entry), painting && state.brush === entry.code, () => choose_brush(entry.code)));
   }
 
   function single_ledge_button(ledge_entries, painting) {
     if (!ledge_entries.length) return [];
     const current_ledge = ledge_entries.find((entry) => entry.code === state.ledgeDir) || ledge_entries[0];
     const ledge_is_selected = painting && state.brush === LEDGE_BRUSH;
-    const ledge_button = palette_button(LEDGE_BRUSH, current_ledge.name.replace("jump ", ""), `Paint ${current_ledge.name}; click again or press R to turn it`, sample_rows(current_ledge), ledge_is_selected,
-      () => (ledge_is_selected ? rotateLedgeDir() : choose_ledge(current_ledge.code)));
+    const ledge_button = palette_button(LEDGE_BRUSH, current_ledge.name.replace("jump ", ""), `${current_ledge.name} (R turns it)`, sample_rows(current_ledge), ledge_is_selected,
+      () => choose_ledge(current_ledge.code));
     return [ledge_button];
   }
 
@@ -2708,44 +2902,82 @@
     return group_has_both_orientations;
   }
 
-  function rotate_selected_object() {
-    const object_id = state.brush.startsWith("object:") ? state.brush.slice("object:".length) : "";
-    const object_base = rotatable_object_base(object_id);
-    if (!object_base || !is_rotatable_object_group(object_base)) return;
-    const next_suffix = object_id.endsWith("_h") ? "_v" : "_h";
-    choose_brush("object:" + object_base + next_suffix);
+  function is_rotatable_object(object_id) {
+    const object_base = rotatable_object_base(object_id || "");
+    const can_turn = !!object_base && !!state.palette && is_rotatable_object_group(object_base);
+    return can_turn;
   }
 
-  function is_rotatable_object_selected() {
-    const object_id = state.brush.startsWith("object:") ? state.brush.slice("object:".length) : "";
+  function turned_object_id(object_id) {
     const object_base = rotatable_object_base(object_id);
-    return !!object_base && is_rotatable_object_group(object_base);
+    const next_suffix = object_id.endsWith("_h") ? "_v" : "_h";
+    return object_base + next_suffix;
+  }
+
+  function brush_object_id() {
+    const object_id = state.brush.startsWith("object:") ? state.brush.slice("object:".length) : "";
+    return object_id;
+  }
+
+  function selected_object_instance() {
+    const selection = state.sel;
+    if (!selection || selection.type !== "object") return null;
+    return painted_objects(state.result)[selection.i] || null;
+  }
+
+  function can_rotate() {
+    const selected_instance = selected_object_instance();
+    if (state.tool !== "paint" && selected_instance) return is_rotatable_object(selected_instance.object);
+    if (state.tool !== "paint") return false;
+    const brush_turns = state.brush === LEDGE_BRUSH || is_rotatable_object(brush_object_id());
+    return brush_turns;
+  }
+
+  function rotate_brush_or_selection() {
+    const selected_instance = selected_object_instance();
+    if (state.tool !== "paint" && selected_instance) { turn_selected_object(selected_instance); return; }
+    if (state.brush === LEDGE_BRUSH) {
+      state.ledgeDir = SL.next_ledge_code(state.palette, state.ledgeDir);
+      render_paint_palette();
+      draw();
+      return;
+    }
+    if (is_rotatable_object(brush_object_id())) choose_brush("object:" + turned_object_id(brush_object_id()));
+    draw();
+  }
+
+  async function turn_selected_object(object_instance) {
+    const r = state.result;
+    const turned_entry = SL.palette_object_entry(state.palette, turned_object_id(object_instance.object));
+    if (!turned_entry) return;
+    const turned_cells = SL.object_stamp_cells(turned_entry, object_instance.x + Math.floor((turned_entry.cells[0].length - 1) / 2),
+      object_instance.y + Math.floor((turned_entry.cells.length - 1) / 2), r.width, r.height);
+    if (!turned_cells.length) { log("warn", "No room to turn it here."); return; }
+    state.paint.cells = new Map(turned_cells.map(([x, y, value]) => [`${x},${y}`, value]));
+    state.paint.objects = [{ object: turned_entry.id, x: object_instance.x, y: object_instance.y }];
+    await commitPaint();
+    const turned_index = SL.object_instance_index_at(state.palette, painted_objects(r), object_instance.x, object_instance.y);
+    if (turned_index >= 0) select({ type: "object", i: turned_index });
   }
 
   function object_button(entry, painting) {
     const brush = "object:" + entry.id, size = `${entry.cells[0].length}×${entry.cells.length}`;
     const object_base = rotatable_object_base(entry.id);
     const is_rotatable = !!object_base && is_rotatable_object_group(object_base);
-    if (!is_rotatable) return palette_button(brush, entry.name, `Place ${entry.name} (${size}, exact tiles with their own collision)`, entry.cells, painting && state.brush === brush, () => choose_brush(brush));
+    if (!is_rotatable) return palette_button(brush, entry.name, `${entry.name} (${size})`, entry.cells, painting && state.brush === brush, () => choose_brush(brush));
     const selected_variant = state.brush.startsWith("object:" + object_base + "_") ? state.brush.slice("object:".length) : object_base + "_h";
     const shown_entry = state.palette.objects.find((candidate) => candidate.id === selected_variant) || entry;
     const group_is_selected = painting && state.brush === "object:" + shown_entry.id;
     const group_name = object_base.replace(/_/g, " ");
-    const direction_name = shown_entry.id.endsWith("_v") ? "down" : "across";
-    return palette_button("object:" + shown_entry.id, `${group_name} (${direction_name})`, `Place ${group_name}; click again or press R to switch across/down`, shown_entry.cells, group_is_selected,
-      () => (group_is_selected ? rotate_selected_object() : choose_brush("object:" + shown_entry.id)));
+    return palette_button("object:" + shown_entry.id, group_name, `${group_name} (R turns it)`, shown_entry.cells, group_is_selected,
+      () => choose_brush("object:" + shown_entry.id));
   }
 
   function object_buttons() {
     const painting = state.tool === "paint";
     const shown_object_entries = state.palette.objects.filter((entry) => !(entry.id.endsWith("_v") && is_rotatable_object_group(rotatable_object_base(entry.id))));
     const objects = shown_object_entries.map((entry) => object_button(entry, painting));
-    if (state.palette.tiler !== "learned") return objects;
-    const stamps = Object.entries(SL.STAMPS).map(([stamp_name, stamp]) => {
-      const brush = "stamp:" + stamp_name;
-      return palette_button(brush, stamp.label, `Stamp ${stamp.label}`, stamp_rows(stamp_name), painting && state.brush === brush, () => choose_brush(brush));
-    });
-    return objects.concat(stamps);
+    return objects;
   }
 
   function render_paint_palette() {
@@ -2757,22 +2989,6 @@
       if (buttons.length) sections.append(palette_section(heading, buttons));
     }
     if (state.palette.objects.length) sections.append(palette_section("Objects", object_buttons()));
-    if (state.palette.unavailable.length) sections.append(unavailable_note(state.palette.unavailable));
-  }
-
-  function unavailable_note(unavailable_entries) {
-    const note = el("p", "tiles-note tiles-missing", "Not in this tileset: " + unavailable_entries.map((entry) => entry.name).join(", ") + ".");
-    note.title = unavailable_entries.map((entry) => `${entry.name}: ${entry.reason}`).join("\n");
-    return note;
-  }
-
-
-
-
-  function is_improve_tab_shown() {
-    const improve_tab_button = document.querySelector('[data-bottom="improve"]');
-    const improve_tab_is_shown = !!improve_tab_button && !improve_tab_button.hidden;
-    return improve_tab_is_shown;
   }
 
   window.Bench = { generate, state, params, setParams, undoStack, menus, extras, loadSpecText };

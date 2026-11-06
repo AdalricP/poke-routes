@@ -50,11 +50,14 @@
     parts.splitRight.classList.toggle("off", rects.collapsed.right || rects.floating.right);
     parts.splitBottom.classList.toggle("off", rects.collapsed.bottom || rects.floating.bottom);
     // tabs
+    const shown_center_tabs = SL.center_tabs_shown(layout);
     document.querySelectorAll("[data-center]").forEach((b) => {
-      const on = b.dataset.center === layout.center;
+      const on = shown_center_tabs.includes(b.dataset.center);
       b.classList.toggle("on", on);
+      b.classList.toggle("active", on && !!layout.split && b.dataset.center === layout.center);
       b.setAttribute("aria-selected", on);
     });
+    place_center_views();
     document.querySelectorAll("[data-bottom]").forEach((b) => {
       const on = b.dataset.bottom === layout.bottom.tab;
       b.classList.toggle("on", on);
@@ -72,6 +75,7 @@
     if (!SL.CENTER_TABS.includes(tab)) return;
     const changed = layout.center !== tab;
     layout.center = tab;
+    layout.split = SL.split_after_activating_tab(layout.split, tab);
     applyLayout();
     saveLayout();
     if (changed) centerCbs.forEach((f) => f(tab));
@@ -121,6 +125,7 @@
       btn.addEventListener("pointerdown", (ev) => ev.stopPropagation()); // don't also start a window-drag
       btn.addEventListener("dragstart", (ev) => {
         dragging = btn;
+        if (which === "center") dragged_center_tab = btn.getAttribute(attr);
         btn.classList.add("tab-dragging");
         ev.dataTransfer.effectAllowed = "move";
         ev.dataTransfer.setData("text/plain", btn.getAttribute(attr));
@@ -133,6 +138,8 @@
         strip.insertBefore(dragging, before ? btn : btn.nextSibling);
       });
       btn.addEventListener("dragend", () => {
+        dragged_center_tab = null;
+        if (which === "center") center_drop_hint.hidden = true;
         if (dragging) dragging.classList.remove("tab-dragging");
         dragging = null;
         layout[orderKey] = [...strip.querySelectorAll(`.dock-tab[${attr}]`)].map((b) => b.getAttribute(attr));
@@ -140,6 +147,110 @@
       });
     });
   }
+  // ------------------------------------------------------------ split centre (two views side by side)
+  // Drag a centre tab to the left or right third of the views to show it beside the other kind of
+  // view (Routes beside Geography or Map); drop it in the middle, or double-click a tab, to show one.
+  const center_views = [...document.querySelectorAll("[data-center-view]")];
+  const center_splitter = $("centerSplitter");
+  const center_drop_hint = $("centerDrop");
+  const views_box = docks.center.querySelector(".views");
+  const center_view_gap_in_pixels = 2;
+
+  function center_view_tabs(view_element) {
+    const view_tabs = view_element.dataset.centerView.split(" ");
+    return view_tabs;
+  }
+
+  function shown_tab_of_view(view_element) {
+    const shown_tab = SL.center_tabs_shown(layout).find((center_tab) => center_view_tabs(view_element).includes(center_tab)) || null;
+    return shown_tab;
+  }
+
+  function place_one_center_view(view_element) {
+    const shown_tab = shown_tab_of_view(view_element);
+    view_element.hidden = !shown_tab;
+    view_element.classList.toggle("active-pane", !!layout.split && shown_tab === layout.center);
+    if (!shown_tab || !layout.split) { view_element.style.left = ""; view_element.style.width = ""; return; }
+    const percent_left = layout.split.ratio * 100;
+    const is_left_pane = layout.split.left === shown_tab;
+    view_element.style.left = is_left_pane ? "0" : `calc(${percent_left}% + ${center_view_gap_in_pixels}px)`;
+    view_element.style.width = is_left_pane ? `calc(${percent_left}% - ${center_view_gap_in_pixels}px)` : `calc(${100 - percent_left}% - ${center_view_gap_in_pixels}px)`;
+  }
+
+  function place_center_views() {
+    center_views.forEach(place_one_center_view);
+    center_splitter.hidden = !layout.split;
+    if (layout.split) center_splitter.style.left = `calc(${layout.split.ratio * 100}% - ${center_view_gap_in_pixels}px)`;
+  }
+
+  function split_center(dragged_tab, drop_side) {
+    const new_split = SL.split_after_center_tab_drop(layout, dragged_tab, drop_side);
+    if (!new_split) return;
+    layout.split = new_split;
+    const changed = layout.center !== dragged_tab;
+    layout.center = dragged_tab;
+    applyLayout();
+    saveLayout();
+    centerCbs.forEach((f) => f(dragged_tab, changed));
+  }
+
+  function unsplit_center(kept_tab) {
+    layout.split = null;
+    const changed = layout.center !== kept_tab;
+    layout.center = kept_tab;
+    applyLayout();
+    saveLayout();
+    centerCbs.forEach((f) => f(kept_tab, changed));
+  }
+
+  function show_center_drop_hint(drop_side) {
+    center_drop_hint.hidden = false;
+    center_drop_hint.style.left = drop_side === "right" ? "50%" : "0";
+    center_drop_hint.style.width = drop_side === "middle" ? "100%" : "50%";
+  }
+
+  let dragged_center_tab = null;
+  views_box.addEventListener("dragover", (ev) => {
+    if (!dragged_center_tab) return;
+    ev.preventDefault();
+    const box = views_box.getBoundingClientRect();
+    show_center_drop_hint(SL.center_drop_side(ev.clientX, box.left, box.width));
+  });
+  views_box.addEventListener("dragleave", (ev) => { if (!views_box.contains(ev.relatedTarget)) center_drop_hint.hidden = true; });
+  views_box.addEventListener("drop", (ev) => {
+    if (!dragged_center_tab) return;
+    ev.preventDefault();
+    center_drop_hint.hidden = true;
+    const box = views_box.getBoundingClientRect();
+    const drop_side = SL.center_drop_side(ev.clientX, box.left, box.width);
+    if (drop_side === "middle") unsplit_center(dragged_center_tab); else split_center(dragged_center_tab, drop_side);
+  });
+  for (const view_element of center_views) {
+    view_element.addEventListener("pointerdown", () => {
+      const shown_tab = shown_tab_of_view(view_element);
+      if (layout.split && shown_tab && shown_tab !== layout.center) setCenter(shown_tab);
+    }, true);
+  }
+  center_splitter.addEventListener("pointerdown", (ev) => {
+    if (ev.button !== 0 || !layout.split) return;
+    ev.preventDefault();
+    center_splitter.setPointerCapture(ev.pointerId);
+    document.body.classList.add("resizing", "v");
+    const move = (e) => {
+      const box = views_box.getBoundingClientRect();
+      layout.split = SL.sanitize_center_split(Object.assign({}, layout.split, { ratio: (e.clientX - box.left) / Math.max(1, box.width) }));
+      place_center_views();
+    };
+    const up = () => {
+      center_splitter.removeEventListener("pointermove", move);
+      center_splitter.removeEventListener("pointerup", up);
+      document.body.classList.remove("resizing", "v");
+      saveLayout();
+    };
+    center_splitter.addEventListener("pointermove", move);
+    center_splitter.addEventListener("pointerup", up);
+  });
+
   orderTabs("center", layout.centerOrder);
   orderTabs("bottom", layout.bottomOrder);
   makeTabsReorderable("center", "centerOrder");
@@ -342,7 +453,10 @@
     b.onclick = () => (layout[b.dataset.collapse].float ? redock(b.dataset.collapse) : toggleDock(b.dataset.collapse));
   });
   document.querySelectorAll("[data-expand]").forEach((b) => { b.onclick = () => toggleDock(b.dataset.expand, true); });
-  document.querySelectorAll("[data-center]").forEach((b) => { b.onclick = () => setCenter(b.dataset.center); });
+  document.querySelectorAll("[data-center]").forEach((b) => {
+    b.onclick = () => setCenter(b.dataset.center);
+    b.ondblclick = () => { if (layout.split) unsplit_center(b.dataset.center); };
+  });
   document.querySelectorAll("[data-bottom]").forEach((b) => { b.onclick = () => setBottom(b.dataset.bottom); });
   window.addEventListener("resize", applyLayout);
 
@@ -674,7 +788,7 @@
   window.Shell = {
     mac, store, el,
     get layout() { return layout; },
-    applyLayout, saveLayout, setCenter, setBottom, toggleDock, resetLayout,
+    applyLayout, saveLayout, setCenter, setBottom, toggleDock, resetLayout, split_center, unsplit_center,
     onResize: (f) => resizeCbs.push(f),
     onCenter: (f) => centerCbs.push(f),
     onBottom: (f) => bottomCbs.push(f),

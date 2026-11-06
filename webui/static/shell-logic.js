@@ -187,8 +187,8 @@
     // Help
     keys: "Mod+/",
     // not in a menu: scene tools and plain-key zoom
-    "tool-select": "v", "tool-pan": "h", "tool-paint": "b", "tool-stamp": "s", "x-zin": "=", "x-zout": "-", "x-zfit": "0", "x-help": "?",
-    "x-ledge-rot": "r", "tool-item": "i", "x-item-delete": "Delete",
+    "tool-select": "v", "tool-pan": "h", "tool-paint": "b", "x-zin": "=", "x-zout": "-", "x-zfit": "0", "x-help": "?",
+    "x-rotate": "r", "tool-item": "i", "x-item-delete": "Delete", "x-brush-smaller": "[", "x-brush-bigger": "]",
   };
   const ALT_SHORTCUTS = { redo: "Mod+y", zin: "Mod+Shift+=" };
   // Modifier shortcuts that still must not fire while typing.
@@ -212,14 +212,15 @@
   const LAYOUT_KEY = "pokeroutes-shell-layout-v1";
   const CHROME = { menu: 26, toolbar: 34, status: 22, collapsed: 24, head: 26, splitter: 4 };
   const BOTTOM_TABS = ["console", "improve", "agent"];
-  const CENTER_TABS = ["scene", "geography", "region", "story"];
-  const RETIRED_CENTER_TABS = { gates: "region" };
+  const CENTER_TABS = ["scene", "geography", "region"];
+  const RETIRED_CENTER_TABS = { gates: "region", story: "region" };
   const DEFAULT_LAYOUT = {
     v: 1,
     left: { size: 240, open: true, float: null },
     right: { size: 320, open: true, float: null },
     bottom: { size: 180, open: true, tab: "console", float: null },   // float: {x, y, w, h} when torn off
     center: "scene",
+    split: null,   // {left, right, ratio}: two centre views side by side (Routes next to Geography or Map)
     centerOrder: CENTER_TABS.slice(),   // tab buttons can be dragged to reorder; this is what's remembered
     bottomOrder: BOTTOM_TABS.slice(),
     inspector: {},   // section id -> collapsed (true)
@@ -244,6 +245,8 @@
     if (x.bottom && BOTTOM_TABS.includes(x.bottom.tab)) d.bottom.tab = x.bottom.tab;
     const center = RETIRED_CENTER_TABS[x.center] || x.center;
     if (CENTER_TABS.includes(center)) d.center = center;
+    d.split = sanitize_center_split(x.split);
+    if (d.split && !center_tabs_of_split(d.split).includes(d.center)) d.center = d.split.left;
     d.centerOrder = sanitizeOrder(without_retired_tabs(x.centerOrder), CENTER_TABS);
     d.bottomOrder = sanitizeOrder(x.bottomOrder, BOTTOM_TABS);
     if (x.inspector && typeof x.inspector === "object") {
@@ -256,6 +259,66 @@
       }
     }
     return d;
+  }
+
+  const ROUTES_VIEW_TAB = "scene";
+  const SPLIT_RATIO_LIMITS = [0.2, 0.8];
+  const DEFAULT_SPLIT_RATIO = 0.5;
+
+  function is_region_editor_tab(center_tab) {
+    const is_region_tab = CENTER_TABS.includes(center_tab) && center_tab !== ROUTES_VIEW_TAB;
+    return is_region_tab;
+  }
+
+  function sanitize_center_split(candidate_split) {
+    if (!candidate_split || typeof candidate_split !== "object") return null;
+    const left_tab = RETIRED_CENTER_TABS[candidate_split.left] || candidate_split.left;
+    const right_tab = RETIRED_CENTER_TABS[candidate_split.right] || candidate_split.right;
+    const shows_routes_beside_one_region_view = [left_tab, right_tab].includes(ROUTES_VIEW_TAB) &&
+      [left_tab, right_tab].some(is_region_editor_tab);
+    if (!shows_routes_beside_one_region_view) return null;
+    const ratio = Number.isFinite(candidate_split.ratio) ? clamp(candidate_split.ratio, SPLIT_RATIO_LIMITS[0], SPLIT_RATIO_LIMITS[1]) : DEFAULT_SPLIT_RATIO;
+    const center_split = { left: left_tab, right: right_tab, ratio };
+    return center_split;
+  }
+
+  function center_tabs_of_split(center_split) {
+    const split_tabs = [center_split.left, center_split.right];
+    return split_tabs;
+  }
+
+  function center_tabs_shown(layout) {
+    const shown_tabs = layout.split ? center_tabs_of_split(layout.split) : [layout.center];
+    return shown_tabs;
+  }
+
+  function region_tab_beside(dragged_tab, layout) {
+    if (layout.split) return [layout.split.left, layout.split.right].find(is_region_editor_tab);
+    if (is_region_editor_tab(layout.center)) return layout.center;
+    return "region";
+  }
+
+  function split_after_center_tab_drop(layout, dragged_tab, drop_side) {
+    if (!CENTER_TABS.includes(dragged_tab) || !["left", "right"].includes(drop_side)) return null;
+    const partner_tab = dragged_tab === ROUTES_VIEW_TAB ? region_tab_beside(dragged_tab, layout) : ROUTES_VIEW_TAB;
+    const ratio = layout.split ? layout.split.ratio : DEFAULT_SPLIT_RATIO;
+    const new_split = drop_side === "left" ? { left: dragged_tab, right: partner_tab, ratio } : { left: partner_tab, right: dragged_tab, ratio };
+    return sanitize_center_split(new_split);
+  }
+
+  function split_after_activating_tab(center_split, activated_tab) {
+    if (!center_split) return null;
+    if (center_tabs_of_split(center_split).includes(activated_tab) || !is_region_editor_tab(activated_tab)) return center_split;
+    const region_side = is_region_editor_tab(center_split.left) ? "left" : "right";
+    const updated_split = Object.assign({}, center_split, { [region_side]: activated_tab });
+    return updated_split;
+  }
+
+  function center_drop_side(pointer_x, center_left, center_width) {
+    const fraction_across = (pointer_x - center_left) / Math.max(1, center_width);
+    if (fraction_across < 0.33) return "left";
+    if (fraction_across > 0.67) return "right";
+    return "middle";
   }
 
   function without_retired_tabs(order) {
@@ -532,6 +595,7 @@
   // Painted cells are remembered per route name + size ({"x,y": class}) and put back
   // after every regenerate; same storage format as the first bench paint mode.
   const PAINT_KEY = "pokeroutes-paint-v1";
+  const PAINT_OBJECTS_KEY = "pokeroutes-paint-objects-v1";
   const paintKey = (r) => `${r.name}|${r.width}x${r.height}`;
   function mergePaint(map, cells) {
     const out = Object.assign({}, map || {});
@@ -642,11 +706,19 @@
     return palette.terrain.concat(palette.unavailable).map((entry) => entry.code).join("");
   }
 
+  const LEDGE_CODES_CLOCKWISE = ["s", "x", "j", "e"];
+
+  function clockwise_rank_of_ledge(ledge_code) {
+    const clockwise_rank = LEDGE_CODES_CLOCKWISE.indexOf(ledge_code);
+    return clockwise_rank < 0 ? LEDGE_CODES_CLOCKWISE.length : clockwise_rank;
+  }
+
   function next_ledge_code(palette, current_code) {
-    const ledge_codes = palette_ledge_codes(palette);
+    const ledge_codes = palette_ledge_codes(palette).slice().sort((first_code, second_code) => clockwise_rank_of_ledge(first_code) - clockwise_rank_of_ledge(second_code));
     if (!ledge_codes.length) return current_code;
     const current_index = ledge_codes.indexOf(current_code);
-    return ledge_codes[(current_index + 1) % ledge_codes.length];
+    const next_code = ledge_codes[(current_index + 1) % ledge_codes.length];
+    return next_code;
   }
 
   function snap_cells_to_blocks(cells, map_width, map_height) {
@@ -671,6 +743,112 @@
       stamp_cells.push([left + column_index, top + row_index, `${object_entry.classes[row_index][column_index]}#${metatile_id}`]);
     }));
     return stamp_cells;
+  }
+
+  function object_top_left(object_entry, center_x, center_y) {
+    const object_height = object_entry.cells.length, object_width = object_entry.cells[0].length;
+    const top_left = { x: center_x - Math.floor((object_width - 1) / 2), y: center_y - Math.floor((object_height - 1) / 2) };
+    return top_left;
+  }
+
+  function object_footprint_keys(object_entry, left, top) {
+    const footprint_keys = [];
+    object_entry.cells.forEach((metatile_row, row_index) => metatile_row.forEach((_metatile_id, column_index) => {
+      footprint_keys.push(`${left + column_index},${top + row_index}`);
+    }));
+    return footprint_keys;
+  }
+
+  function instance_footprint_keys(palette, object_instance) {
+    const object_entry = palette_object_entry(palette, object_instance.object);
+    if (!object_entry) return [`${object_instance.x},${object_instance.y}`];
+    const footprint_keys = object_footprint_keys(object_entry, object_instance.x, object_instance.y);
+    return footprint_keys;
+  }
+
+  function object_instance_index_at(palette, object_instances, cell_x, cell_y) {
+    const cell_key = `${cell_x},${cell_y}`;
+    const covers_cell = (object_instance) => instance_footprint_keys(palette, object_instance).includes(cell_key);
+    const instance_index = (object_instances || []).findIndex(covers_cell);
+    return instance_index;
+  }
+
+  function cell_from_key(cell_key) {
+    const [cell_x, cell_y] = cell_key.split(",").map(Number);
+    return { x: cell_x, y: cell_y };
+  }
+
+  function value_under_removed_cell(object_instance, cell_key, generated_class_rows) {
+    const remembered_under = (object_instance.under || {})[cell_key];
+    if (remembered_under != null) return remembered_under;
+    const cell = cell_from_key(cell_key);
+    const generated_class = generated_class_rows && generated_class_rows[cell.y] ? generated_class_rows[cell.y][cell.x] : "g";
+    return generated_class || "g";
+  }
+
+  function restore_cells_under_instance(object_instance, painted_keys, palette, generated_class_rows, remembered_cells) {
+    const restore_cells = [];
+    for (const cell_key of instance_footprint_keys(palette, object_instance)) {
+      const remembered_under = (object_instance.under || {})[cell_key];
+      if (remembered_under != null) remembered_cells[cell_key] = remembered_under; else delete remembered_cells[cell_key];
+      if (painted_keys.has(cell_key)) continue;
+      const cell = cell_from_key(cell_key);
+      restore_cells.push([cell.x, cell.y, value_under_removed_cell(object_instance, cell_key, generated_class_rows)]);
+    }
+    return restore_cells;
+  }
+
+  function placed_instance_with_ground_under(palette, new_instance, remembered_cells) {
+    const under = {};
+    for (const cell_key of instance_footprint_keys(palette, new_instance)) if (remembered_cells[cell_key] != null) under[cell_key] = remembered_cells[cell_key];
+    const placed_instance = { object: new_instance.object, x: new_instance.x, y: new_instance.y, under };
+    return placed_instance;
+  }
+
+  // A paint stroke over remembered paint and whole objects: every object the stroke touches is
+  // lifted off in one piece (its other cells go back to what was under it; stroke.lift names objects
+  // to lift even when nothing is painted over them), then the stroke's
+  // own objects go down remembering what they cover. Returns the new memory and the extra cells to re-tile.
+  function apply_paint_stroke(stroke) {
+    const painted_keys = new Set(Object.keys(stroke.cells));
+    for (const new_instance of stroke.objects || []) for (const cell_key of instance_footprint_keys(stroke.palette, new_instance)) painted_keys.add(cell_key);
+    const touches_stroke = (object_instance) => (stroke.lift || []).includes(object_instance) ||
+      instance_footprint_keys(stroke.palette, object_instance).some((cell_key) => painted_keys.has(cell_key));
+    const remembered_cells = Object.assign({}, stroke.remembered_cells || {});
+    const lifted_instances = (stroke.remembered_objects || []).filter(touches_stroke);
+    const kept_instances = (stroke.remembered_objects || []).filter((object_instance) => !touches_stroke(object_instance));
+    const restore_cells = lifted_instances.flatMap((object_instance) => restore_cells_under_instance(object_instance, painted_keys, stroke.palette, stroke.generated_class_rows, remembered_cells));
+    const placed_instances = (stroke.objects || []).map((new_instance) => placed_instance_with_ground_under(stroke.palette, new_instance, remembered_cells));
+    const painted_cells = Object.assign(remembered_cells, stroke.cells);
+    const stroke_outcome = { cells: painted_cells, objects: kept_instances.concat(placed_instances), restore_cells, lifted: lifted_instances.length };
+    return stroke_outcome;
+  }
+
+  function tree_block_keys_around(cell_x, cell_y, map_width, map_height) {
+    const block_left = cell_x - (cell_x % 2), block_top = cell_y - (cell_y % 2);
+    const block_keys = [[0, 0], [1, 0], [0, 1], [1, 1]]
+      .map(([offset_x, offset_y]) => [block_left + offset_x, block_top + offset_y])
+      .filter(([block_x, block_y]) => block_x < map_width && block_y < map_height)
+      .map(([block_x, block_y]) => `${block_x},${block_y}`);
+    return block_keys;
+  }
+
+  // Painting anything but a tree over one cell of a tree takes the whole tree (its 2x2 block on
+  // the tree grid) away: the rest of the block becomes plain ground instead of a stray bush.
+  function whole_trees_under_stroke(stroke_cells, class_rows, tree_codes, ground_code) {
+    const map_height = class_rows.length, map_width = map_height ? class_rows[0].length : 0;
+    const painted_keys = new Set(stroke_cells.map(([cell_x, cell_y]) => `${cell_x},${cell_y}`));
+    const freed_cells = new Map();
+    for (const [cell_x, cell_y, painted_value] of stroke_cells) {
+      if (tree_codes.includes(String(painted_value)[0]) || !tree_codes.includes(class_rows[cell_y][cell_x])) continue;
+      for (const block_key of tree_block_keys_around(cell_x, cell_y, map_width, map_height)) {
+        const block_cell = cell_from_key(block_key);
+        if (painted_keys.has(block_key) || !tree_codes.includes(class_rows[block_cell.y][block_cell.x])) continue;
+        freed_cells.set(block_key, [block_cell.x, block_cell.y, ground_code]);
+      }
+    }
+    const freed_tree_cells = [...freed_cells.values()];
+    return freed_tree_cells;
   }
 
   function exact_tile_value(palette, metatile_id) {
@@ -700,12 +878,16 @@
     LAYOUT_KEY, CHROME, BOTTOM_TABS, CENTER_TABS, defaultLayout, sanitizeLayout, loadLayout, saveLayout,
     computeRects, dragSize, nearHomeEdge, MIN_CENTER, MIN_SIDE,
     History, RECENT_KEY, pushRecent, recentLabel, specToParams, paramsToSpecFile, safeFileName, exitConnections,
-    STAMPS, brushCells, stampCells, lineCells, PAINT_KEY, paintKey, mergePaint, paintList,
+    STAMPS, brushCells, stampCells, lineCells, PAINT_KEY, PAINT_OBJECTS_KEY, paintKey, mergePaint, paintList,
     PLACED_ITEMS_KEY, PLACEABLE_ITEM_KINDS, placed_item_index, place_item, update_placed_item, remove_placed_item,
     remember_placed_items, merge_placement_result,
     TWO_WIDE, tidyPaint,
     LEDGE_BRUSH, brush_kind, palette_ledge_codes, palette_terrain_entry, palette_object_entry, palette_class_codes,
-    next_ledge_code, snap_cells_to_blocks, object_stamp_cells, exact_tile_value, expand_paint_cells,
+    next_ledge_code, LEDGE_CODES_CLOCKWISE, snap_cells_to_blocks, object_stamp_cells, exact_tile_value, expand_paint_cells,
+    object_top_left, object_footprint_keys, instance_footprint_keys, object_instance_index_at, apply_paint_stroke,
+    tree_block_keys_around, whole_trees_under_stroke,
+    ROUTES_VIEW_TAB, is_region_editor_tab, sanitize_center_split, center_tabs_shown, split_after_center_tab_drop,
+    split_after_activating_tab, center_drop_side,
     event_sprite_key,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
