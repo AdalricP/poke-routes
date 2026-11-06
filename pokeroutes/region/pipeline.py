@@ -4,11 +4,22 @@ from __future__ import annotations
 
 import time
 
+import numpy as np
+from PIL import ImageOps
+
 from . import legends, settle, terrain
 from .render import render_region
 from .world import World
 
 STRIP_SCALE = 3
+
+
+def _flip_image(im, fx: bool, fy: bool):
+    if fx:
+        im = ImageOps.mirror(im)
+    if fy:
+        im = ImageOps.flip(im)
+    return im
 
 
 def build(seed: int, routes: bool = True, strip: bool = True) -> World:
@@ -32,6 +43,10 @@ def build(seed: int, routes: bool = True, strip: bool = True) -> World:
     terrain.biomes(w)
     snap("3 climate -> biomes", "climate")
     legends.carve(w)
+    # the stages above lay the region out in one frame; each seed picks its own way round
+    fx, fy = (bool(b) for b in np.random.default_rng((seed, 7)).integers(0, 2, 2))
+    w.mirror(fx, fy)
+    w.stages = [(t, _flip_image(im, fx, fy)) for t, im in w.stages]
     terrain.hydrology(w)
     terrain.climate(w)
     terrain.make_tiers(w)

@@ -72,7 +72,9 @@ def coastline(w: World) -> None:
     """Two halves: the Oberland mainland (west) and the Nehrung (east): a sand spit
     running from the strait at Pilsau to the Samland block, with the lagoon (Haff)
     between them. That layout is fixed by the lore; where the lobes sit, how big they
-    are, where the strait is and how ragged the coast is all come from the seed."""
+    are, where the strait is, whether the spit is long or the Nehrung sits just across the
+    strait, and how ragged the coast is all come from the seed (and pipeline.build flips
+    the whole region per seed, so the halves aren't always west and east)."""
     rng = w.rng
     xs, ys = _grid(w)
     u, v = (xs + 0.5) / w.W, (ys + 0.5) / w.H
@@ -96,9 +98,15 @@ def coastline(w: World) -> None:
         return 1.0 - (np.hypot(dx, dy) / np.maximum(r, 0.35)) ** 2
 
     # the strait and the Nehrung first: the mainland grows out to meet them
+    # (some seeds: no long spit, the Nehrung is a broad island just across the strait)
     sx, sy = U(0.57, 0.68), U(0.18, 0.46)
-    ex, ey = U(0.82, 0.89), U(max(0.40, sy + 0.12), 0.70)
-    erx, ery = U(0.055, 0.11), U(0.14, min(0.29, 0.93 - ey))
+    compact = rng.random() < 0.4
+    if compact:
+        ex, ey = U(sx + 0.14, 0.84), U(sy + 0.04, 0.66)
+        erx, ery = U(0.08, min(0.13, 0.95 - ex)), U(0.16, min(0.30, 0.93 - ey))
+    else:
+        ex, ey = U(0.82, 0.89), U(max(0.40, sy + 0.12), 0.70)
+        erx, ery = U(0.055, 0.11), U(0.14, min(0.29, 0.93 - ey))
     # mainland: a lobed core, a lobe out to the strait, 1-6 headlands, 0-3 bays bitten out
     cx, cy = U(0.24, 0.40), U(0.36, 0.66)
     rx, ry = U(0.16, min(0.30, sx - 0.06 - cx + 0.12)), U(0.20, 0.38)
@@ -125,7 +133,7 @@ def coastline(w: World) -> None:
 
     # the spit: leaves the strait heading east, bows north, drops onto the Nehrung block
     a, b = np.array([sx + 0.014, sy - 0.005]), np.array([ex, ey - ery * 0.4])
-    ky = max(0.02, min(a[1], b[1]) - U(0.03, 0.22))
+    ky = max(0.02, min(a[1], b[1]) - (U(0.0, 0.03) if compact else U(0.03, 0.22)))
     k1, k2 = a + [U(0.04, 0.12), U(-0.04, 0.03)], np.array([b[0] - U(0.0, 0.08), ky])
     pts = [(1 - t) ** 3 * a + 3 * t * (1 - t) ** 2 * k1 + 3 * t * t * (1 - t) * k2 + t ** 3 * b
            for t in np.linspace(0, 1, 11)]
@@ -387,11 +395,12 @@ def climate(w: World, reuse_noise: bool = False) -> None:
     hl = np.where(land, w.height, 0)
     hn = hl / max(1e-6, float(hl.max()))
     temp = 0.62 + 0.28 * (v - 0.5) - 0.85 * hn + w.overrides.get("heat", 0)
-    # westerlies: moisture is picked up over water, rained out when the air climbs
+    # the prevailing wind (westerlies unless the layout was mirrored): moisture is picked
+    # up over water, rained out when the air climbs
     m = np.zeros_like(hl)
     cur = np.ones(w.H)
     prev = np.zeros(w.H)
-    for x in range(w.W):
+    for x in (range(w.W) if w.wind[0] >= 0 else range(w.W - 1, -1, -1)):
         col = hl[:, x]
         wet = ~land[:, x] | w.lake[:, x] if w.lake is not None else ~land[:, x]
         rise = np.maximum(col - prev, 0)
