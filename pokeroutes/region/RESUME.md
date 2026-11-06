@@ -4,13 +4,12 @@ Run: `python3 -m pokeroutes.region generate --seed 1 [--screens DIR] [--no-strip
 Writes region_out/<seed>/: region.png (map + legend), region_map.png (bare, for the web page),
 stages.png (6-panel strip), region.json, routes/<Id>.yaml (one poke-routes spec per route).
 
-Modules: world.py (state), terrain.py (coast with two halves + strait, fBm + domain warp,
-stream-power + thermal erosion, priority-flood lakes, flow accumulation rivers, westerly
-rain shadow climate, biomes), legends.py (Glutberg cone/lava/ash plume, Deep Rinne trench +
-storm coast + Brandung Caves, Romowe ring valley + pillar, Silver Skerries + whirlpools,
-Brandwald + Gold Feather Tower + beast stations), settle.py (4 cities), network.py (A* with
-turn penalty, rects grown flush to neighbours, exits, roles, names, wild dead ends),
-export.py (YAML specs), render.py, cli.py, pipeline.py.
+Modules: world.py (state), geography.py (land and sea, heightmap), terrain.py (fBm + domain
+warp, stream-power + thermal erosion, priority-flood lakes, rivers from rain + snowmelt +
+springs with meanders on flat ground, westerly rain shadow climate, biomes), town_sites.py
+(Generate map: towns per landmass), network.py (A* with turn penalty, rects grown flush to
+neighbours, exits, roles, names; links across open sea become surf routes), export.py (YAML
+specs), render.py, cli.py, pipeline.py.
 
 Web: webui/region_api.py + static/region.html, region.js, region-bridge.js; 3-line hook in
 server.py. /region.html -> click a route -> bench opens pre-filled; the bridge adds `region`
@@ -33,3 +32,9 @@ Known gaps / next:
   and 7 builds matched the old hashes). `w.half` became `w.landmass`; `w.strait` is None
   outside the preset. Open: land touching the map edge drains off-map; sea links between towns
   on different islands rarely find a way.
+- 2026-11-06 (later): the Arklarna preset, its legendary carving (legends.py) and its four
+  towns (settle.py) are gone from the tool; old documents load as generic, their legend biomes
+  read as volcanic/desert/forest. Generate map now scales towns with the land (4-14, every
+  landmass of 160+ dry cells gets one). Rivers take rain + snowmelt + a few springs, so they
+  start in the mountains. Links between landmasses farther apart than a short bridge are
+  surf routes. Still open: land touching the map edge drains off-map.

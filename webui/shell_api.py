@@ -6,7 +6,7 @@ Pages
     GET /region.html             302 -> /?view=region (old region page URL)
 
 API
-    GET  /api/atlas?tiler=ark    metatile atlas for the Arklarna tilesets (learned atlas: no query)
+    GET  /api/atlas?tiler=ark    metatile atlas for the PokeRoutes tilesets (learned atlas: no query)
     GET  /api/atlas.png?tiler=ark
     GET  /api/tilers             which tilers this server can use
     GET  /api/paint-palette?id=ID   what the Tiles tab can paint on that route (paint_palette.py)
@@ -134,7 +134,7 @@ def handle(h, method: str, u, srv) -> bool:
         if u.path in ("/api/atlas", "/api/atlas.png") and q.get("tiler", [""])[0] == "ark":
             ok, err = ark_available()
             if not ok:
-                return h._json({"error": "Ark tiler unavailable: " + err}, 404) or True
+                return h._json({"error": "PokeRoutes tiler unavailable: " + err}, 404) or True
             png, meta = ark_atlas(srv)
             if u.path == "/api/atlas.png":
                 return h._send(200, png, "image/png") or True
@@ -147,7 +147,7 @@ def handle(h, method: str, u, srv) -> bool:
             ok, err = ark_available()
             return h._json({"tilers": [
                 {"id": "learned", "label": "Learned (Emerald General + Fortree)", "ok": True},
-                {"id": "ark", "label": "Ark rule tiles (ArkOutdoor + ArkWoodland)", "ok": ok, "error": err},
+                {"id": "ark", "label": "PokeRoutes tiles", "ok": ok, "error": err},
             ]}) or True
         if u.path == "/api/scene":
             gid = q.get("id", [""])[0]

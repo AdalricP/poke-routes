@@ -216,19 +216,34 @@ def test_entrance_falls_back_to_the_side_closest_to_the_first_town():
     assert gated_entrance["entrance_toward"] == "Beta"
 
 
+def route_between_two_towns(region_document):
+    town_names = {town["name"] for town in region_document["cities"]}
+    for route in region_document["routes"]:
+        neighbour_names = [exit_record["to"] for exit_record in route["exits"]]
+        if route["mode"] == "land" and len(neighbour_names) == 2 and set(neighbour_names) <= town_names and len(set(neighbour_names)) == 2:
+            return route
+    raise AssertionError("no route joins two towns directly")
+
+
 @pytest.fixture(scope="module")
-def gated_region_document():
-    region_document = edit.generate_doc(3, "arklarna")
-    region_document["story"] = [{"name": "Leave home", "at": "Pilsau", "unlocks": ""},
-                                {"name": "Strength from the old man", "at": "Kaup", "unlocks": "strength"}]
-    gated_route = next(route for route in region_document["routes"] if route["name"] == "Route 2")
+def gated_region():
+    region_document = edit.generate_map(edit.generate_doc(3))
+    gated_route = route_between_two_towns(region_document)
+    start_town_name, far_town_name = (exit_record["to"] for exit_record in gated_route["exits"])
+    region_document["story"] = [{"name": "Leave home", "at": start_town_name, "unlocks": ""},
+                                {"name": "Strength from the old man", "at": far_town_name, "unlocks": "strength"}]
     gated_route["gate"] = {"needs": "strength", "after": 1}
     gated_route["pinned"] = True
-    return region_document
+    return {"document": region_document, "route_name": gated_route["name"], "start_town_name": start_town_name}
 
 
-def test_full_spec_carries_the_gate_and_its_entrance_into_the_region_block(gated_region_document):
-    gated_route = next(route for route in gated_region_document["routes"] if route["name"] == "Route 2")
+@pytest.fixture(scope="module")
+def gated_region_document(gated_region):
+    return gated_region["document"]
+
+
+def test_full_spec_carries_the_gate_and_its_entrance_into_the_region_block(gated_region, gated_region_document):
+    gated_route = next(route for route in gated_region_document["routes"] if route["name"] == gated_region["route_name"])
     full_spec = edit.full_spec(gated_region_document, gated_route["id"])
     gate_block = full_spec["gate"]
     entrance_exit = full_spec["exits"][gate_block["entrance"]]
@@ -236,24 +251,24 @@ def test_full_spec_carries_the_gate_and_its_entrance_into_the_region_block(gated
 
     assert gate_block["needs"] == "strength"
     assert gate_block["after_beat"] == "Strength from the old man"
-    assert gate_block["entrance_toward"] == "Tvangsburg"
+    assert gate_block["entrance_toward"] == gated_region["start_town_name"]
     assert entrance_exit["to"] == (region_exit_toward_entrance["to_map"] or "")
     assert full_spec["region"]["gate"] == gate_block
 
 
-def test_recomputing_routes_keeps_the_gate(gated_region_document):
+def test_recomputing_routes_keeps_the_gate(gated_region, gated_region_document):
     recomputed_document = edit.recompute(gated_region_document, ["routes"])
-    recomputed_route = next(route for route in recomputed_document["routes"] if route["name"] == "Route 2")
+    recomputed_route = next(route for route in recomputed_document["routes"] if route["name"] == gated_region["route_name"])
 
     assert recomputed_route["gate"] == {"needs": "strength", "after": 1}
-    assert recomputed_route["spec"]["gate"]["entrance_toward"] == "Tvangsburg"
+    assert recomputed_route["spec"]["gate"]["entrance_toward"] == gated_region["start_town_name"]
 
 
-def test_scene_generate_path_builds_the_gate_from_the_region_block(gated_region_document):
+def test_scene_generate_path_builds_the_gate_from_the_region_block(gated_region, gated_region_document):
     sys.path.insert(0, str(WEB_UI_DIRECTORY))
     import server
 
-    gated_route = next(route for route in gated_region_document["routes"] if route["name"] == "Route 2")
+    gated_route = next(route for route in gated_region_document["routes"] if route["name"] == gated_region["route_name"])
     full_spec = edit.full_spec(gated_region_document, gated_route["id"])
     bench_parameters = {"name": full_spec["name"], "seed": full_spec["seed"], "biome": full_spec["biome"],
                         "width": full_spec["size"][0], "height": full_spec["size"][1],
@@ -262,4 +277,4 @@ def test_scene_generate_path_builds_the_gate_from_the_region_block(gated_region_
 
     assert [gate_record["kind"] for gate_record in scene_route.gates] == ["story", "strength"]
     assert all(gate_record["built"] for gate_record in scene_route.gates)
-    assert {gate_record["toward"] for gate_record in scene_route.gates} == {"Tvangsburg"}
+    assert {gate_record["toward"] for gate_record in scene_route.gates} == {gated_region["start_town_name"]}

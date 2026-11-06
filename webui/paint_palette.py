@@ -92,7 +92,7 @@ def ark_palette() -> dict:
     tiler = ark_tiler()
     terrain = [ark_terrain_entry(tiler, letter, entry) for letter, entry in tiler.C.items()]
     unavailable = [{"code": code, "name": class_name(code),
-                    "reason": f"no Ark art; draws as {class_name(FALLBACK[code])}"}
+                    "reason": f"no PokeRoutes art; draws as {class_name(FALLBACK[code])}"}
                    for code in CLASS_NAMES if code not in tiler.C and code in FALLBACK and code != OBJECT_CLASS]
     objects = [ark_object_entry(prop_name, prop) for prop_name, prop in tiler.c.get("props", {}).items()]
     return {"tiler": "ark", "tileset": "ark", "terrain": sorted_terrain(terrain), "unavailable": unavailable,
