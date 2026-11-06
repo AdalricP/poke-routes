@@ -1551,9 +1551,17 @@
     if (tab === "scene") updateTitle();
     $("tbStageGroup").hidden = tab !== "scene";
     $("tbTilerGroup").hidden = tab !== "scene";
+    show_tiles_tab_only_in_scene(tab);
     $("tbGenerate").textContent = generate_button_label_for_view(tab);
     $("tbGenerate").title = generate_button_label_for_view(tab);
     syncNonSceneToolbar();
+  }
+  function show_tiles_tab_only_in_scene(center_tab) {
+    const tiles_tab_button = document.querySelector('[data-left-tab="tiles"]');
+    if (!tiles_tab_button) return;
+    const is_scene_view = center_tab === "scene";
+    tiles_tab_button.hidden = !is_scene_view;
+    if (!is_scene_view && !$("leftTiles").hidden) show_left_tab("hierarchy");
   }
   function generate_button_label_for_view(center_tab) {
     switch (center_tab) {
