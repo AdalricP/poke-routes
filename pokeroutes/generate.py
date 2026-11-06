@@ -396,6 +396,13 @@ def stage_route_gate(route: Route) -> None:
     build_route_gates(route)
 
 
+def stage_biome_blend(route: Route) -> None:
+    from .biome_blend import blend_biomes_per_region_cell
+    from .walkability_guard import run_keeping_walkability
+
+    run_keeping_walkability(route, "biome blend", blend_biomes_per_region_cell)
+
+
 def stage_open_land(route: Route) -> None:
     from .open_land import open_land_by_woodland
     from .walkability_guard import run_keeping_walkability
@@ -501,6 +508,7 @@ STAGES: List[Tuple[str, Callable[[Route], None]]] = [
     ("seams", stage_seams),
     ("bridges", stage_bridges),
     ("shores", stage_shores),
+    ("biome blend", stage_biome_blend),
     ("open land", stage_open_land),
     ("woodland terraces", stage_woodland_terraces),
     ("worn paths", stage_worn_paths),
