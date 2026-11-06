@@ -390,6 +390,12 @@ def stage_route_gate(route: Route) -> None:
     build_route_gates(route)
 
 
+def stage_seams(route: Route) -> None:
+    from .seams import stage_seams as stamp_seam_bands_shared_with_neighbours
+
+    stamp_seam_bands_shared_with_neighbours(route)
+
+
 STAGES: List[Tuple[str, Callable[[Route], None]]] = [
     ("base", stage_base),
     ("skeleton", stage_skeleton),
@@ -411,6 +417,7 @@ STAGES: List[Tuple[str, Callable[[Route], None]]] = [
     ("rivers", stage_rivers_restored),
     ("surf", stage_surf_crossings),
     ("gate", stage_route_gate),
+    ("seams", stage_seams),
 ]
 
 

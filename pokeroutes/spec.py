@@ -29,6 +29,7 @@ class Exit:
     at: float = 0.5  # 0..1 along that side
     width: int = 3
     to: str = ""  # map constant this exit connects to
+    offset: Optional[int] = None
 
 
 @dataclass
