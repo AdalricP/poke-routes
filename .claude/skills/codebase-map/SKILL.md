@@ -54,6 +54,7 @@ Use this instead of exploring with grep/sed. Jump straight to the file and funct
    - `write_scene` (scene.json), `report` (report.json)
    - Route `effect` (none/leaves/snow/rain/ash) → Emerald weather and notes: `pokeroutes/route_effects.py`. The Scene draws it as a particle overlay (bench.js, `tick_route_effect`).
    - People sprites: `pokeroutes/route_people.py` (npc role / trainer → Ark route-people `OBJ_EVENT_GFX_ARK_ROUTE_*` on Ark maps when the ROM defines them, stock ids otherwise). The Routes view reads the same sheets through `webui/route_items.py` (`/api/sprite.png?kind=npc_<role>|trainer|trainer_f`).
+   - People, signs and events placed by hand: `pokeroutes/people_and_signs.py` (person/sign entries → object/bg events, scripts, trainers.party stub), `pokeroutes/route_events.py` ("when trigger then effects" rules → FLAG_PR_EVENT_* flags, ON_LOAD / ON_TRANSITION map scripts, trigger scripts, EVENTS_README.txt), glued into `write_emerald` by `pokeroutes/hand_authored_export.py` (reads `route.__dict__["hand_people_and_signs"]` and `["event_rules"]`). Server: `webui/people_and_events_api.py` (`/api/people-options`, `/api/sprite.png?kind=gfx_<OBJ_EVENT_GFX_*>`, `/api/route-people`, `/api/route-events`). UI: `static/route-people.js` (People & signs tool, P), `static/events.js` (Events tab in the bottom dock), pure logic in `static/people-events-logic.js`. Agent tools: `list_events`, `save_event`, `delete_event`, `list_people_and_signs`, `place_people_and_signs`, `apply_events` in `route_tools.py`.
    - `debug_image` (plan.png), `stage_sheet` (stages.png), `grade_for_biome`
 8. **CLI**: `pokeroutes/cli.py`. `_generate_and_write` is the whole route path end to end.
    - `python3 -m pokeroutes generate SPEC [-o OUT] [--seed N] [--stages] [--tileset learned|ark]`
@@ -123,6 +124,7 @@ node webui/tests/shell-logic.test.js        # shell pure logic
 node webui/tests/editor-logic.test.js       # region editor pure logic
 node webui/tests/tile-editor-logic.test.js  # tile editor pure logic
 node webui/tests/playtest-logic.test.js     # play-test movement, collision, encounters
+node webui/tests/people-events-logic.test.js  # people, signs and events pure logic
 node --check webui/static/<changed>.js
 python3 -m pokeroutes generate examples/bernsteinweg.yaml   # also erlenbruch.yaml, kiefernheide.yaml
 ```

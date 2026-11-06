@@ -10,8 +10,9 @@ without restarting anything. Output goes under out/agent/ (gitignored). No netwo
 
 Tools: list_specs, spec_fields, generate_route, route_stats, crop_route_image, route_grid,
 paint_route, save_spec, show_in_editor, generate_world, generate_region, tilers,
-check_examples, check_web_ui, screenshot_web_ui, and the tile editor's tile_sheet, tile_read, tile_edit,
-tile_coalesce (webui/tile_agent_tools.py). Generated routes are kept in memory by id.
+check_examples, check_web_ui, screenshot_web_ui, list_events, save_event, delete_event,
+list_people_and_signs, place_people_and_signs, apply_events, and the tile editor's tile_sheet, tile_read,
+tile_edit, tile_coalesce (webui/tile_agent_tools.py). Generated routes are kept in memory by id.
 """
 from __future__ import annotations
 
@@ -570,6 +571,138 @@ def screenshot_web_ui(a):
     return screenshot_result
 
 
+default_events_file = "out/agent/events.json"
+
+
+def events_store_path(tool_arguments: dict) -> Path:
+    region_name = str(tool_arguments.get("region") or "").strip()
+    if not region_name:
+        return _inside(str(tool_arguments.get("file") or default_events_file))
+    region_file = _inside(f"region_out/{region_name}/region.json", ROOT / "region_out")
+    if not region_file.is_file():
+        raise ValueError(f"no saved region {region_name!r}; save it from the Map view first")
+    return region_file
+
+
+def read_event_rules(store_path: Path) -> list:
+    if not store_path.is_file():
+        return []
+    stored = json.loads(store_path.read_text())
+    if store_path.name == "region.json":
+        return list((stored.get("editor") or {}).get("events") or [])
+    return stored if isinstance(stored, list) else []
+
+
+def write_event_rules(store_path: Path, rules: list) -> None:
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    if store_path.name != "region.json":
+        store_path.write_text(json.dumps(rules, indent=1))
+        return
+    stored = json.loads(store_path.read_text())
+    if "editor" not in stored:
+        raise ValueError(f"{store_path} has no editor document; save the region from the Map view first")
+    stored["editor"]["events"] = rules
+    store_path.write_text(json.dumps(stored, ensure_ascii=False))
+
+
+def described_rules(rules: list) -> list:
+    from pokeroutes import route_events
+
+    descriptions = [{"rule": rule, "description": route_events.describe_rule(rule)} for rule in rules]
+    return descriptions
+
+
+def list_events(a):
+    from pokeroutes import route_events
+
+    store_path = events_store_path(a)
+    rules, rejected = route_events.normalized_rules(read_event_rules(store_path))
+    listed_events = {"store": str(store_path.relative_to(ROOT)), "events": described_rules(rules), "invalid": rejected,
+                     "triggers": route_events.TRIGGER_FIELDS, "effects": route_events.EFFECT_FIELDS,
+                     "field_moves": list(route_events.FIELD_MOVE_CONSTANTS), "added_objects": list(route_events.ADDED_OBJECT_KINDS),
+                     "tile_targets": list(route_events.TILE_TARGET_CLASSES)}
+    return listed_events
+
+
+def save_event(a):
+    from pokeroutes import route_events
+
+    store_path = events_store_path(a)
+    rules, _rejected = route_events.normalized_rules(read_event_rules(store_path))
+    raw_rule = a.get("rule") or {}
+    rule_id = str(raw_rule.get("id") or "")
+    if rule_id and any(rule["id"] == rule_id for rule in rules):
+        rules_after, saved_rule = route_events.rules_with_rule_replaced(rules, rule_id, raw_rule)
+    else:
+        rules_after, saved_rule = route_events.rules_with_rule_added(rules, raw_rule)
+    write_event_rules(store_path, rules_after)
+    saved_event = {"store": str(store_path.relative_to(ROOT)), "saved": saved_rule,
+                   "description": route_events.describe_rule(saved_rule), "count": len(rules_after)}
+    return saved_event
+
+
+def delete_event(a):
+    from pokeroutes import route_events
+
+    store_path = events_store_path(a)
+    rules, _rejected = route_events.normalized_rules(read_event_rules(store_path))
+    rules_after = route_events.rules_without_rule(rules, str(a.get("id") or ""))
+    write_event_rules(store_path, rules_after)
+    deleted_event = {"store": str(store_path.relative_to(ROOT)), "deleted": a.get("id"), "count": len(rules_after)}
+    return deleted_event
+
+
+def generated_people_and_signs_with_text(route, tiler_name: str) -> list:
+    import people_and_events_api
+    from pokeroutes import route_people
+
+    uses_ark_people = tiler_name == "ark" and route_people.ark_people_available()
+    generated_entries = people_and_events_api.generated_people_and_signs(route, uses_ark_people)
+    return generated_entries
+
+
+def list_people_and_signs(a):
+    from pokeroutes import hand_authored_export
+
+    route_id, (_route_spec, route, tiler_name) = _get(a)
+    listed = {"id": route_id, "placed": hand_authored_export.hand_entries_of(route),
+              "generated": generated_people_and_signs_with_text(route, tiler_name)}
+    return listed
+
+
+def place_people_and_signs(a):
+    from pokeroutes import hand_authored_export, people_and_signs
+
+    route_id, (route_spec, route, tiler_name) = _get(a)
+    entries = a.get("entries")
+    if not isinstance(entries, list):
+        raise ValueError("entries must be a list of people / signs (see the tool description)")
+    replaceable_kinds = people_and_signs.GENERATED_KINDS_THAT_HAND_ENTRIES_REPLACE
+    generated_cells = {(int(event.y), int(event.x)) for event in route.events if event.kind in replaceable_kinds}
+    other_cells = {(int(event.y), int(event.x)) for event in route.events if event.kind not in replaceable_kinds}
+    placement = people_and_signs.place_entries(entries, route.cls, generated_cells, other_cells)
+    route.__dict__[hand_authored_export.HAND_ENTRIES_KEY] = placement.placed
+    written_route = _write(route_id, route_spec, route, tiler_name)
+    placed_result = {"id": route_id, "placed": placement.placed, "skipped": placement.skipped,
+                     "emerald_dir": written_route["emerald_dir"]}
+    return placed_result
+
+
+def apply_events(a):
+    from pokeroutes import hand_authored_export, route_events
+
+    route_id, (route_spec, route, tiler_name) = _get(a)
+    rules, rejected = route_events.normalized_rules(read_event_rules(events_store_path(a)))
+    route.__dict__[hand_authored_export.EVENT_RULES_KEY] = rules
+    written_route = _write(route_id, route_spec, route, tiler_name)
+    emerald_dir = Path(written_route["emerald_dir"])
+    readme_path = emerald_dir / hand_authored_export.EVENTS_README_PATH
+    applied = {"id": route_id, "rules": len(rules), "invalid": rejected, "emerald_dir": str(emerald_dir),
+               "scripts": str(emerald_dir / "data/maps" / route_spec.id / "scripts.inc"),
+               "readme": readme_path.read_text() if readme_path.is_file() else ""}
+    return applied
+
+
 S, I, N, O = {"type": "string"}, {"type": "integer"}, {"type": "number"}, {"type": "object"}
 TOOLS = {
     "list_specs": (list_specs, "List route spec files (examples/, region_out/) and routes generated in this session.", {}),
@@ -625,6 +758,29 @@ TOOLS = {
                           "(Chrome, Chromium, Brave or Edge) and return the PNG path to Read. The editor generates its "
                           "default route on load, so wait_ms 8000 shows a finished scene.",
                           {"path": {**S, "description": "page path, default /"}, "width": I, "height": I, "wait_ms": I}),
+    "list_events": (list_events, "The region's event rules (\"when <trigger> then <effects>\") with a sentence for each, plus "
+                    "the trigger / effect vocabulary. Rules live in region_out/<region>/region.json (give region: the saved "
+                    "region's name, shared with the editor's Events panel) or in a JSON file (file, default "
+                    "out/agent/events.json).", {"region": S, "file": S}),
+    "save_event": (save_event, "Add an event rule, or replace the one with the same id. Rule: {id?, when: {type, ...}, then: "
+                   "[{type, ...}]}. Triggers: defeat_trainer / talk_to {route, person (a placed person id like p1)}, step_on / "
+                   "press_button {route, x, y}, field_move {route, x, y, move: cut|surf|strength|rock_smash|waterfall|dive|"
+                   "rock_climb|flash|dig|defog|earthquake|headbutt}, story_beat {beat}. Effects: remove_object / show_object "
+                   "{route, x, y | person}, add_objects {route, cells: [[x, y]...], object: rock|boulder|cut_tree}, "
+                   "change_tiles {route, cells, to: ground|path|tall_grass|rock|tree|water|sand}, set_flag {flag}, set_var "
+                   "{var, value}. Routes are route names.", {"region": S, "file": S, "rule": O}),
+    "delete_event": (delete_event, "Delete an event rule by id.", {"region": S, "file": S, "id": S}),
+    "list_people_and_signs": (list_people_and_signs, "People and signs on a generated route: the ones placed by hand and the "
+                              "generator's own, with the text they say.", {"id": S}),
+    "place_people_and_signs": (place_people_and_signs, "Replace the hand-placed people and signs of a generated route and "
+                               "re-export it. Entries: {kind: person, id?, x, y, name, sprite: OBJ_EVENT_GFX_*, facing: "
+                               "down|up|left|right, movement: still|look_around|wander, text, trainer: null | {trainer_class: "
+                               "TRAINER_CLASS_*, team: [{species, level}], defeat_text, after_text}}, {kind: sign, x, y, text}, "
+                               "{kind: removed, x, y} (drops the generator's person or sign there). A blank line in text starts "
+                               "a new text box.", {"id": S, "entries": {"type": "array", "items": O}}),
+    "apply_events": (apply_events, "Put the event rules (from region or file) on a generated route and re-export it: its "
+                     "scripts.inc gets the flags, map scripts and trigger scripts, and EVENTS_README.txt lists the "
+                     "manual wiring.", {"id": S, "region": S, "file": S}),
     "check_examples": (check_examples, "Run the three example specs through the CLI (the standard check before "
                        "committing) and report which pass.", {}),
 }

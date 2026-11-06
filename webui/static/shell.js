@@ -63,6 +63,7 @@
     $("paneConsole").hidden = layout.bottom.tab !== "console";
     $("paneImprove").hidden = layout.bottom.tab !== "improve";
     $("paneAgent").hidden = layout.bottom.tab !== "agent";
+    $("paneEvents").hidden = layout.bottom.tab !== "events";
     resizeCbs.forEach((f) => f(rects));
   }
 

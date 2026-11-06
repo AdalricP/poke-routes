@@ -354,7 +354,7 @@
   }
   function entryLabel(e) {
     if (e.kind === "paint") return `paint (${e.cells.length} cells)`;
-    if (e.kind === "items") return e.label;
+    if (e.kind === "items" || e.kind === "people" || e.kind === "events") return e.label;
     const k = String(e.key || e.label || "").split(":")[0];
     return k ? `change to ${k.replace(/_/g, " ")}` : "change";
   }
@@ -367,6 +367,10 @@
       if (state.result && state.result.id === e.id && await retile(side === "before" ? e.old : e.cells, true)) storePaint(state.result, e[side]);
     } else if (e.kind === "items") {
       route_items.restore(e[side]);
+    } else if (e.kind === "people") {
+      route_people.restore(e[side]);
+    } else if (e.kind === "events") {
+      route_events.restore(e[side]);
     }
   }
 
@@ -383,6 +387,17 @@
     state, $, el, log, sget, sset, fetchJSON, postJSON, undoStack, select: (sel) => select(sel), draw: () => draw(),
     refresh: () => { renderTree(); renderSelection(); route_items.update_count(); draw(); },
   });
+  const route_people = window.RoutePeople.create({
+    state, $, el, log, sget, sset, fetchJSON, postJSON, undoStack, select: (sel) => select(sel), draw: () => draw(),
+    refresh: () => { renderTree(); renderSelection(); draw(); },
+    has_placed_item_at: (x, y) => route_items.index_at(x, y) >= 0, event_rules: () => route_events.rules(),
+  });
+  const route_events = window.RouteEvents.create({
+    state, $, el, log, sget, sset, postJSON, undoStack, draw: () => draw(), status: (text) => Shell.status(text),
+    region_document: () => open_region_document(), current_people: () => route_people.people(),
+    person_at: (x, y) => route_people.person_at(x, y),
+  });
+  Shell.onBottom((tab) => { if (tab === "events") route_events.render(); });
 
   window.addEventListener("pokeroutes:tileset-saved", () => { state.atlases = {}; state.palettes = {}; });
 
@@ -447,7 +462,7 @@
       state.atlas = atlas;
       await load_paint_palette(res);
       state.sel = null;
-      undoStack.filter((e) => e.kind !== "paint" && e.kind !== "items");
+      undoStack.filter((e) => e.kind !== "paint" && e.kind !== "items" && e.kind !== "people");
       buildCanvases();
       state.stage = res.stages.length - 1;
       state.prevStage = null;
@@ -462,6 +477,8 @@
       // a fresh map starts unpainted; only the page-load generate puts the last paint back
       if (opts && opts.keepPaint) { updatePaintCount(); await reapplyPaint(); } else storePaint(res, {});
       await route_items.on_new_route(res);
+      await route_people.on_new_route(res);
+      route_events.on_new_route(res);
       if (prefs.playOnGenerate && !(opts && opts.auto) && res.stages.length > 1) { setStage(0, false); startPlay(); }
       else setStage(res.stages.length - 1, false);
       updateTitle();
@@ -744,8 +761,14 @@
     wrap.classList.remove("dragging");
     if (!d) return;
     if (d.mode === "paint") { commitPaint(); return; }
-    if (d.select && !d.moved) { const { sx, sy } = pt(ev); if (state.tool === "item") route_items.click(cellOf(sx, sy)); else pickAt(sx, sy); }
+    if (d.select && !d.moved) { const { sx, sy } = pt(ev); click_scene_cell(sx, sy); }
   });
+  function click_scene_cell(sx, sy) {
+    if (route_events.pick_cell(cellOf(sx, sy))) return;
+    if (state.tool === "item") { route_items.click(cellOf(sx, sy)); return; }
+    if (state.tool === "people") { route_people.click(cellOf(sx, sy)); return; }
+    pickAt(sx, sy);
+  }
   wrap.addEventListener("pointercancel", () => { drag = null; wrap.classList.remove("dragging"); state.paint.cells = new Map(); draw(); });
   wrap.addEventListener("contextmenu", (ev) => ev.preventDefault());
   wrap.addEventListener("dblclick", () => { if (state.sel) focusSel(); });
@@ -825,6 +848,7 @@
     let hit = null;
     const placed_index = state.ov.events ? route_items.index_at(c.x, c.y) : -1;
     if (placed_index >= 0) hit = { type: "placed", i: placed_index };
+    if (!hit && state.ov.events) hit = route_people.pick_at(c);
     if (!hit && state.ov.events) {
       const i = evs.findIndex((e) => e.x === c.x && e.y === c.y);
       if (i >= 0) hit = { type: "event", i };
@@ -1090,7 +1114,9 @@
     const s = CELL * zoom;
     if (state.ov.grid && s >= 8) drawGrid(g, r, ox, oy, s);
     const zones = PR.zonesAt(r, state.stage);
-    if (state.ov.markings && state.ov.events) drawEvents(g, PR.eventsAt(r, state.stage).concat(route_items.visible_items()), ox, oy, s);
+    if (state.ov.markings && state.ov.events) drawEvents(g, PR.eventsAt(r, state.stage).filter((e) => !route_people.hides_generated_event(e)).concat(route_items.visible_items()), ox, oy, s);
+    if (state.ov.markings && state.ov.events) route_people.draw(g, ox, oy, s);
+    if (state.ov.markings) route_events.draw(g, ox, oy, s);
     if (state.ov.markings && state.ov.areas) drawAreas(g, zones, ox, oy, s);
     if (!opt.interactive) return;
     if (state.ov.markings) drawSelection(g, ox, oy, s);
@@ -1367,6 +1393,7 @@
     $("paintOpts").hidden = t !== "paint";
     $("stampOpts").hidden = t !== "stamp";
     $("itemOpts").hidden = t !== "item";
+    $("peopleOpts").hidden = t !== "people";
     wrap.className = "view scene tool-" + t;
     if (t === "paint" || t === "stamp") { canPaint(true); updatePaintCount(); }
     if (t === "paint") { updateLedgeUI(); show_left_tab("tiles"); }
@@ -1389,6 +1416,7 @@
     if (sel.type === "event") { const e = r.events[sel.i]; return e && [e.x - 2, e.y - 2, e.x + 3, e.y + 3]; }
     if (sel.type === "exit") { const x = r.exits[sel.i]; return x && x.cells.length ? bboxOf(x.cells) : null; }
     if (sel.type === "placed") return route_items.selected_box();
+    if (route_people.is_selection(sel)) return route_people.selected_box();
     return null;
   }
   function presentAt(sel) {
@@ -1481,6 +1509,7 @@
       return;
     }
     if (sel.type === "placed") { route_items.render_selection(box, { title, kv, actions }); return; }
+    if (route_people.is_selection(sel)) { route_people.render_selection(box, { title, kv, actions }); return; }
     if (sel.type === "exit") {
       const x = r.exits[sel.i];
       if (!x) return;
@@ -1542,6 +1571,7 @@
         { id: "g:places", label: "Clearings & lakes", meta: String(places.length), group: true, children: places },
         { id: "g:items", label: "Items & events", meta: String(r.events.length), group: true, children: items },
         { id: "g:placed", label: "Placed items", meta: String(route_items.tree_nodes().length), group: true, children: route_items.tree_nodes() },
+        { id: "g:people", label: "People & signs", meta: String(route_people.tree_nodes().length), group: true, children: route_people.tree_nodes() },
         { id: "g:layers", label: "Layers", group: true, children: layers },
       ],
     };
@@ -1550,7 +1580,7 @@
   const selId = () => {
     const s = state.sel;
     if (!s) return "";
-    return s.type === "route" ? "route" : s.type === "zone" ? "z:" + s.i : s.type === "event" ? "e:" + s.i : s.type === "exit" ? "x:" + s.i : s.type === "placed" ? "p:" + s.i : "";
+    return s.type === "route" ? "route" : s.type === "zone" ? "z:" + s.i : s.type === "event" ? "e:" + s.i : s.type === "exit" ? "x:" + s.i : s.type === "placed" ? "p:" + s.i : route_people.is_selection(s) ? route_people.tree_id(s) : "";
   };
 
   function renderTree() {
@@ -2411,8 +2441,10 @@
   const toolKey = (t, label) => ({ id: "tool-" + t, label, group: "Scene tools", enabled: isScene, run: () => setTool(t) });
   const extras = [
     toolKey("select", "Select tool"), toolKey("pan", "Pan tool"), toolKey("paint", "Paint tool"), toolKey("stamp", "Stamp tool"),
-    toolKey("item", "Item tool"),
-    { id: "x-item-delete", label: "Delete placed item", group: "Scene tools", enabled: () => isScene() && route_items.has_selection(), run: () => route_items.delete_selected() },
+    toolKey("item", "Item tool"), toolKey("people", "People & signs tool"),
+    { id: "x-item-delete", label: "Delete placed item, person or sign", group: "Scene tools",
+      enabled: () => isScene() && (route_items.has_selection() || route_people.has_selection()),
+      run: () => (route_items.has_selection() ? route_items.delete_selected() : route_people.delete_selected()) },
     { id: "x-zin", label: "Zoom in", group: "Scene view", enabled: sceneRoute, run: () => zoomBy(1) },
     { id: "x-zout", label: "Zoom out", group: "Scene view", enabled: sceneRoute, run: () => zoomBy(-1) },
     { id: "x-zfit", label: "Fit to view", group: "Scene view", enabled: sceneRoute, run: fit },
