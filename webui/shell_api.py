@@ -115,6 +115,10 @@ def _redirect(h, where: str):
 def handle(h, method: str, u, srv) -> bool:
     """Serve the request and return True, or return False to let server.py handle it."""
     q = parse_qs(u.query)
+    import route_items
+
+    if route_items.handle(h, method, u, q, srv):
+        return True
     if method == "GET":
         if u.path in ("/", ""):
             return h._send(200, (STATIC / "shell.html").read_bytes(), "text/html; charset=utf-8") or True

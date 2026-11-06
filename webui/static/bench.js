@@ -300,6 +300,7 @@
   }
   function entryLabel(e) {
     if (e.kind === "paint") return `paint (${e.cells.length} cells)`;
+    if (e.kind === "items") return e.label;
     const k = String(e.key || e.label || "").split(":")[0];
     return k ? `change to ${k.replace(/_/g, " ")}` : "change";
   }
@@ -310,6 +311,8 @@
       autoGenerate();
     } else if (e.kind === "paint") {
       if (state.result && state.result.id === e.id && await retile(side === "before" ? e.old : e.cells, true)) storePaint(state.result, e[side]);
+    } else if (e.kind === "items") {
+      route_items.restore(e[side]);
     }
   }
 
@@ -322,6 +325,10 @@
     return body;
   }
   const postJSON = (url, body) => fetchJSON(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const route_items = window.RouteItems.create({
+    state, $, el, log, sget, sset, fetchJSON, postJSON, undoStack, select: (sel) => select(sel), draw: () => draw(),
+    refresh: () => { renderTree(); renderSelection(); route_items.update_count(); draw(); },
+  });
 
   async function atlasFor(url) {
     if (state.atlases[url]) return state.atlases[url];
@@ -384,7 +391,7 @@
       state.atlas = atlas;
       await load_paint_palette(res);
       state.sel = null;
-      undoStack.filter((e) => e.kind !== "paint");
+      undoStack.filter((e) => e.kind !== "paint" && e.kind !== "items");
       buildCanvases();
       state.stage = res.stages.length - 1;
       state.prevStage = null;
@@ -398,6 +405,7 @@
       reportToConsole(res, (performance.now() - t0) / 1000);
       // a fresh map starts unpainted; only the page-load generate puts the last paint back
       if (opts && opts.keepPaint) { updatePaintCount(); await reapplyPaint(); } else storePaint(res, {});
+      await route_items.on_new_route(res);
       if (prefs.playOnGenerate && !(opts && opts.auto) && res.stages.length > 1) { setStage(0, false); startPlay(); }
       else setStage(res.stages.length - 1, false);
       updateTitle();
@@ -531,6 +539,7 @@
     animLast = t;
     animFrame++;
     draw_tile_animation_frame();
+    if (route_items.has_glitter()) draw();
   }
   function draw_tile_animation_frame() {
     const cells = state.animCells[state.stage];
@@ -564,6 +573,7 @@
     tile_animation.is_playing = false;
     animFrame = Math.max(0, animFrame + frame_delta);
     draw_tile_animation_frame();
+    draw();
     sync_tile_animation_buttons();
   }
   function change_tile_animation_speed(speed_step) {
@@ -678,7 +688,7 @@
     wrap.classList.remove("dragging");
     if (!d) return;
     if (d.mode === "paint") { commitPaint(); return; }
-    if (d.select && !d.moved) { const { sx, sy } = pt(ev); pickAt(sx, sy); }
+    if (d.select && !d.moved) { const { sx, sy } = pt(ev); if (state.tool === "item") route_items.click(cellOf(sx, sy)); else pickAt(sx, sy); }
   });
   wrap.addEventListener("pointercancel", () => { drag = null; wrap.classList.remove("dragging"); state.paint.cells = new Map(); draw(); });
   wrap.addEventListener("contextmenu", (ev) => ev.preventDefault());
@@ -757,7 +767,9 @@
     const nz = zones.length;
     const evs = PR.eventsAt(r, state.stage);
     let hit = null;
-    if (state.ov.events) {
+    const placed_index = state.ov.events ? route_items.index_at(c.x, c.y) : -1;
+    if (placed_index >= 0) hit = { type: "placed", i: placed_index };
+    if (!hit && state.ov.events) {
       const i = evs.findIndex((e) => e.x === c.x && e.y === c.y);
       if (i >= 0) hit = { type: "event", i };
     }
@@ -992,7 +1004,7 @@
     const s = CELL * zoom;
     if (state.ov.grid && s >= 8) drawGrid(g, r, ox, oy, s);
     const zones = PR.zonesAt(r, state.stage);
-    if (state.ov.markings && state.ov.events) drawEvents(g, PR.eventsAt(r, state.stage), ox, oy, s);
+    if (state.ov.markings && state.ov.events) drawEvents(g, PR.eventsAt(r, state.stage).concat(route_items.visible_items()), ox, oy, s);
     if (state.ov.markings && state.ov.areas) drawAreas(g, zones, ox, oy, s);
     if (!opt.interactive) return;
     if (state.ov.markings) drawSelection(g, ox, oy, s);
@@ -1044,6 +1056,7 @@
   function drawEvents(g, events, ox, oy, s) {
     const rad = Math.max(3.5, Math.min(7, s * 0.3));
     for (const e of events) {
+      if (route_items.draw_event_sprite(g, e, ox, oy, s, animFrame)) continue;
       const cx = ox + (e.x + 0.5) * s, cy = oy + (e.y + 0.5) * s;
       g.lineWidth = 1.5;
       g.strokeStyle = "#1b1a17";
@@ -1117,6 +1130,9 @@
     } else if (sel.type === "event") {
       const e = r.events[sel.i];
       if (e) { g.beginPath(); g.arc(ox + (e.x + 0.5) * s, oy + (e.y + 0.5) * s, Math.max(7, s * 0.6), 0, Math.PI * 2); g.stroke(); }
+    } else if (sel.type === "placed") {
+      const item = route_items.selected_item();
+      if (item) g.strokeRect(ox + item.x * s - 1.5, oy + item.y * s - 1.5, s + 3, s + 3);
     } else if (sel.type === "exit") {
       const x = r.exits[sel.i];
       if (x && x.cells.length) {
@@ -1264,6 +1280,7 @@
     document.querySelectorAll("[data-tool]").forEach((b) => { b.classList.toggle("on", b.dataset.tool === t); b.setAttribute("aria-pressed", b.dataset.tool === t); });
     $("paintOpts").hidden = t !== "paint";
     $("stampOpts").hidden = t !== "stamp";
+    $("itemOpts").hidden = t !== "item";
     wrap.className = "view scene tool-" + t;
     if (t === "paint" || t === "stamp") { canPaint(true); updatePaintCount(); }
     if (t === "paint") { updateLedgeUI(); show_left_tab("tiles"); }
@@ -1285,6 +1302,7 @@
     if (sel.type === "zone") { const z = r.zones[sel.i]; return z && (z.bbox || bboxOf(z.cells)); }
     if (sel.type === "event") { const e = r.events[sel.i]; return e && [e.x - 2, e.y - 2, e.x + 3, e.y + 3]; }
     if (sel.type === "exit") { const x = r.exits[sel.i]; return x && x.cells.length ? bboxOf(x.cells) : null; }
+    if (sel.type === "placed") return route_items.selected_box();
     return null;
   }
   function presentAt(sel) {
@@ -1333,6 +1351,7 @@
       f.onclick = focusSel;
       a.append(f);
       box.append(a);
+      return a;
     };
     if (sel.type === "route") {
       title(r.name, "#4d90d6");
@@ -1374,6 +1393,7 @@
       actions();
       return;
     }
+    if (sel.type === "placed") { route_items.render_selection(box, { title, kv, actions }); return; }
     if (sel.type === "exit") {
       const x = r.exits[sel.i];
       if (!x) return;
@@ -1434,6 +1454,7 @@
         { id: "g:special", label: "Special areas", meta: String(special.length), group: true, children: special },
         { id: "g:places", label: "Clearings & lakes", meta: String(places.length), group: true, children: places },
         { id: "g:items", label: "Items & events", meta: String(r.events.length), group: true, children: items },
+        { id: "g:placed", label: "Placed items", meta: String(route_items.tree_nodes().length), group: true, children: route_items.tree_nodes() },
         { id: "g:layers", label: "Layers", group: true, children: layers },
       ],
     };
@@ -1442,7 +1463,7 @@
   const selId = () => {
     const s = state.sel;
     if (!s) return "";
-    return s.type === "route" ? "route" : s.type === "zone" ? "z:" + s.i : s.type === "event" ? "e:" + s.i : s.type === "exit" ? "x:" + s.i : "";
+    return s.type === "route" ? "route" : s.type === "zone" ? "z:" + s.i : s.type === "event" ? "e:" + s.i : s.type === "exit" ? "x:" + s.i : s.type === "placed" ? "p:" + s.i : "";
   };
 
   function renderTree() {
@@ -2251,6 +2272,8 @@
   const toolKey = (t, label) => ({ id: "tool-" + t, label, group: "Scene tools", enabled: isScene, run: () => setTool(t) });
   const extras = [
     toolKey("select", "Select tool"), toolKey("pan", "Pan tool"), toolKey("paint", "Paint tool"), toolKey("stamp", "Stamp tool"),
+    toolKey("item", "Item tool"),
+    { id: "x-item-delete", label: "Delete placed item", group: "Scene tools", enabled: () => isScene() && route_items.has_selection(), run: () => route_items.delete_selected() },
     { id: "x-zin", label: "Zoom in", group: "Scene view", enabled: sceneRoute, run: () => zoomBy(1) },
     { id: "x-zout", label: "Zoom out", group: "Scene view", enabled: sceneRoute, run: () => zoomBy(-1) },
     { id: "x-zfit", label: "Fit to view", group: "Scene view", enabled: sceneRoute, run: fit },

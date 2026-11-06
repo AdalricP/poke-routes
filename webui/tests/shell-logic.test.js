@@ -109,7 +109,7 @@ function skeleton() {
     { label: "Window", items: ids(["w-scene", "w-reset"]) },
     { label: "Help", items: ids(["keys", "about"]) },
   ];
-  const extra = ids(["tool-select", "tool-pan", "tool-paint", "tool-stamp", "tool-tile", "x-zin", "x-zout", "x-zfit", "x-help", "x-ledge-rot"]);
+  const extra = ids(["tool-select", "tool-pan", "tool-paint", "tool-stamp", "tool-tile", "x-zin", "x-zout", "x-zfit", "x-help", "x-ledge-rot", "tool-item", "x-item-delete"]);
   SL.attachShortcuts(menus, extra);
   return { menus, extra };
 }
@@ -443,3 +443,33 @@ test("paint palette brushes: kinds, ledges, tree blocks, objects, exact tiles", 
 });
 
 console.log(`shell-logic: ${n} tests passed`);
+
+test("placed items: one per cell, edit, remove, remembered per route", () => {
+  const ball = { kind: "item_ball", x: 3, y: 4, item: "ITEM_POTION" };
+  let items = SL.place_item([], ball);
+  items = SL.place_item(items, { kind: "hidden_item", x: 5, y: 6, item: "ITEM_NUGGET" });
+  items = SL.place_item(items, { kind: "hidden_item", x: 3, y: 4, item: "ITEM_ETHER" });
+  assert.strictEqual(items.length, 2);
+  assert.strictEqual(SL.placed_item_index(items, 3, 4), 1);
+  assert.strictEqual(items[1].item, "ITEM_ETHER");
+  items = SL.update_placed_item(items, 0, { item: "ITEM_PEARL" });
+  assert.strictEqual(items[0].item, "ITEM_PEARL");
+  assert.strictEqual(SL.remove_placed_item(items, 0).length, 1);
+  let memory = SL.remember_placed_items({}, "Route|48x80", items);
+  assert.strictEqual(memory["Route|48x80"].length, 2);
+  memory = SL.remember_placed_items(memory, "Route|48x80", []);
+  assert.deepStrictEqual(memory, {});
+});
+
+test("placed items: a regenerate shows what fit and remembers what did not", () => {
+  const remembered = [
+    { kind: "item_ball", x: 1, y: 1, item: "ITEM_POTION" },
+    { kind: "hidden_item", x: 2, y: 2, item: "ITEM_NUGGET" },
+    { kind: "item_ball", x: 3, y: 3, item: "ITEM_ETHER" },
+  ];
+  const result = { placed: [remembered[0], remembered[2]], skipped: [{ item: remembered[1], reason: "cell is not walkable" }] };
+  const merged = SL.merge_placement_result(remembered, result);
+  assert.deepStrictEqual(merged.shown, [remembered[0], remembered[2]]);
+  assert.deepStrictEqual(merged.remembered, remembered);
+  assert.deepStrictEqual(SL.merge_placement_result(remembered, null).shown, []);
+});
