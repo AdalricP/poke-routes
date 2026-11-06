@@ -42,11 +42,17 @@ def run_keeping_walkability(route, stage_name: str, change_route: Callable) -> N
     if not route.exits:
         change_route(route)
         return
+    from .scenery_layer import DRAWN_CLASS_KEY, PLACED_PROPS_KEY
+
     classes_before = route.cls.copy()
+    drawn_classes_before = dict(route.__dict__.get(DRAWN_CLASS_KEY) or {})
+    placed_props_before = list(route.__dict__.get(PLACED_PROPS_KEY) or [])
     summary_before = walkability_summary(route)
     change_route(route)
     summary_after = walkability_summary(route)
     if is_no_worse(summary_before, summary_after):
         return
     route.cls[:] = classes_before
+    route.__dict__[DRAWN_CLASS_KEY] = drawn_classes_before
+    route.__dict__[PLACED_PROPS_KEY] = placed_props_before
     route.log.append(f"{stage_name}: undone, it would have cut a way through the route ({summary_before} -> {summary_after})")

@@ -238,11 +238,11 @@ def trees_standing_on_low_ground(route, frozen_cells: np.ndarray) -> np.ndarray:
     return low_trees
 
 
-def is_lower_open_ground(route, terrace_levels: np.ndarray, own_level: int, cell_y: int, cell_x: int) -> bool:
+def is_lower_open_ground(route, terrace_levels: np.ndarray, own_level: int, cell_y: int, cell_x: int, is_below: bool) -> bool:
     if not (0 <= cell_y < route.h and 0 <= cell_x < route.w):
         return False
     neighbour_class = str(route.cls[cell_y, cell_x])
-    is_low_tree = bool(route.__dict__["_low_trees"][cell_y, cell_x])
+    is_low_tree = bool(route.__dict__["_low_trees"][cell_y, cell_x]) and not is_below
     is_open_ground = neighbour_class in WALKABLE or neighbour_class == RAISED_GROUND_CLASS or is_low_tree
     is_lower = terrace_levels[cell_y, cell_x] < own_level
     return is_open_ground and is_lower
@@ -251,7 +251,7 @@ def is_lower_open_ground(route, terrace_levels: np.ndarray, own_level: int, cell
 def ledge_letter_of(route, terrace_levels: np.ndarray, cell_y: int, cell_x: int) -> str:
     own_level = int(terrace_levels[cell_y, cell_x])
     for (step_y, step_x), ledge_letter in LOW_SIDE_LEDGES:
-        if is_lower_open_ground(route, terrace_levels, own_level, cell_y + step_y, cell_x + step_x):
+        if is_lower_open_ground(route, terrace_levels, own_level, cell_y + step_y, cell_x + step_x, is_below=step_y > 0):
             return ledge_letter
     return ""
 
