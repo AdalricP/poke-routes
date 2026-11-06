@@ -192,7 +192,83 @@
     return cells;
   }
 
+  function boxes_overlap(first_box, second_box) {
+    const overlap = first_box.left < second_box.right && second_box.left < first_box.right &&
+      first_box.top < second_box.bottom && second_box.top < first_box.bottom;
+    return overlap;
+  }
+
+  function is_box_clear_of(box, obstacle_boxes) {
+    const clear = !obstacle_boxes.some((obstacle_box) => boxes_overlap(box, obstacle_box));
+    return clear;
+  }
+
+  function box_centred_at(centre_x, centre_y, label_width, label_height) {
+    const box = { left: centre_x - label_width / 2, top: centre_y - label_height / 2, right: centre_x + label_width / 2, bottom: centre_y + label_height / 2 };
+    return box;
+  }
+
+  function label_boxes_around_box(around_box, label_width, label_height, gap) {
+    const centre_x = (around_box.left + around_box.right) / 2, centre_y = (around_box.top + around_box.bottom) / 2;
+    const half_width = label_width / 2, half_height = label_height / 2;
+    const candidate_boxes = [
+      box_centred_at(centre_x, around_box.bottom + gap + half_height, label_width, label_height),
+      box_centred_at(centre_x, around_box.top - gap - half_height, label_width, label_height),
+      box_centred_at(around_box.right + gap + half_width, centre_y, label_width, label_height),
+      box_centred_at(around_box.left - gap - half_width, centre_y, label_width, label_height),
+      box_centred_at(around_box.right + gap + half_width, around_box.bottom + gap + half_height, label_width, label_height),
+      box_centred_at(around_box.left - gap - half_width, around_box.bottom + gap + half_height, label_width, label_height),
+      box_centred_at(around_box.right + gap + half_width, around_box.top - gap - half_height, label_width, label_height),
+      box_centred_at(around_box.left - gap - half_width, around_box.top - gap - half_height, label_width, label_height),
+    ];
+    return candidate_boxes;
+  }
+
+  function middle_out_order(cells) {
+    const middle_index = Math.floor((cells.length - 1) / 2);
+    const distance_from_middle = (index) => Math.abs(index - middle_index) * 2 + (index < middle_index ? 1 : 0);
+    const indices_from_the_middle = cells.map((_cell, index) => index).sort((first_index, second_index) => distance_from_middle(first_index) - distance_from_middle(second_index));
+    const ordered_cells = indices_from_the_middle.map((index) => cells[index]);
+    return ordered_cells;
+  }
+
+  function label_boxes_along_cells(cell_boxes, label_width, label_height, gap) {
+    const ordered_cell_boxes = middle_out_order(cell_boxes);
+    const boxes_on_cells = ordered_cell_boxes.map((cell_box) => box_centred_at((cell_box.left + cell_box.right) / 2, (cell_box.top + cell_box.bottom) / 2, label_width, label_height));
+    const boxes_beside_cells = ordered_cell_boxes.flatMap((cell_box) => label_boxes_around_box(cell_box, label_width, label_height, gap).slice(0, 4));
+    const candidate_boxes = boxes_on_cells.concat(boxes_beside_cells);
+    return candidate_boxes;
+  }
+
+  function first_box_clear_of(candidate_boxes, obstacle_boxes) {
+    const clear_box = candidate_boxes.find((candidate_box) => is_box_clear_of(candidate_box, obstacle_boxes)) || null;
+    return clear_box;
+  }
+
+  function chosen_label_box(request, placed_boxes) {
+    const every_obstacle = placed_boxes.concat(request.hard_obstacle_boxes || [], request.soft_obstacle_boxes || []);
+    const box_clear_of_everything = first_box_clear_of(request.candidate_boxes, every_obstacle);
+    if (box_clear_of_everything) return box_clear_of_everything;
+    if (!request.must_show) return null;
+    const box_clear_of_labels_and_towns = first_box_clear_of(request.candidate_boxes, placed_boxes.concat(request.hard_obstacle_boxes || []));
+    if (box_clear_of_labels_and_towns) return box_clear_of_labels_and_towns;
+    const box_clear_of_labels = first_box_clear_of(request.candidate_boxes, placed_boxes);
+    const fallback_box = box_clear_of_labels || request.candidate_boxes[0] || null;
+    return fallback_box;
+  }
+
+  function placed_map_labels(label_requests) {
+    const requests_by_priority = label_requests.slice().sort((first_request, second_request) => first_request.priority - second_request.priority);
+    const placed_labels = [];
+    for (const request of requests_by_priority) {
+      const box = chosen_label_box(request, placed_labels.map((placed_label) => placed_label.box));
+      if (box) placed_labels.push({ key: request.key, box });
+    }
+    return placed_labels;
+  }
+
   const api = {
+    boxes_overlap, label_boxes_around_box, label_boxes_along_cells, middle_out_order, placed_map_labels,
     EMPTY_MARK, ROUTE_MARK, TOWN_MARK,
     grid_of_doc, is_inside_grid, grid_cell_at, mark_at, same_cell, cells_between, stroke_with_cell, mark_after_brush,
     cells_the_brush_changes, cells_a_route_stroke_paints, region_centre_of_grid_cell, grid_cell_of_exit, neighbour_across_exit,

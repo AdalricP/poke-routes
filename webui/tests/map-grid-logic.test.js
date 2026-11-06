@@ -98,4 +98,34 @@ test("clicks find towns and routes by their grid cells, not their bounding boxes
   assert.strictEqual(MAP_GRID.route_at_grid_cell(doc, [2, 3]).name, "Route 2");
 });
 
+function box(left, top, right, bottom) { return { left, top, right, bottom }; }
+
+test("labels never overlap each other and drop a route label with no free spot", () => {
+  const town_box = box(0, 0, 20, 20);
+  const town_request = { key: "town", priority: 1, must_show: true, hard_obstacle_boxes: [town_box], soft_obstacle_boxes: [],
+    candidate_boxes: MAP_GRID.label_boxes_around_box(town_box, 40, 10, 2) };
+  const crowding_route_request = { key: "route", priority: 3, must_show: false, hard_obstacle_boxes: [town_box], soft_obstacle_boxes: [],
+    candidate_boxes: [box(-10, 22, 30, 32)] };
+  const placed = MAP_GRID.placed_map_labels([crowding_route_request, town_request]);
+  assert.deepStrictEqual(placed.map((label) => label.key), ["town"]);
+  assert.deepStrictEqual(placed[0].box, box(-10, 22, 30, 32));
+});
+
+test("a town label moves off the route leaving downward and off other towns", () => {
+  const town_box = box(0, 0, 20, 20), route_below = box(5, 20, 15, 60);
+  const request = { key: "town", priority: 1, must_show: true, hard_obstacle_boxes: [town_box], soft_obstacle_boxes: [route_below],
+    candidate_boxes: MAP_GRID.label_boxes_around_box(town_box, 30, 10, 2) };
+  const [placed] = MAP_GRID.placed_map_labels([request]);
+  assert.ok(!MAP_GRID.boxes_overlap(placed.box, route_below) && !MAP_GRID.boxes_overlap(placed.box, town_box));
+  assert.ok(placed.box.bottom <= town_box.top);
+});
+
+test("a focused route label shows even when crowded, and route labels start from the middle cell", () => {
+  assert.deepStrictEqual(MAP_GRID.middle_out_order(["a", "b", "c", "d", "e"]), ["c", "d", "b", "e", "a"]);
+  const blocker = box(-100, -100, 100, 100);
+  const request = { key: "route", priority: 0, must_show: true, hard_obstacle_boxes: [blocker], soft_obstacle_boxes: [],
+    candidate_boxes: MAP_GRID.label_boxes_along_cells([box(0, 0, 10, 10)], 20, 8, 2) };
+  assert.strictEqual(MAP_GRID.placed_map_labels([request]).length, 1);
+});
+
 console.log(`${passed} passed`);

@@ -969,39 +969,89 @@
   }
   function draw_town_map_labels(d, X, Y, z) {
     const size = Math.round(Math.max(10, Math.min(15, z * 1.6)));
-    if (st.layers.routes) for (const r of d.routes) draw_town_map_route_label(r, X, Y, size, 0);
-    for (const l of d.landmarks) {
-      if (["whirlpool", "station", "pillar"].includes(l.kind)) continue;
-      town_map_label(l.name, X(l.x + 0.5), Y(l.y + 0.5) + Math.max(10, z * 1.6), Math.round(size * 0.9), "#1e3c6c");
-    }
     const grid = map_grid();
-    for (const c of d.cities) {
-      const [x0, , x1, y1] = c.rect;
-      town_map_label(c.name, X((x0 + x1) / 2), Y(y1 - station_inset(grid)) + size * 0.95, Math.round(size * 1.1));
+    const screen_box_of = (region_rect) => ({ left: X(region_rect[0]), top: Y(region_rect[1]), right: X(region_rect[2]), bottom: Y(region_rect[3]) });
+    const town_boxes = d.cities.map((c) => screen_box_of(town_rect_inside_gap(c, grid)));
+    const route_pieces = st.layers.routes ? d.routes.map((r) => route_shapes(grid, r).pieces.map(screen_box_of)) : [];
+    const every_route_box = route_pieces.flat();
+    const requests = d.cities.map((c, town_index) => town_label_request(c, town_boxes[town_index], town_boxes, every_route_box, size))
+      .concat(d.landmarks.filter(has_town_map_label).map((l) => landmark_label_request(l, X, Y, z, town_boxes, every_route_box, size)))
+      .concat(st.layers.routes ? d.routes.map((r, route_index) => route_label_request(r, route_index, route_pieces, town_boxes, size)) : []);
+    const request_of_key = new Map(requests.map((request) => [request.key, request]));
+    for (const placed_label of MAP_GRID.placed_map_labels(requests)) draw_placed_label(request_of_key.get(placed_label.key), placed_label.box);
+  }
+  function has_town_map_label(l) { return !["whirlpool", "station", "pillar"].includes(l.kind); }
+  function town_rect_inside_gap(c, grid) {
+    const inset = station_inset(grid);
+    const inner_rect = [c.rect[0] + inset, c.rect[1] + inset, c.rect[2] - inset, c.rect[3] - inset];
+    return inner_rect;
+  }
+  function label_line(text, size, fill) {
+    ctx.font = `600 ${size}px "Pixelify Sans", ui-monospace, monospace`;
+    const halo_width = Math.max(3, size * 0.32);
+    const line = { text, size, fill, width: ctx.measureText(text).width + halo_width, height: size * 1.15 };
+    return line;
+  }
+  function label_size_of_lines(lines) {
+    const label_size = { width: Math.max(...lines.map((line) => line.width)), height: lines.reduce((total_height, line) => total_height + line.height, 0) };
+    return label_size;
+  }
+  function town_label_request(c, town_box, town_boxes, every_route_box, size) {
+    const lines = [label_line(c.name, Math.round(size * 1.1), TOWN_MAP_INK)];
+    const label_size = label_size_of_lines(lines);
+    const request = { key: "city:" + c.id, priority: 1, must_show: true, lines,
+      candidate_boxes: MAP_GRID.label_boxes_around_box(town_box, label_size.width, label_size.height, 2),
+      hard_obstacle_boxes: town_boxes, soft_obstacle_boxes: every_route_box };
+    return request;
+  }
+  function landmark_label_request(l, X, Y, z, town_boxes, every_route_box, size) {
+    const lines = [label_line(l.name, Math.round(size * 0.9), "#1e3c6c")];
+    const label_size = label_size_of_lines(lines);
+    const reach = Math.max(5, z * 1.2);
+    const landmark_box = { left: X(l.x + 0.5) - reach, top: Y(l.y + 0.5) - reach, right: X(l.x + 0.5) + reach, bottom: Y(l.y + 0.5) + reach };
+    const request = { key: "landmark:" + l.id, priority: 2, must_show: true, lines,
+      candidate_boxes: MAP_GRID.label_boxes_around_box(landmark_box, label_size.width, label_size.height, 2),
+      hard_obstacle_boxes: town_boxes, soft_obstacle_boxes: every_route_box };
+    return request;
+  }
+  function route_label_lines(r, size) {
+    const is_selected = !!st.sel && st.sel.kind === "route" && st.sel.id === r.name;
+    const gate = route_gate_summary(r);
+    const role = r.role.replace(/_/g, " ") + (r.pinned ? " · pinned" : "");
+    const second_line = gate !== "open" ? gate : is_selected ? role : "";
+    const second_colour = gate !== "open" ? "#963228" : TOWN_MAP_INK;
+    const lines = [label_line(r.name, size, TOWN_MAP_INK)].concat(second_line ? [label_line(second_line, Math.round(size * 0.85), second_colour)] : []);
+    return lines;
+  }
+  function is_route_in_focus(r) {
+    const is_selected = !!st.sel && st.sel.kind === "route" && st.sel.id === r.name;
+    const is_hovered = !!st.hover && st.hover.kind === "route" && st.hover.id === r.name;
+    const in_focus = is_selected || is_hovered;
+    return in_focus;
+  }
+  function route_label_request(r, route_index, route_pieces, town_boxes, size) {
+    const lines = route_label_lines(r, size);
+    const label_size = label_size_of_lines(lines);
+    const in_focus = is_route_in_focus(r);
+    const other_route_boxes = route_pieces.filter((_pieces, other_index) => other_index !== route_index).flat();
+    const request = { key: "route:" + r.name, priority: in_focus ? 0 : 3, must_show: in_focus, lines,
+      candidate_boxes: MAP_GRID.label_boxes_along_cells(route_pieces[route_index], label_size.width, label_size.height, 2),
+      hard_obstacle_boxes: town_boxes, soft_obstacle_boxes: other_route_boxes };
+    return request;
+  }
+  function draw_placed_label(request, box) {
+    const centre_x = (box.left + box.right) / 2;
+    let line_top = box.top;
+    for (const line of request.lines) {
+      town_map_label(line.text, centre_x, line_top + line.height / 2, line.size, line.fill);
+      line_top += line.height;
     }
   }
   function route_gate_summary(r) {
     const needs = ED.routeNeeds(r), after = (r.gate || {}).after;
     return [needs ? "needs " + HM_LABEL[needs] : "", after != null ? "after beat " + (after + 1) : ""].filter(Boolean).join(" · ") || "open";
   }
-  function draw_town_map_route_label(r, X, Y, size, band) {
-    const anchor = MAP_GRID.label_anchor_of_route(map_grid(), r);
-    if (!anchor) return;
-    const is_selected = !!st.sel && st.sel.kind === "route" && st.sel.id === r.name;
-    const gate = route_gate_summary(r);
-    const role = r.role.replace(/_/g, " ") + (r.pinned ? " · pinned" : "");
-    const second_line = gate !== "open" ? gate : is_selected ? role : "";
-    const second_colour = gate !== "open" ? "#963228" : TOWN_MAP_INK;
-    const [x, y] = anchor.point;
-    if (anchor.runs_across) {
-      town_map_label(r.name, X(x), Y(y) - band / 2 - size * 0.75, size);
-      if (second_line) town_map_label(second_line, X(x), Y(y) + band / 2 + size * 0.75, Math.round(size * 0.85), second_colour);
-      return;
-    }
-    const left = X(x) + band / 2 + size * 0.5;
-    town_map_label(r.name, left, Y(y) - (second_line ? size * 0.5 : 0), size, TOWN_MAP_INK, "left");
-    if (second_line) town_map_label(second_line, left, Y(y) + size * 0.6, Math.round(size * 0.85), second_colour, "left");
-  }
+
 
 
 
