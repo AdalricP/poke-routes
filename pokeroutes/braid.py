@@ -45,6 +45,21 @@ def wspan(width: int) -> Tuple[int, int]:
     return -((width - 1) // 2), width // 2
 
 
+BEACH_SEA_SHARE = 0.38
+MAXIMUM_SEA_SHARE = 0.5
+
+
+def coast_reservation(spec) -> Tuple[str, float]:
+    sea_side = str(getattr(spec, "coast_side", "") or "")
+    sea_share = min(MAXIMUM_SEA_SHARE, max(0.0, float(getattr(spec, "sea_share", 0.0) or 0.0)))
+    if sea_side and sea_share > 0:
+        return sea_side, sea_share
+    if spec.biome == "beach":
+        return "far side", BEACH_SEA_SHARE
+    no_reservation = ("", 0.0)
+    return no_reservation
+
+
 @dataclass
 class Frame:
     oy: int
@@ -333,8 +348,12 @@ class Planner:
             lo, hi = MARGIN - f.ox, self.w - 1 - MARGIN - f.ox
         else:
             lo, hi = MARGIN - f.oy, self.h - 1 - MARGIN - f.oy
-        if self.spec.biome == "beach":  # the far third is sea
-            hi = lo + int((hi - lo) * 0.62)
+        sea_side, sea_share = coast_reservation(self.spec)
+        high_side, low_side = ("east", "west") if f.l[1] else ("south", "north")
+        if sea_side in (high_side, "far side"):
+            hi = lo + int((hi - lo) * (1 - sea_share))
+        if sea_side == low_side:
+            lo = hi - int((hi - lo) * (1 - sea_share))
         return lo, hi
 
     # ------------------------------------------------------------ nodes

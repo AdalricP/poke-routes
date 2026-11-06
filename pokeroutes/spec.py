@@ -72,6 +72,8 @@ class RouteSpec:
     min_run: int = 5  # shortest straight run between two turns (d-pad: no jaggies)
     max_walkable: float = 0.40  # density budget: share of the map you can walk on
     lore_spots: int = 2  # hidden little clearings with a sign / grave / ruin for writers
+    coast_side: str = ""  # north | south | east | west: the sea lies along this edge (lanes keep off it)
+    sea_share: float = 0.0  # how much of the map across that edge is sea (0..0.5)
     role: str = ""  # region role: connector | turn | crossroads | dead_end | ... ("" = from the exits)
     world: List[int] = field(default_factory=list)  # [x, y] of the NW corner on the shared height map (pokeroutes.height)
     region: dict = field(default_factory=dict)  # region-generator block (role, goal, elevation, water, ...)

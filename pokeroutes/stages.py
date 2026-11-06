@@ -336,13 +336,16 @@ def _beacons(route: Route, p) -> None:
 # ------------------------------------------------------------------ water
 
 def stage_lakes(route: Route) -> None:
+    from . import region_water
+
     b = route.spec.biome
     if b in TREE_BIOMES:
         _bend_obstacles(route)
     if b == "riverland":
-        _rivers(route)
+        if not region_water.has_region_rivers(route):
+            _rivers(route)
         _streams(route, 3)
-    if b == "beach":
+    if b == "beach" and not region_water.has_region_sea(route):
         _sea(route)
     if b == "desert":
         _desert(route)
@@ -350,6 +353,7 @@ def stage_lakes(route: Route) -> None:
         _open_desert(route)
     if b == "mountain":
         _terraces(route)
+    region_water.paint_region_water(route)
     if b != "desert":  # no ponds in the sand
         _ponds(route, route.spec.lakes if b != "riverland" else max(1, route.spec.lakes // 2))
     route.snap("water")
@@ -1361,13 +1365,13 @@ def stage_dressing(route: Route) -> None:
             y, x = int(rng.integers(min(ys) + 1, max(ys))), int(rng.integers(min(xs) + 1, max(xs)))
             block = [(y, x), (y + 1, x), (y, x + 1), (y + 1, x + 1)]
             ring = [(y + dy, x + dx) for dy in range(-1, 3) for dx in range(-1, 3)]
-            if all(c in cells and route.cls[c] in (ground_class(route), grass_class(route)) for c in block) and not any(c in lane_core or c in crit for c in ring):
+            if all(c in cells and route.inside(*c) and route.cls[c] in (ground_class(route), grass_class(route)) for c in block) and not any(c in lane_core or c in crit for c in ring):
                 kind = wall_class(route) if rng.random() < 0.6 else code("BOULDER", "r")
                 for c in block:
                     route.cls[c] = kind
                 route.props.append({"kind": "lone_tree" if kind == "f" else "boulders", "y": y, "x": x})
         for (y, x) in z.cells:
-            if route.cls[y, x] == "g" and rng.random() < 0.08:
+            if route.inside(y, x) and route.cls[y, x] == "g" and rng.random() < 0.08:
                 route.props.append({"kind": "flowers", "y": int(y), "x": int(x)})
     _furniture(route, p)
     # flower borders along meadow lanes

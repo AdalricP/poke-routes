@@ -59,6 +59,7 @@ class City:
     half: str
     size: str
     note: str = ""
+    pinned: bool = False  # placed, renamed or moved by hand: "Generate map" keeps it
 
     @property
     def cx(self) -> float:

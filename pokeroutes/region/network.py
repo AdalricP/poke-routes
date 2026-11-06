@@ -44,10 +44,38 @@ def size_ok(w: int, h: int) -> bool:
 
 # ------------------------------------------------------------------ cost grids
 
-def land_cost(w: World) -> np.ndarray:
+LAKE_CROSSING_COST_PER_CELL = 9.0
+SHALLOW_SEA_CROSSING_COST_PER_CELL = 12.0
+DEEPEST_SEA_A_ROAD_CROSSES = -0.30
+SMALLEST_COST_FACTOR_OF_A_VARIANT, COST_FACTOR_SPREAD_OF_A_VARIANT = 0.3, 2.4
+COST_NOISE_SMOOTHING_IN_CELLS = 4.0
+
+
+def water_crossing_cost(w: World) -> np.ndarray:
+    lake = np.asarray(w.lake, bool) & w.land
+    shallow_sea = ~w.land & (w.height >= DEEPEST_SEA_A_ROAD_CROSSES)
+    crossing_cost = np.where(lake, LAKE_CROSSING_COST_PER_CELL, np.inf)
+    crossing_cost = np.where(shallow_sea, SHALLOW_SEA_CROSSING_COST_PER_CELL, crossing_cost)
+    return crossing_cost
+
+
+def variant_cost_factor(w: World, variant: int) -> np.ndarray:
+    if not variant:
+        return np.ones((w.H, w.W))
+    rng = np.random.default_rng((int(w.seed), int(variant), 7))
+    noise = ndi.gaussian_filter(rng.random((w.H, w.W)), COST_NOISE_SMOOTHING_IN_CELLS, mode="nearest")
+    noise = (noise - noise.min()) / max(1e-9, float(np.ptp(noise)))
+    cost_factor = SMALLEST_COST_FACTOR_OF_A_VARIANT + COST_FACTOR_SPREAD_OF_A_VARIANT * noise
+    return cost_factor
+
+
+def land_cost(w: World, variant: int = 0) -> np.ndarray:
     c = np.vectorize(lambda b: BIOME_COST.get(b, 1.0), otypes=[float])(w.biome)
+    crossing = water_crossing_cost(w)
+    c = np.where(np.isinf(c) & np.isfinite(crossing) & (w.biome != "l"), crossing, c)
     gy, gx = np.gradient(w.height)
-    c = c + 30.0 * np.hypot(gx, gy)
+    c = c + 30.0 * np.hypot(gx, gy) * w.land
+    c = c * variant_cost_factor(w, variant)
     c = np.where(w.river, c + 6.0, c)  # cross rivers, don't follow them
     c = np.where(w.overrides.get("no_route", np.zeros_like(w.land)), np.inf, c)
     c[:2, :] = c[-2:, :] = np.inf
@@ -132,12 +160,13 @@ def search(cost: np.ndarray, starts: Dict[Cell, Tuple[float, int]], goals: Dict[
 # ------------------------------------------------------------------ the network
 
 class Network:
-    def __init__(self, w: World):
+    def __init__(self, w: World, variant: int = 0):
         self.w = w
+        self.variant = int(variant or 0)
         self.occ = np.full((w.H, w.W), -1, dtype=np.int32)
         self.nodes: List[dict] = []
         self.conns: List[dict] = []
-        self.lcost = land_cost(w)
+        self.lcost = land_cost(w, self.variant)
         self.scost = sea_cost(w)
         for c in w.cities:
             self.add_node("city", c.rect, name=c.name, id=c.id, map="MAP_" + c.id.upper())
@@ -610,11 +639,14 @@ def wild_sites(w: World, net: "Network", n: int) -> list:
 ARKLARNA_TOWNS = ("tvangsburg", "pilsau", "huettenau", "kaup")
 
 
-def build_network(w: World, keep: Optional[List[dict]] = None, plan: Optional[List[dict]] = None) -> Network:
+def build_network(w: World, keep: Optional[List[dict]] = None, plan: Optional[List[dict]] = None,
+                  variant: int = 0) -> Network:
     """Lay the route network. ``keep``: route dicts (as in ``w.routes``) to keep as they
     are; links are then only laid where a kept chain has a gap. ``plan``: the previous
-    ``w.links`` (for link order, links the editor dropped and user-drawn links)."""
-    net = Network(w)
+    ``w.links`` (for link order, links the editor dropped and user-drawn links).
+    ``variant``: 0 lays the cheapest network; any other number jitters the costs and
+    the town tree, so each press of "Generate routes" gives a different network."""
+    net = Network(w, variant)
     C = {n["id"]: n["idx"] for n in net.nodes if n["kind"] == "city"}
     plan = plan or []
     pins = add_kept(w, net, keep or [], plan)
@@ -638,7 +670,7 @@ def build_network(w: World, keep: Optional[List[dict]] = None, plan: Optional[Li
     if w.preset == "arklarna" and all(town_id in C for town_id in ARKLARNA_TOWNS):
         arklarna_links(w, net, C, add, links)
     else:
-        town_links(w, net, C, add, towns_joined_by_drawn_lines(plan))
+        town_links(w, net, C, add, towns_joined_by_drawn_lines(plan), variant)
     links.extend(kept_drawn_links(plan, pins))
     # links drawn by hand in the editor
     for ul in plan:
@@ -771,30 +803,81 @@ def arklarna_links(w: World, net: Network, C: Dict[str, int], add, links: List[d
              dst=[(C["pilsau"], 2.0)] + [(k, 0.0) for k in first]))
 
 
-def town_links(w: World, net: Network, C: Dict[str, int], add, drawn_pairs: Optional[List[Tuple[str, str]]] = None) -> None:
+def town_links(w: World, net: Network, C: Dict[str, int], add, drawn_pairs: Optional[List[Tuple[str, str]]] = None,
+               variant: int = 0) -> None:
     groups = TownGroups(drawn_pairs or [])
-    for town, other_town in town_tree(w.cities):
+    tree_pairs = []
+    for town, other_town in town_tree(w.cities, variant, w.seed):
         if groups.joined(town.id, other_town.id):
             continue
         groups.join(town.id, other_town.id)
-        mode = "land" if same_landmass(w, town, other_town) else "sea"
+        tree_pairs.append((town, other_town))
+    drawn = {frozenset(pair) for pair in (drawn_pairs or [])}
+    loop_pairs = [pair for pair in extra_town_pairs(w.cities, variant, w.seed) if frozenset((pair[0].id, pair[1].id)) not in drawn]
+    for town, other_town in tree_pairs + loop_pairs:
+        mode = "land" if reachable_over_land_or_crossings(w, net, town, other_town) else "sea"
         add(dict(name=f"{town.name}-{other_town.name}", kind="main", mode=mode,
                  src=[(C[town.id], 0)], dst=[(C[other_town.id], 0)]))
 
 
-def town_tree(towns: list) -> List[tuple]:
-    """Pairs of towns joined by the shortest tree over their centres (Prim)."""
+def town_distance(town, other_town) -> float:
+    distance_in_cells = math.hypot(town.cx - other_town.cx, town.cy - other_town.cy)
+    return distance_in_cells
+
+
+def jittered_town_distances(towns: list, variant: int, seed: int) -> Dict[Tuple[str, str], float]:
+    rng = np.random.default_rng((int(seed), int(variant), 11))
+    spread = 0.0 if not variant else 0.35
+    distances = {}
+    for town_index, town in enumerate(towns):
+        for other_town in towns[town_index + 1:]:
+            factor = 1.0 + spread * float(rng.uniform(-1.0, 1.0))
+            distances[(town.id, other_town.id)] = distances[(other_town.id, town.id)] = town_distance(town, other_town) * factor
+    return distances
+
+
+def town_tree(towns: list, variant: int = 0, seed: int = 0) -> List[tuple]:
+    """Pairs of towns joined by the shortest tree over their centres (Prim). A
+    variant other than 0 stretches each distance a little, so another tree wins."""
     if len(towns) < 2:
         return []
+    distances = jittered_town_distances(towns, variant, seed)
     joined, pairs = [towns[0]], []
     waiting = list(towns[1:])
     while waiting:
-        town, other_town = min(((a, b) for a in joined for b in waiting),
-                               key=lambda pair: math.hypot(pair[0].cx - pair[1].cx, pair[0].cy - pair[1].cy))
+        town, other_town = min(((a, b) for a in joined for b in waiting), key=lambda pair: distances[(pair[0].id, pair[1].id)])
         pairs.append((town, other_town))
         joined.append(other_town)
         waiting.remove(other_town)
     return pairs
+
+
+def extra_town_pairs(towns: list, variant: int, seed: int) -> List[tuple]:
+    """Some variants add one more road, between two towns the tree left unjoined
+    that are close to each other, so the network gets a loop."""
+    if not variant or len(towns) < 4:
+        return []
+    rng = np.random.default_rng((int(seed), int(variant), 13))
+    if rng.random() < 0.5:
+        return []
+    tree_pairs = {frozenset((a.id, b.id)) for a, b in town_tree(towns, variant, seed)}
+    open_pairs = [(a, b) for index, a in enumerate(towns) for b in towns[index + 1:] if frozenset((a.id, b.id)) not in tree_pairs]
+    if not open_pairs:
+        return []
+    open_pairs.sort(key=lambda pair: town_distance(*pair))
+    nearest_open_pairs = open_pairs[:3]
+    chosen_pair = nearest_open_pairs[int(rng.integers(0, len(nearest_open_pairs)))]
+    return [chosen_pair]
+
+
+def reachable_over_land_or_crossings(w: World, net: Network, town, other_town) -> bool:
+    if same_landmass(w, town, other_town):
+        return True
+    labels, _count = ndi.label(np.isfinite(net.lcost))
+    first = labels[min(w.H - 1, int(town.cy)), min(w.W - 1, int(town.cx))]
+    second = labels[min(w.H - 1, int(other_town.cy)), min(w.W - 1, int(other_town.cx))]
+    crossing_by_road = bool(first) and first == second
+    return crossing_by_road
 
 
 def same_landmass(w: World, town, other_town) -> bool:

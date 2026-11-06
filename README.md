@@ -138,7 +138,7 @@ And a region, seed 1:
 
 ## Status
 
-This is a work in progress. The forest routes are the most finished. Other biomes and the cave interiors under special areas are rough. Routes generated from a region use its role, goal and elevation tiers, but not yet its rivers or coastline. Most of the planned special-area recipes are not written yet.
+This is a work in progress. The forest routes are the most finished. Other biomes and the cave interiors under special areas are rough. Routes generated from a region now draw the region's rivers (with log bridges where lanes cross), lakes, sea and beach along the coast, and mountain rock, and take their biome and woodland density from the land under them. It is rough: rivers step in straight runs, and side lanes still get flooded where the sea lies. Each press of Generate routes lays a different network. Most of the planned special-area recipes are not written yet.
 
 ## License
 
