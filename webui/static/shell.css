@@ -317,7 +317,7 @@ body.resizing.h * { cursor: row-resize !important; }
 .prop > label, .prop > .lbl { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prop .inline { display: flex; gap: 4px; align-items: center; min-width: 0; }
 .prop .inline > .grow { flex: 1 1 auto; width: 0; }
-.prop input[type=text], .prop select { width: 100%; }
+.prop input[type=text], .prop select, .prop > input[type=number] { width: 100%; }
 .prop .slider { display: grid; grid-template-columns: 1fr 52px; gap: 6px; align-items: center; }
 .prop .slider input[type=number] { width: 100%; }
 .prop .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }

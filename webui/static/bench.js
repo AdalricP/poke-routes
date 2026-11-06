@@ -761,6 +761,7 @@
   const pt = (ev) => { const b = wrap.getBoundingClientRect(); return { sx: ev.clientX - b.left, sy: ev.clientY - b.top }; };
 
   wrap.addEventListener("pointerdown", (ev) => {
+    if (ev.target.closest(".scene-back")) return;
     wrap.focus({ preventScroll: true });
     const { sx, sy } = pt(ev);
     const panBtn = ev.button === 1 || ev.button === 2 || spaceDown || state.tool === "pan";
@@ -1831,7 +1832,7 @@
     if (!markings_button) return;
     markings_button.classList.toggle("on", !!state.ov.markings);
     markings_button.setAttribute("aria-pressed", String(!!state.ov.markings));
-    markings_button.title = state.ov.markings ? "Hide lanes, areas and item markers (they stop being clickable)" : "Show lanes, areas and item markers";
+    markings_button.title = state.ov.markings ? "Hide markings" : "Show markings";
   }
   function syncViewButtons() {
     sync_markings_button();
