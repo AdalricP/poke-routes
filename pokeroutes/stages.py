@@ -1390,7 +1390,7 @@ def _furniture(route: Route, p) -> None:
     """Route furniture, as events/props: HM obstacles on optional lanes (two cut trees
     across a side lane's mouth, a smashable rock or a Strength boulder in a spur), a
     few NPCs (a researcher by each special area, the odd hiker or villager; at most
-    one trainer per section), and small set dressing (bench, stump, fence stub, flowers)."""
+    no trainers: they are placed by hand), and small set dressing (bench, stump, fence stub, flowers)."""
     rng = route.rng
     crit = set(route.critical_path)
     taken = {(e.y, e.x) for e in route.events}
@@ -1451,10 +1451,7 @@ def _furniture(route: Route, p) -> None:
             route.events.append(Event("npc", y, x, {"role": NPCS[int(rng.integers(0, len(NPCS)))], "text": ""}))
             taken.add((y, x))
         if rng.random() < 0.35:
-            y, x = cl[int(rng.integers(0, len(cl)))]
-            if (y, x) not in taken:
-                route.events.append(Event("trainer", y, x, {"class": "", "sight": 3}))
-                taken.add((y, x))
+            cl[int(rng.integers(0, len(cl)))]
     clearings = [z for z in route.zones if z.kind == "clearing" and len(z.cells) >= 12]
     for z in clearings:
         if rng.random() < 0.5:
