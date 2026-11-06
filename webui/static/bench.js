@@ -58,7 +58,7 @@
     tileCanvases: [], classCanvases: [], changedMasks: [], stageInfo: [], animCells: [], flashStart: 0,
     view: { zoom: 1, ox: 0, oy: 0 },
     layer: viewSaved.layer === "classes" ? "classes" : "tiles",
-    ov: Object.assign({ areas: true, events: true, grid: false }, viewSaved.ov || {}),
+    ov: Object.assign({ areas: true, events: true, grid: false, markings: true }, viewSaved.ov || {}),
     hover: null, hoverArea: null, sel: null,
     playing: false, timer: null, busy: false,
     specials: [], exits: [], tab: "dex",
@@ -747,7 +747,7 @@
   function pickAt(sx, sy) {
     const r = state.result;
     const c = r && cellOf(sx, sy);
-    if (!c) { select(null); return; }
+    if (!c || !state.ov.markings) { select(null); return; }
     const zones = PR.zonesAt(r, state.stage);
     const nz = zones.length;
     const evs = PR.eventsAt(r, state.stage);
@@ -822,10 +822,10 @@
     const s = CELL * zoom;
     if (state.ov.grid && s >= 8) drawGrid(g, r, ox, oy, s);
     const zones = PR.zonesAt(r, state.stage);
-    if (state.ov.events) drawEvents(g, PR.eventsAt(r, state.stage), ox, oy, s);
-    if (state.ov.areas) drawAreas(g, zones, ox, oy, s);
+    if (state.ov.markings && state.ov.events) drawEvents(g, PR.eventsAt(r, state.stage), ox, oy, s);
+    if (state.ov.markings && state.ov.areas) drawAreas(g, zones, ox, oy, s);
     if (!opt.interactive) return;
-    drawSelection(g, ox, oy, s);
+    if (state.ov.markings) drawSelection(g, ox, oy, s);
     if (state.paint.cells.size) {
       g.globalAlpha = 0.7;
       for (const [k, cls] of state.paint.cells) {
@@ -1353,7 +1353,15 @@
     renderTree();
     draw();
   }
+  function sync_markings_button() {
+    const markings_button = $("tbMarkings");
+    if (!markings_button) return;
+    markings_button.classList.toggle("on", !!state.ov.markings);
+    markings_button.setAttribute("aria-pressed", String(!!state.ov.markings));
+    markings_button.title = state.ov.markings ? "Hide lanes, areas and item markers (they stop being clickable)" : "Show lanes, areas and item markers";
+  }
   function syncViewButtons() {
+    sync_markings_button();
     document.querySelectorAll("[data-layer]").forEach((b) => { const on = b.dataset.layer === state.layer; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); });
     document.querySelectorAll("[data-ov]").forEach((b) => { const on = !!state.ov[b.dataset.ov]; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); });
   }
@@ -1993,6 +2001,8 @@
     $("tbTiler").onchange = () => setTiler($("tbTiler").value);
     $("paintClass").addEventListener("change", () => { choose_terrain_brush($("paintClass").value); });
     document.querySelectorAll("[data-left-tab]").forEach((tab_button) => { tab_button.onclick = () => show_left_tab(tab_button.dataset.leftTab); });
+    $("tbMarkings").onclick = () => toggleOv("markings");
+    sync_markings_button();
     $("dice").onclick = doRegenerate;
     $("name").addEventListener("change", () => edited("name"));
     $("seed").addEventListener("change", () => edited("seed"));
