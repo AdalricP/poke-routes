@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -279,10 +280,23 @@ def paint_map(doc: dict, cells: list, brush: str, route_key: Optional[str] = Non
 
 
 def regrid_map(doc: dict, region_cells_per_grid_cell: int) -> dict:
-    """Snap every town and route onto a Map grid of another cell size (see map_grid.regrid_world)."""
+    """Snap every town and route onto a Map grid of another cell size (see
+    map_grid_square_size.regrid_world) and grow the region to whole squares."""
+    from .map_grid_square_size import EARLIER_SQUARE_SIZES_KEY, regrid_world
+    from .region_resize import RegionResizeProblem, resize_region as resize_world_region
+
     w = doc_to_world(doc)
-    map_grid.regrid_world(w, int(region_cells_per_grid_cell))
-    w.log.append(f"editor: map grid set to {region_cells_per_grid_cell} region cells a square")
+    regrid_world(w, int(region_cells_per_grid_cell))
+    square_size = map_grid.region_cells_per_grid_cell(w)
+    whole_squares_across, whole_squares_down = math.ceil(w.W / square_size), math.ceil(w.H / square_size)
+    if (whole_squares_across * square_size, whole_squares_down * square_size) != (w.W, w.H):
+        earlier_square_sizes = w.overrides["map_grid"].get(EARLIER_SQUARE_SIZES_KEY) or {}
+        try:
+            resize_world_region(w, whole_squares_across, whole_squares_down)
+        except RegionResizeProblem as problem:
+            raise RegionEditRefused(str(problem)) from problem
+        w.overrides["map_grid"][EARLIER_SQUARE_SIZES_KEY] = earlier_square_sizes
+    w.log.append(f"editor: map grid set to {region_cells_per_grid_cell} region cells a square ({w.W} x {w.H} cells)")
     out = finish(w, doc, [stage for stage in doc.get("stale", []) if stage != "routes"])
     return out
 
