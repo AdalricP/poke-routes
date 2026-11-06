@@ -40,7 +40,7 @@ sys.path.insert(0, str(ROOT))
 from pokeroutes.classify import LEDGE_CLASSES, defuse_ledge_corners  # noqa: E402
 OUT = ROOT / "region_out"
 MAX_BODY = 48 * 1024 * 1024
-PAINT_CLASSES = set("gptwfrsexaqdbhyvkzlnu")  # every class but "o" (other)
+PAINT_CLASSES = set("gptwfrsexjaqdbhyvkzlnu")  # every class but "o" (other)
 highest_metatile_id = 1023
 metatile_overrides_by_route_id: dict = {}
 _lock = threading.Lock()
