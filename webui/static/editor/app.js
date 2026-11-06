@@ -7,6 +7,7 @@
    recompute, setTool, toggleLayer, fit, openInBench, set_editor_mode, set_route_opener,
    getDoc, destroy), so a host page or shell can drive it from its own menus.
    opts: {seed, load, keys: true, mode: "geography" | "region" | "story" (default: every tool), onOpenRoute}.
+   onOpenRoute receives the whole route: {route, maps: [{name, rect, spec}], focus_map_name}.
    The modes are the steps of laying out a game: geography -> route design A (region: towns and
    routes on the terrain) -> story (beats by hand: what happens where, which field move it gives)
    -> back on the map, each route's gate (what it needs, which beat opens it) in its inspector. */
@@ -1367,16 +1368,27 @@
 
   // ------------------------------------------------------------ bench drill-down
   async function openInBench(route_or_chain_map) {
+    if (open_route_spec_in_host) { await open_whole_route_in_host(route_or_chain_map); return; }
     const r = ED.first_map_of_route(route_or_chain_map);
     await busy("opening " + r.name, async () => {
       const spec = await api("/api/editor/spec", { doc: ED.encodeDoc(st.doc), id: r.id });
-      if (open_route_spec_in_host) { open_route_spec_in_host(spec); return; }
       try {
         localStorage.setItem(STORE_KEY, JSON.stringify(ED.benchParams(spec)));
         localStorage.setItem(REGION_KEY, JSON.stringify({ name: spec.name, region: spec.region, endings: spec.endings || [] }));
       } catch (e) { toast("browser storage is blocked; the bench opens with its own settings", true); }
       window.open(`/?region=${encodeURIComponent((st.doc.name || st.doc.seed) + "/" + spec.id)}`, "_blank");
     });
+  }
+
+  async function open_whole_route_in_host(route_or_chain_map) {
+    await busy("opening " + route_or_chain_map.name, async () => {
+      const opened_route = await route_chain_specs_of_map(route_or_chain_map.id);
+      open_route_spec_in_host(Object.assign({ focus_map_name: route_or_chain_map.name }, opened_route));
+    });
+  }
+  async function route_chain_specs_of_map(map_id) {
+    const opened_route = await api("/api/editor/route-chain-specs", { doc: ED.encodeDoc(st.doc), id: map_id });
+    return opened_route;
   }
 
   // ------------------------------------------------------------ side panel
@@ -2123,7 +2135,7 @@
     load: loadSaved, listSaved, exportSpecs, recompute, setTool, toggleLayer, fit, openInBench,
     set_editor_mode, set_route_opener: (route_opener) => { open_route_spec_in_host = route_opener; },
     deleteSelected, help: () => { $("help").hidden = !$("help").hidden; },
-    generate_map, set_open_route, spec_of_map, paint_map: paint_map_cells,
+    generate_map, set_open_route, spec_of_map, route_chain_specs_of_map, paint_map: paint_map_cells,
     set_paint_biome: (biome_code) => { st.biome = biome_code; setTool("biome"); refreshTool(); },
     paint_biome: () => st.biome,
     set_view_modes, fit_every_view,
