@@ -1,6 +1,6 @@
 /* Region editor: draws an editable region on a canvas; brushes and moves happen
    here, the downstream stages (water, climate, biomes, routes) run on the server.
-   Pure logic lives in editor/logic.js (window.ED).
+   Pure logic lives in editor/logic.js (window.ED) and editor/map-grid-logic.js (window.MAP_GRID).
 
    Embeddable: PREditor.init(container, opts) builds the editor inside `container`
    and returns its actions (undo, redo, save, load, generate, exportSpecs,
@@ -13,6 +13,7 @@
 (function (global) {
   "use strict";
   const ED = global.ED;
+  const MAP_GRID = global.MAP_GRID;
   const MARKUP = `<div class="ed">
   <header class="ed-top">
     <h1 data-ed="title">region editor</h1>
@@ -59,8 +60,9 @@
     <button type="button" data-edtool="biome"><b>B</b>biome</button>
     <button type="button" data-edtool="water"><b>W</b>coast</button>
     <hr data-modes="">
-    <button type="button" data-edtool="draw"><b>D</b>draw route</button>
-    <button type="button" data-edtool="town"><b>T</b>add town</button>
+    <button type="button" data-edtool="route"><b>D</b>route</button>
+    <button type="button" data-edtool="town"><b>T</b>town</button>
+    <button type="button" data-edtool="erase"><b>E</b>eraser</button>
   </nav>
 
   <main class="ed-map" data-ed="wrap">
@@ -120,8 +122,7 @@
     <dl>
       <dt>V R L F S</dt><dd>select, raise, lower, flatten, smooth</dd>
       <dt>B W</dt><dd>paint biome, coast (land / sea / lake)</dd>
-      <dt>T</dt><dd>add town: click on land</dd>
-      <dt>D</dt><dd>draw route: drag to paint it (open ground = dead end, through a town or route = joins it); Alt + drag erases drawn routes; Esc cancels</dd>
+      <dt>D T E</dt><dd>Map brushes: route, town, eraser; Esc cancels a stroke</dd>
       <dt>[ ]</dt><dd>brush smaller / bigger</dd>
       <dt>Alt + drag</dt><dd>raise lowers, lower raises</dd>
       <dt>Space + drag</dt><dd>pan (right or middle drag too)</dd>
@@ -129,12 +130,11 @@
       <dt>1 - 6</dt><dd>layers: height, biome, water, routes, labels, town-map style</dd>
       <dt>Ctrl Z / Ctrl Shift Z</dt><dd>undo / redo (100 steps)</dd>
       <dt>C</dt><dd>recompute every stale stage</dd>
-      <dt>Del</dt><dd>delete the selected route or town</dd>
+      <dt>Del</dt><dd>erase the selected route or town</dd>
       <dt>double-click</dt><dd>open a route in the route bench</dd>
       <dt>Ctrl S</dt><dd>save</dd>
       <dt>Esc</dt><dd>clear selection, close this</dd>
     </dl>
-    <p class="hint">In select: drag towns and landmarks to move them; on a selected route drag its edges or its exits, on a drawn route its bends.</p>
   </div>
 </div>`;
 
@@ -158,9 +158,9 @@
     smooth: '<path d="M2 6c1.3-1.6 2.7-1.6 4 0s2.7 1.6 4 0 2.7-1.6 4 0" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/><path d="M2 10.5c1.3-1.6 2.7-1.6 4 0s2.7 1.6 4 0 2.7-1.6 4 0" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" opacity=".5"/>',
     biome: '<path d="M8 2a6 6 0 100 12c.9 0 1.3-.5 1.3-1.1 0-.3-.1-.5-.3-.7a.9.9 0 01-.3-.7c0-.6.5-1 1.1-1H11a3 3 0 003-3c0-3-2.7-5.5-6-5.5z" fill="currentColor"/><circle cx="5.3" cy="7.2" r="1" fill="#3a3a3a"/><circle cx="7.6" cy="4.8" r="1" fill="#3a3a3a"/><circle cx="10.2" cy="6.6" r="1" fill="#3a3a3a"/>',
     water: '<path d="M2 3h12v6.5c-1.3 0-1.3 1.6-2.6 1.6S9.8 9.5 8.5 9.5 7.2 11.1 5.9 11.1 4.6 9.5 3.3 9.5 2 11.1 2 11.1z" fill="currentColor"/>',
-    route: '<path d="M2 12l3.5-3.5L8 11l4.5-6" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2.5h1.4v1.4H15v1.4h-1.6V6.7h-1.4V5.3H10.4V3.9H12z" fill="currentColor"/>',
-    town: '<path d="M1.5 14V8.5L5 5.5l3.5 3V14z" fill="currentColor"/><path d="M8.5 14V6.5L11.5 4l3 2.5V14z" fill="currentColor" opacity=".6"/><rect x="4" y="10.5" width="2" height="3.5" fill="#3a3a3a"/>',
-    draw: '<rect x="1.5" y="10.5" width="4" height="4" rx="1" fill="currentColor"/><rect x="10.5" y="1.5" width="4" height="4" rx="1" fill="currentColor"/><path d="M3.5 10.5V7.5h9V5.5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linejoin="round"/>',
+    route: '<path d="M2.5 13.5V8h11V2.5" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linejoin="round"/><circle cx="2.5" cy="13.5" r="1.6" fill="currentColor"/><circle cx="13.5" cy="2.5" r="1.6" fill="currentColor"/>',
+    town: '<rect x="2" y="2" width="5.5" height="5.5" rx="1.4" fill="currentColor"/><rect x="8.5" y="2" width="5.5" height="5.5" rx="1.4" fill="currentColor"/><rect x="2" y="8.5" width="5.5" height="5.5" rx="1.4" fill="currentColor"/><rect x="8.5" y="8.5" width="5.5" height="5.5" rx="1.4" fill="currentColor" opacity=".35"/>',
+    erase: '<path d="M9.2 2.6l4.2 4.2-6.6 6.6H3.9L2.6 12.1a1.4 1.4 0 010-2z" fill="currentColor"/><path d="M5.5 6.3l4.2 4.2" stroke="#3a3a3a" stroke-width="1.2"/><rect x="8" y="12.6" width="6" height="1.2" fill="currentColor"/>',
   };
   if (host) dock_into_host();
   const listeners = [];
@@ -170,8 +170,9 @@
   const REGION_KEY = "pokeroutes-region-spec"; // region-bridge.js reads this
   const TOOLS = {
     select: "Select", raise: "Raise", lower: "Lower", flatten: "Flatten", smooth: "Smooth",
-    biome: "Paint biome", water: "Coast", town: "Add town", draw: "Draw route",
+    biome: "Paint biome", water: "Coast", route: "Route", town: "Town", erase: "Eraser",
   };
+  const MAP_BRUSHES = new Set(["route", "town", "erase"]);
   const BRUSH_TOOLS = new Set(["raise", "lower", "flatten", "smooth", "biome", "water"]);
   const SPEC_FIELDS = [
     ["meander", 0.05], ["max_lanes", 1], ["dead_ends", 1], ["lakes", 1], ["tall_grass", 0.05], ["ledge_chance", 0.05],
@@ -188,7 +189,7 @@
   };
   const tools_shown_in_each_editor_mode = {
     geography: ["select", "raise", "lower", "flatten", "smooth", "biome", "water"],
-    region: ["select", "draw", "town"],
+    region: ["select", "route", "town", "erase"],
     story: ["select"],
   };
   const place_kinds_selectable_in_each_editor_mode = { geography: ["landmark"], region: ["city", "route"], story: ["city", "route"] };
@@ -380,33 +381,15 @@
       toast(`map: ${(out.cities || []).length} towns, ${(out.routes || []).length} routes in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
     });
   }
-  async function add_town_at(x, y) {
-    const problem = ED.town_spot_problem(st.doc, x, y);
-    if (problem) { toast(problem, true); return; }
-    const name = ED.next_town_name(st.doc);
-    await busy("placing a town", async () => {
-      const out = await api("/api/editor/add-town", { doc: ED.encodeDoc(st.doc), x, y, name: name.trim() });
-      st.hist.begin(st.doc, "add town");
+  async function paint_map_cells(cells, brush, label) {
+    if (!cells.length) return;
+    await busy("painting the map", async () => {
+      const out = await api("/api/editor/paint-map", { doc: ED.encodeDoc(st.doc), cells, brush });
+      st.hist.begin(st.doc, label);
       out.name = st.doc.name;
       setDoc(out, true);
       st.unsaved = true;
-      st.sel = { kind: "city", id: out.added_town };
       refreshAll();
-      toast(`placed ${name.trim() || "a town"}; recompute routes (C) to lay roads to it`);
-    });
-  }
-  async function delete_town(town_id) {
-    const town = st.doc.cities.find((c) => c.id === town_id);
-    if (!town) return;
-    await busy("removing a town", async () => {
-      const out = await api("/api/editor/delete-town", { doc: ED.encodeDoc(st.doc), id: town_id });
-      st.hist.begin(st.doc, "delete town");
-      out.name = st.doc.name;
-      setDoc(out, true);
-      st.unsaved = true;
-      st.sel = null;
-      refreshAll();
-      toast(`removed ${town.name}; recompute routes (C) to tidy the roads`);
     });
   }
 
@@ -515,6 +498,7 @@
     const X = (x) => ox + x * z, Y = (y) => oy + y * z;
 
     const town_map = town_map_shown();
+    if (town_map) draw_map_grid_lines(d, X, Y, z);
     if (st.layers.water && !town_map) {
       ctx.strokeStyle = "rgb(70,130,200)";
       ctx.lineCap = "round";
@@ -653,49 +637,11 @@
         ctx.stroke();
       }
     }
-    const r = selR && ED.routeByName(d, selR);
-    if (r) draw_route_handles(d, r, X, Y, z);
-  }
-
-  // edge handles on the selected route, and the bends of a drawn one
-  function draw_route_handles(d, r, X, Y, z) {
-    const [x0, y0, x1, y1] = r.rect;
-    const hs = Math.max(6, Math.min(12, z * 1.2));
-    for (const [edge, hx, hy] of [["x0", x0, (y0 + y1) / 2], ["x1", x1, (y0 + y1) / 2], ["y0", (x0 + x1) / 2, y0], ["y1", (x0 + x1) / 2, y1]]) {
-      const hot = st.hover && st.hover.kind === "edge" && st.hover.edge === edge;
-      ctx.fillStyle = hot ? "#ffd65c" : "#f4f2ea";
-      ctx.strokeStyle = "#141414";
-      ctx.lineWidth = 1.25;
-      const vert = edge[0] === "x";
-      const w = vert ? hs * 0.6 : hs * 1.8, h = vert ? hs * 1.8 : hs * 0.6;
-      ctx.fillRect(X(hx) - w / 2, Y(hy) - h / 2, w, h);
-      ctx.strokeRect(X(hx) - w / 2, Y(hy) - h / 2, w, h);
-    }
-    draw_line_bends(d, r, X, Y, z);
-  }
-  function draw_line_bends(d, r, X, Y, z) {
-    const line = ED.drawn_line_of_route(d, r);
-    if (!line) return;
-    const dragged = st.drag && st.drag.kind === "bend" ? st.drag : null;
-    const waypoints = dragged ? dragged.waypoints : line.waypoints;
-    const radius = Math.max(4, Math.min(9, z * 0.9));
-    waypoints.forEach(([x, y], k) => {
-      const is_end = k === 0 || k === waypoints.length - 1;
-      const hot = st.hover && st.hover.kind === "bend" && st.hover.k === k;
-      ctx.fillStyle = is_end ? "#f4f2ea" : hot ? "#ffd65c" : "#ffffff";
-      ctx.strokeStyle = "#141414";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(X(x + 0.5), Y(y + 0.5), is_end ? radius * 0.6 : radius, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    });
   }
 
   // ------------------------------------------------------------ town-map style (like the Sinnoh town map)
   const SPECIAL_SPOT_KINDS = new Set(["den", "marsh", "deepwood", "islands", "burn", "dunes", "lake", "trench"]);
   const TOWN_MAP_INK = "#2c2c34";
-  function town_map_band_width(z) { return Math.max(4, Math.min(34, z * 2.4)); }
   function trace_polyline(points, X, Y) {
     ctx.beginPath();
     points.forEach(([x, y], k) => (k ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y))));
@@ -710,82 +656,85 @@
     ctx.arcTo(x, y, x + width, y, r);
     ctx.closePath();
   }
-  function town_map_band_colors(r) {
-    if (r.mode === "sea") return { fill: "rgb(212,240,252)", edge: "rgb(92,148,206)" };
-    return { fill: "rgb(248,202,140)", edge: "rgb(204,134,76)" };
+  function metro_line_width(z) { return Math.max(3, Math.min(40, z * 1.5)); }
+  function trace_metro_line(points, X, Y, corner_radius) {
+    ctx.beginPath();
+    ctx.moveTo(X(points[0][0]), Y(points[0][1]));
+    for (let k = 1; k < points.length - 1; k++) ctx.arcTo(X(points[k][0]), Y(points[k][1]), X(points[k + 1][0]), Y(points[k + 1][1]), corner_radius);
+    const last = points[points.length - 1];
+    ctx.lineTo(X(last[0]), Y(last[1]));
   }
-  function stroke_route_bands(lines, X, Y, band, rim, selected_name, hovered_name) {
-    for (const line of lines) {
-      const is_selected = line.route.name === selected_name, is_hovered = line.route.name === hovered_name;
-      ctx.strokeStyle = is_selected ? "#ffd65c" : is_hovered ? "#fff6d8" : town_map_band_colors(line.route).edge;
-      ctx.lineWidth = band + 2 * rim + (is_selected ? 3 : 0);
-      trace_polyline(line.points, X, Y);
-      ctx.stroke();
+  function stroke_metro_lines(route_lines, X, Y, width, casing, colour_of_route) {
+    const corner_radius = width * 1.6;
+    for (const { route, lines } of route_lines) {
+      ctx.strokeStyle = route.is_selected ? "#ffd65c" : route.is_hovered ? "#fff6d8" : "rgba(255,255,255,0.96)";
+      ctx.lineWidth = width + 2 * casing + (route.is_selected ? 2 : 0);
+      for (const line of lines) { trace_metro_line(line, X, Y, corner_radius); ctx.stroke(); }
     }
-    for (const line of lines) {
-      ctx.strokeStyle = town_map_band_colors(line.route).fill;
-      ctx.lineWidth = band;
-      trace_polyline(line.points, X, Y);
-      ctx.stroke();
+    for (const { route, lines } of route_lines) {
+      ctx.strokeStyle = colour_of_route[route.name];
+      ctx.lineWidth = width;
+      ctx.setLineDash(route.mode === "sea" ? [width * 1.1, width * 0.7] : []);
+      for (const line of lines) { trace_metro_line(line, X, Y, corner_radius); ctx.stroke(); }
     }
+    ctx.setLineDash([]);
+  }
+  function draw_metro_terminus(grid, route, X, Y, width, colour) {
+    const terminus = MAP_GRID.terminus_of_route(grid, route);
+    if (!terminus) return;
+    const [x, y] = terminus.point, [across_x, across_y] = terminus.across;
+    const half = width * 1.25;
+    ctx.strokeStyle = "rgba(255,255,255,0.96)";
+    ctx.lineWidth = width * 0.9 + 4;
+    ctx.beginPath();
+    ctx.moveTo(X(x) - across_x * half, Y(y) - across_y * half);
+    ctx.lineTo(X(x) + across_x * half, Y(y) + across_y * half);
+    ctx.stroke();
+    ctx.strokeStyle = colour;
+    ctx.lineWidth = width * 0.9;
+    ctx.stroke();
   }
   function draw_town_map_routes(d, X, Y, z) {
     const selected_name = st.sel && st.sel.kind === "route" ? st.sel.id : null;
     const hovered_name = st.hover && st.hover.kind === "route" ? st.hover.id : null;
-    const band = town_map_band_width(z);
+    const grid = map_grid();
+    const width = metro_line_width(z);
+    const colour_of_route = MAP_GRID.route_line_colours(d);
+    const route_lines = d.routes.map((route) => ({
+      route: Object.assign({ is_selected: route.name === selected_name, is_hovered: route.name === hovered_name }, route),
+      lines: MAP_GRID.metro_lines_of_route(grid, route).filter((line) => line.length > 1),
+    }));
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
-    stroke_route_bands(ED.town_map_route_lines(d), X, Y, band, Math.max(1.5, band * 0.2), selected_name, hovered_name);
+    stroke_metro_lines(route_lines, X, Y, width, Math.max(1.5, width * 0.28), colour_of_route);
     ctx.lineCap = "butt";
-    const r = selected_name && ED.routeByName(d, selected_name);
-    if (r) draw_selected_town_map_route(d, r, X, Y, z);
+    for (const route of d.routes) draw_metro_terminus(grid, route, X, Y, width, colour_of_route[route.name]);
   }
-  function draw_selected_town_map_route(d, r, X, Y, z) {
-    const [x0, y0, x1, y1] = r.rect;
-    ctx.strokeStyle = "rgba(44,44,52,0.7)";
-    ctx.lineWidth = 1.25;
-    ctx.setLineDash([5, 4]);
-    ctx.strokeRect(X(x0) + 0.5, Y(y0) + 0.5, (x1 - x0) * z - 1, (y1 - y0) * z - 1);
-    ctx.setLineDash([]);
-    r.exits.forEach((e, k) => {
-      const hot = st.hover && st.hover.kind === "exit" && st.hover.k === k;
-      ctx.fillStyle = hot ? "#ffd65c" : "#fff";
-      ctx.strokeStyle = "#141414";
-      ctx.lineWidth = 1.25;
-      ctx.fillRect(X(e.cell[0]), Y(e.cell[1]), z, z);
-      ctx.strokeRect(X(e.cell[0]), Y(e.cell[1]), z, z);
-    });
-    draw_route_handles(d, r, X, Y, z);
-  }
-  function town_square_side(c, z) {
-    const [x0, y0, x1, y1] = c.rect;
-    const share = c.size === "city" ? 0.72 : 0.56;
-    return Math.max(9, Math.min(x1 - x0, y1 - y0) * z * share);
+  function station_inset(grid) { return grid.cell * 0.2; }
+  function trace_station_pieces(pieces, X, Y, z, grow) {
+    ctx.beginPath();
+    for (const [left, top, right, bottom] of pieces) {
+      const x = X(left) - grow, y = Y(top) - grow, width = (right - left) * z + 2 * grow, height = (bottom - top) * z + 2 * grow;
+      const radius = Math.min(width, height) * 0.22;
+      ctx.moveTo(x + radius, y);
+      ctx.arcTo(x + width, y, x + width, y + height, radius);
+      ctx.arcTo(x + width, y + height, x, y + height, radius);
+      ctx.arcTo(x, y + height, x, y, radius);
+      ctx.arcTo(x, y, x + width, y, radius);
+      ctx.closePath();
+    }
   }
   function draw_town_map_town(c, X, Y, z) {
-    const [x0, y0, x1, y1] = c.rect;
-    const side = town_square_side(c, z);
-    const left = X((x0 + x1) / 2) - side / 2, top = Y((y0 + y1) / 2) - side / 2;
+    const grid = map_grid();
+    const pieces = MAP_GRID.station_pieces_of_town(grid, c, station_inset(grid));
+    if (!pieces.length) return;
     const is_selected = st.sel && st.sel.kind === "city" && st.sel.id === c.id;
-    if (is_selected) {
-      ctx.strokeStyle = "rgba(44,44,52,0.7)";
-      ctx.lineWidth = 1.25;
-      ctx.setLineDash([5, 4]);
-      ctx.strokeRect(X(x0), Y(y0), (x1 - x0) * z, (y1 - y0) * z);
-      ctx.setLineDash([]);
-    }
-    trace_rounded_rect(left, top, side, side, side * 0.24);
-    ctx.fillStyle = "#e04a3c";
+    const ring = Math.max(2, grid.cell * z * 0.07);
+    trace_station_pieces(pieces, X, Y, z, ring + (is_selected ? 2 : 0));
+    ctx.fillStyle = is_selected ? "#ffd65c" : TOWN_MAP_INK;
     ctx.fill();
-    ctx.strokeStyle = is_selected ? "#ffd65c" : "#7c1c18";
-    ctx.lineWidth = Math.max(1.5, side * 0.1) + (is_selected ? 1.5 : 0);
-    ctx.stroke();
-    const inset = side * 0.22;
-    trace_rounded_rect(left + inset, top + inset, side - 2 * inset, side - 2 * inset, side * 0.12);
-    ctx.fillStyle = "#f2806a";
-    ctx.fill();
-    trace_rounded_rect(left + inset * 1.15, top + inset * 1.1, (side - 2 * inset) * 0.45, Math.max(1.5, side * 0.1), side * 0.05);
-    ctx.fillStyle = "rgba(255,240,232,0.85)";
+    trace_station_pieces(pieces, X, Y, z, 0);
+    ctx.fillStyle = "#ffffff";
     ctx.fill();
   }
   function draw_town_map_towns(d, X, Y, z) {
@@ -821,9 +770,9 @@
       else draw_landmark_pill(l, X, Y, z, is_selected);
     }
   }
-  function town_map_label(text, x, y, size, fill) {
+  function town_map_label(text, x, y, size, fill, align) {
     ctx.font = `600 ${size}px "Pixelify Sans", ui-monospace, monospace`;
-    ctx.textAlign = "center";
+    ctx.textAlign = align || "center";
     ctx.textBaseline = "middle";
     ctx.lineJoin = "round";
     ctx.lineWidth = Math.max(3, size * 0.32);
@@ -834,15 +783,16 @@
   }
   function draw_town_map_labels(d, X, Y, z) {
     const size = Math.round(Math.max(10, Math.min(15, z * 1.6)));
-    const band = town_map_band_width(z);
+    const band = metro_line_width(z);
     if (st.layers.routes) for (const r of d.routes) draw_town_map_route_label(r, X, Y, size, band);
     for (const l of d.landmarks) {
       if (["whirlpool", "station", "pillar"].includes(l.kind)) continue;
       town_map_label(l.name, X(l.x + 0.5), Y(l.y + 0.5) + Math.max(10, z * 1.6), Math.round(size * 0.9), "#1e3c6c");
     }
+    const grid = map_grid();
     for (const c of d.cities) {
-      const [x0, y0, x1, y1] = c.rect;
-      town_map_label(c.name, X((x0 + x1) / 2), Y((y0 + y1) / 2) + town_square_side(c, z) / 2 + size * 0.85, Math.round(size * 1.1));
+      const [x0, , x1, y1] = c.rect;
+      town_map_label(c.name, X((x0 + x1) / 2), Y(y1 - station_inset(grid)) + size * 0.95, Math.round(size * 1.1));
     }
   }
   function route_gate_summary(r) {
@@ -850,23 +800,24 @@
     return [needs ? "needs " + HM_LABEL[needs] : "", after != null ? "after beat " + (after + 1) : ""].filter(Boolean).join(" · ") || "open";
   }
   function draw_town_map_route_label(r, X, Y, size, band) {
-    const path = (r.path || []).map(([x, y]) => [x + 0.5, y + 0.5]);
-    const [x0, y0, x1, y1] = r.rect;
-    const [mx, my] = path.length ? ED.point_halfway_along(path) : [(x0 + x1) / 2, (y0 + y1) / 2];
-    const below = Y(my) + band / 2 + size * 0.7;
+    const anchor = MAP_GRID.label_anchor_of_route(map_grid(), r);
+    if (!anchor) return;
     const is_selected = !!st.sel && st.sel.kind === "route" && st.sel.id === r.name;
-    const crowds_a_town_name = st.doc.cities.some((c) => mx > c.rect[0] - 3 && mx < c.rect[2] + 3 && my > c.rect[1] - 3 && my < c.rect[3] + 3);
-    if (crowds_a_town_name && !is_selected) return;
-    town_map_label(r.name, X(mx), Y(my) - band / 2 - size * 0.7, size);
     const gate = route_gate_summary(r);
-    if (gate !== "open") {
-      town_map_label(gate, X(mx), below, Math.round(size * 0.85), "#963228");
+    const role = r.role.replace(/_/g, " ") + (r.pinned ? " · pinned" : "");
+    const second_line = gate !== "open" ? gate : is_selected ? role : "";
+    const second_colour = gate !== "open" ? "#963228" : TOWN_MAP_INK;
+    const [x, y] = anchor.point;
+    if (anchor.runs_across) {
+      town_map_label(r.name, X(x), Y(y) - band / 2 - size * 0.75, size);
+      if (second_line) town_map_label(second_line, X(x), Y(y) + band / 2 + size * 0.75, Math.round(size * 0.85), second_colour);
       return;
     }
-    if (!is_selected) return;
-    const role = r.role.replace(/_/g, " ") + (r.pinned ? " · pinned" : "") + (r.drawn ? " · drawn" : "");
-    town_map_label(role, X(mx), below, Math.round(size * 0.85));
+    const left = X(x) + band / 2 + size * 0.5;
+    town_map_label(r.name, left, Y(y) - (second_line ? size * 0.5 : 0), size, TOWN_MAP_INK, "left");
+    if (second_line) town_map_label(second_line, left, Y(y) + size * 0.6, Math.round(size * 0.85), second_colour, "left");
   }
+
 
 
   function drawCities(d, X, Y, z) {
@@ -968,142 +919,79 @@
       ctx.arc(X(Math.floor(fx) + 0.5), Y(Math.floor(fy) + 0.5), Math.max(3, r * z) + 1.5, 0, Math.PI * 2);
       ctx.stroke();
     }
-    if (st.cursor && st.tool === "town" && !st.space) draw_town_ghost(d, X, Y, z);
-    if (st.drag && st.drag.kind === "bend" && st.drag.changed) draw_bend_drag_preview(d, X, Y, z);
-    if (st.drag && st.drag.kind === "stroke") draw_stroke_preview(d, X, Y, z);
-    if (st.drag && st.drag.kind === "erase") draw_erase_preview(d, X, Y, z);
+    if (st.drag && st.drag.kind === "paint") { draw_map_stroke_preview(d, X, Y, z); return; }
+    if (st.cursor && MAP_BRUSHES.has(st.tool) && !st.space) draw_map_brush_hover(d, X, Y, z);
   }
-  // ------------------------------------------------------------ painting a route freehand
-  function cell_of(c) { return [Math.floor(c.fx), Math.floor(c.fy)]; }
-  function stroke_start_cell(c) {
-    const place = ED.placeAt(st.doc, c.fx, c.fy, { noLandmarks: true });
-    return place && place.kind === "city" ? ED.anchor_of_place(place, c.fx, c.fy) : cell_of(c);
-  }
-  async function send_drawn_line(body, label) {
-    const laid = await busy("laying the drawn route", async () => {
-      const out = await api("/api/editor/draw-route", Object.assign({ doc: ED.encodeDoc(st.doc) }, body));
-      st.hist.begin(st.doc, label);
-      out.name = st.doc.name;
-      setDoc(out, true);
-      st.unsaved = true;
-      st.sel = { kind: "route", id: out.added[0] };
-      refreshAll();
-      toast(`${label}: ${out.added.join(", ")}`);
-      return true;
-    });
-    return !!laid;
-  }
-  function start_stroke(c, alt) {
-    if (alt) { st.drag = { kind: "erase", names: new Set() }; erase_under(c); return; }
-    st.drag = { kind: "stroke", stroke: ED.start_stroke(stroke_start_cell(c)) };
+  // ------------------------------------------------------------ painting the Map grid
+  function map_grid() { return MAP_GRID.grid_of_doc(st.doc); }
+  function grid_cell_under(c) { return MAP_GRID.grid_cell_at(map_grid(), c.fx, c.fy); }
+  function start_map_stroke(c) {
+    const cell = grid_cell_under(c);
+    st.drag = { kind: "paint", brush: st.tool, cells: cell ? [cell] : [] };
     draw();
   }
-  function erase_under(c) {
-    const [x, y] = cell_of(c);
-    for (const r of st.doc.routes) {
-      if (!r.drawn || x < r.rect[0] || x >= r.rect[2] || y < r.rect[1] || y >= r.rect[3]) continue;
-      st.drag.names.add(r.name);
-    }
+  function extend_map_stroke(dr, c) {
+    const cell = grid_cell_under(c);
+    if (!cell) return;
+    dr.cells = MAP_GRID.stroke_with_cell(dr.cells, cell);
     draw();
   }
-  function finish_erase(dr) {
-    if (!dr.names.size) return;
-    const names = [...dr.names];
-    edit("erase drawn routes", () => { for (const name of names) ED.deleteRoute(st.doc, name); });
+  function finish_map_stroke(dr) {
+    const changed_cells = MAP_GRID.cells_the_brush_changes(map_grid(), dr.cells, dr.brush);
+    paint_map_cells(changed_cells, dr.brush, { route: "paint route", town: "paint town", erase: "erase" }[dr.brush]);
+  }
+  function erase_place(place_kind, place) {
+    const cells = MAP_GRID.grid_cells_of_place(st.doc, place);
     st.sel = null;
-    refreshInspector();
-    toast("erased " + names.join(", "));
+    paint_map_cells(cells, "erase", "erase " + (place_kind === "city" ? "town" : "route"));
   }
-  function finish_stroke(dr) {
-    const corners = ED.stroke_corners(dr.stroke);
-    if (corners.length < 2) return;
-    const problem = ED.stroke_problem(st.doc, ED.cells_of_corners(corners));
-    if (problem) { toast(problem, true); return; }
-    send_drawn_line({ waypoints: corners, legs: [] }, "draw route");
+  const BRUSH_PREVIEW_COLOURS = { route: "rgba(44,44,52,0.55)", town: "rgba(255,255,255,0.85)", erase: "rgba(214,64,48,0.5)" };
+  function trace_grid_cell(grid, cell, X, Y, z, inset) {
+    const size = grid.cell * z;
+    trace_rounded_rect(X(cell[0] * grid.cell) + inset, Y(cell[1] * grid.cell) + inset, size - 2 * inset, size - 2 * inset, size * 0.16);
   }
-  function stroke_hint(cells, problem) {
-    if (problem) return problem;
-    const last = cells[cells.length - 1];
-    const place = ED.placeAt(st.doc, last[0] + 0.5, last[1] + 0.5, { noLandmarks: true });
-    return place ? "to " + (place.obj.name || place.id) : "dead end here";
-  }
-  function draw_stroke_preview(d, X, Y, z) {
-    const corners = ED.stroke_corners(st.drag.stroke);
-    if (corners.length < 2) return;
-    const cells = ED.cells_of_corners(corners);
-    const problem = ED.stroke_problem(d, cells);
-    draw_line_band(corners, X, Y, z, problem);
-    const [ex, ey] = corners[corners.length - 1];
-    town_map_label(stroke_hint(cells, problem), X(ex + 0.5), Y(ey + 0.5) - 18, 13, problem ? "#962820" : TOWN_MAP_INK);
-  }
-  function draw_erase_preview(d, X, Y, z) {
-    ctx.strokeStyle = "rgba(200,40,32,0.9)";
-    ctx.lineWidth = 2.5;
-    for (const name of st.drag.names) {
-      const r = ED.routeByName(d, name);
-      if (!r) continue;
-      ctx.strokeRect(X(r.rect[0]), Y(r.rect[1]), (r.rect[2] - r.rect[0]) * z, (r.rect[3] - r.rect[1]) * z);
+  function draw_map_stroke_preview(d, X, Y, z) {
+    const grid = map_grid(), dr = st.drag;
+    const inset = grid.cell * z * 0.18;
+    for (const cell of dr.cells) {
+      trace_grid_cell(grid, cell, X, Y, z, inset);
+      ctx.fillStyle = BRUSH_PREVIEW_COLOURS[dr.brush];
+      ctx.fill();
+      ctx.strokeStyle = dr.brush === "erase" ? "#962820" : TOWN_MAP_INK;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
     }
-  }
-  function bend_at(r, fx, fy, z) {
-    const line = ED.drawn_line_of_route(st.doc, r);
-    if (!line) return null;
-    const reach = Math.max(8, z * 0.9);
-    for (let k = 1; k < line.waypoints.length - 1; k++) {
-      const [x, y] = line.waypoints[k];
-      if (Math.hypot(fx - (x + 0.5), fy - (y + 0.5)) * z < reach) return { kind: "bend", k, route: r.name, line: line.name };
-    }
-    return null;
-  }
-  function start_bend_drag(h) {
-    const line = st.doc.links.find((l) => l.name === h.line);
-    st.drag = { kind: "bend", h, line, waypoints: line.waypoints.map((p) => p.slice()), changed: false };
-  }
-  function move_bend(dr, c) {
-    const [x, y] = cell_of(c), [ox, oy] = dr.waypoints[dr.h.k];
-    if (x === ox && y === oy) return;
-    dr.waypoints = ED.with_waypoint_moved(dr.waypoints, dr.h.k, x, y);
-    dr.changed = true;
-    draw();
-  }
-  function finish_bend_drag(dr) {
-    if (!dr.changed) return;
-    send_drawn_line({ waypoints: dr.waypoints, legs: dr.line.legs, replace: dr.line.name }, "move bend");
-  }
-  function draw_line_band(corners, X, Y, z, problem) {
-    const band = town_map_band_width(z);
-    const points = corners.map(([x, y]) => [x + 0.5, y + 0.5]);
+    if (dr.brush !== "route" || dr.cells.length < 2) return;
+    const points = MAP_GRID.without_points_in_line(dr.cells.map((cell) => MAP_GRID.region_centre_of_grid_cell(grid, cell)));
+    ctx.strokeStyle = "rgba(255,255,255,0.95)";
+    ctx.lineWidth = metro_line_width(z) * 0.45;
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
-    ctx.strokeStyle = problem ? "rgba(150,40,32,0.9)" : "rgba(204,134,76,0.95)";
-    ctx.lineWidth = band + Math.max(3, band * 0.4);
     trace_polyline(points, X, Y);
     ctx.stroke();
-    ctx.strokeStyle = problem ? "rgba(240,128,112,0.9)" : "rgba(248,202,140,0.95)";
-    ctx.lineWidth = band;
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(255,255,255,0.9)";
-    ctx.lineWidth = Math.max(1.5, band * 0.16);
-    ctx.setLineDash([Math.max(4, band * 0.6), Math.max(4, band * 0.5)]);
-    ctx.stroke();
-    ctx.setLineDash([]);
     ctx.lineCap = "butt";
   }
-  function draw_bend_drag_preview(d, X, Y, z) {
-    const dr = st.drag;
-    draw_line_band(ED.corners_of_line(dr.waypoints, dr.line.legs), X, Y, z, "");
-  }
-  function draw_town_ghost(d, X, Y, z) {
-    const x = Math.floor(st.cursor.fx), y = Math.floor(st.cursor.fy);
-    const [width, height] = ED.TOWN_SIZE;
-    const problem = ED.town_spot_problem(d, x, y);
-    const x0 = x - Math.floor(width / 2), y0 = y - Math.floor(height / 2);
-    ctx.strokeStyle = problem ? "rgba(255,110,90,0.95)" : "rgba(255,255,255,0.95)";
-    ctx.lineWidth = 2;
-    ctx.setLineDash([6, 4]);
-    ctx.strokeRect(X(x0), Y(y0), width * z, height * z);
+  function draw_map_brush_hover(d, X, Y, z) {
+    const cell = grid_cell_under(st.cursor);
+    if (!cell) return;
+    const grid = map_grid();
+    trace_grid_cell(grid, cell, X, Y, z, 1.5);
+    ctx.strokeStyle = st.tool === "erase" ? "rgba(150,40,32,0.9)" : "rgba(44,44,52,0.75)";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.stroke();
     ctx.setLineDash([]);
-    label(problem || ED.next_town_name(d), X(x + 0.5), Y(y0) - 12, 13, problem ? "#ff8a70" : "#ffffff");
+  }
+  function draw_map_grid_lines(d, X, Y, z) {
+    const grid = map_grid();
+    if (!grid.width || grid.cell * z < 14) return;
+    const painting = MAP_BRUSHES.has(st.tool);
+    ctx.strokeStyle = painting ? "rgba(44,44,52,0.16)" : "rgba(44,44,52,0.07)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let column = 0; column <= grid.width; column++) { ctx.moveTo(Math.round(X(column * grid.cell)) + 0.5, Y(0)); ctx.lineTo(Math.round(X(column * grid.cell)) + 0.5, Y(grid.height * grid.cell)); }
+    for (let row = 0; row <= grid.height; row++) { ctx.moveTo(X(0), Math.round(Y(row * grid.cell)) + 0.5); ctx.lineTo(X(grid.width * grid.cell), Math.round(Y(row * grid.cell)) + 0.5); }
+    ctx.stroke();
   }
 
   // ------------------------------------------------------------ hit testing (select tool)
@@ -1117,23 +1005,6 @@
   function hitSelect(sx, sy) {
     const d = st.doc;
     const { fx, fy } = toCell(sx, sy);
-    const z = st.view.z;
-    const r = st.sel && st.sel.kind === "route" && st.layers.routes && modes_that_move_places.has(st.mode) ? ED.routeByName(d, st.sel.id) : null;
-    if (r) {
-      const bend = bend_at(r, fx, fy, z);
-      if (bend) return bend;
-      for (let k = 0; k < r.exits.length; k++) {
-        const [ex, ey] = r.exits[k].cell;
-        if (Math.abs(fx - (ex + 0.5)) * z < Math.max(8, z * 0.8) && Math.abs(fy - (ey + 0.5)) * z < Math.max(8, z * 0.8)) return { kind: "exit", k, route: r.name };
-      }
-      const [x0, y0, x1, y1] = r.rect;
-      const tol = Math.max(6, z * 0.6) / z;
-      const inY = fy > y0 - tol && fy < y1 + tol, inX = fx > x0 - tol && fx < x1 + tol;
-      if (inY && Math.abs(fx - x0) < tol) return { kind: "edge", edge: "x0", route: r.name };
-      if (inY && Math.abs(fx - x1) < tol) return { kind: "edge", edge: "x1", route: r.name };
-      if (inX && Math.abs(fy - y0) < tol) return { kind: "edge", edge: "y0", route: r.name };
-      if (inX && Math.abs(fy - y1) < tol) return { kind: "edge", edge: "y1", route: r.name };
-    }
     const p = ED.placeAt(d, fx, fy);
     if (p && p.kind === "route" && !st.layers.routes) return null;
     if (p && !is_place_kind_selectable_in_current_mode(p.kind)) return null;
@@ -1160,12 +1031,8 @@
       dab(c.fx, c.fy);
       return;
     }
-    if (st.tool === "town") {
-      add_town_at(Math.floor(c.fx), Math.floor(c.fy));
-      return;
-    }
-    if (st.tool === "draw") {
-      start_stroke(c, ev.altKey);
+    if (MAP_BRUSHES.has(st.tool)) {
+      start_map_stroke(c);
       return;
     }
     // select tool
@@ -1177,17 +1044,9 @@
       draw();
       return;
     }
-    if (h.kind === "exit" || h.kind === "edge") {
-      st.drag = { kind: h.kind, h, s: null, sx, sy };
-      return;
-    }
-    if (h.kind === "bend") {
-      start_bend_drag(h);
-      return;
-    }
     st.sel = { kind: h.kind, id: h.id };
     refreshInspector();
-    if ((h.kind === "city" || h.kind === "landmark") && modes_that_move_places.has(st.mode)) {
+    if (h.kind === "landmark" && modes_that_move_places.has(st.mode)) {
       st.drag = { kind: "move", sel: st.sel, cx: Math.floor(c.fx), cy: Math.floor(c.fy), s: null };
     }
     draw();
@@ -1214,18 +1073,9 @@
       draw();
       return;
     }
-    if (dr && dr.kind === "bend") {
-      move_bend(dr, c);
-      return;
-    }
-    if (dr && dr.kind === "stroke") {
-      dr.stroke = ED.extend_stroke(dr.stroke, cell_of(c));
+    if (dr && dr.kind === "paint") {
+      extend_map_stroke(dr, c);
       status(c);
-      draw();
-      return;
-    }
-    if (dr && dr.kind === "erase") {
-      erase_under(c);
       return;
     }
     if (dr && dr.kind === "move") {
@@ -1233,36 +1083,20 @@
       const dx = nx - dr.cx, dy = ny - dr.cy;
       if (dx || dy) {
         if (!dr.s) dr.s = st.hist.begin(st.doc, "move " + dr.sel.kind);
-        const moved = dr.sel.kind === "city" ? ED.moveCity(st.doc, dr.sel.id, dx, dy) : ED.moveLandmark(st.doc, dr.sel.id, dx, dy);
+        const moved = ED.moveLandmark(st.doc, dr.sel.id, dx, dy);
         if (moved) { dr.cx = nx; dr.cy = ny; dr.changed = true; }
         draw();
       }
       return;
     }
-    if (dr && (dr.kind === "exit" || dr.kind === "edge")) {
-      const r = ED.routeByName(st.doc, dr.h.route);
-      if (!r) return;
-      if (!dr.s) dr.s = st.hist.begin(st.doc, dr.kind === "exit" ? "move exit" : "resize route");
-      let ch;
-      if (dr.kind === "exit") {
-        const e = r.exits[dr.h.k];
-        ch = ED.moveExit(st.doc, r.name, dr.h.k, e.side === "north" || e.side === "south" ? c.fx - 0.5 : c.fy - 0.5);
-      } else {
-        ch = ED.resizeRoute(st.doc, r.name, dr.h.edge, dr.h.edge[0] === "x" ? c.fx : c.fy);
-      }
-      if (ch) { dr.changed = true; refreshInspector(); }
-      draw();
-      return;
-    }
     // hover
     let h = null;
     if (st.tool === "select") h = hitSelect(sx, sy);
-    else if (st.tool === "draw") { const p = ED.placeAt(st.doc, c.fx, c.fy, { noLandmarks: true }); h = p ? { kind: p.kind, id: p.id, place: p } : null; }
-    const key = (x) => (x ? `${x.kind}:${x.id || ""}:${x.k}:${x.edge}` : "");
-    if (key(h) !== key(st.hover) || BRUSH_TOOLS.has(st.tool) || st.tool === "town" || st.tool === "draw") { st.hover = h; draw(); }
-    wrap.style.cursor = st.space ? "grab" : BRUSH_TOOLS.has(st.tool) || st.tool === "town" || st.tool === "draw" ? "crosshair" :
-      h && h.kind === "edge" ? (h.edge[0] === "x" ? "ew-resize" : "ns-resize") :
-      h && (h.kind === "exit" || h.kind === "bend" || (h.kind === "city" || h.kind === "landmark") && modes_that_move_places.has(st.mode)) ? "move" : h ? "pointer" : "default";
+    const key = (x) => (x ? `${x.kind}:${x.id || ""}` : "");
+    const is_painting_tool = BRUSH_TOOLS.has(st.tool) || MAP_BRUSHES.has(st.tool);
+    if (key(h) !== key(st.hover) || is_painting_tool) { st.hover = h; draw(); }
+    wrap.style.cursor = st.space ? "grab" : is_painting_tool ? "crosshair" :
+      h && h.kind === "landmark" && modes_that_move_places.has(st.mode) ? "move" : h ? "pointer" : "default";
     status(c);
   });
 
@@ -1277,12 +1111,10 @@
       commit(TOOLS[st.tool].toLowerCase(), cause);
       return;
     }
-    if (dr.kind === "stroke") { draw(); finish_stroke(dr); return; }
-    if (dr.kind === "erase") { draw(); finish_erase(dr); return; }
-    if (dr.kind === "bend") { finish_bend_drag(dr); draw(); return; }
-    if (dr.kind === "move" || dr.kind === "exit" || dr.kind === "edge") {
+    if (dr.kind === "paint") { draw(); finish_map_stroke(dr); return; }
+    if (dr.kind === "move") {
       if (dr.s && !dr.changed) { st.hist.cancel(); return; }
-      if (dr.changed) commit(dr.kind === "move" ? "move " + dr.sel.kind : dr.kind === "exit" ? "move exit" : "resize route", "places");
+      if (dr.changed) commit("move " + dr.sel.kind, "places");
     }
   }
   wrap.addEventListener("pointerup", endDrag);
@@ -1466,14 +1298,10 @@
     nm.value = o.name;
     nm.onchange = () => edit("rename", () => ED.renamePlace(st.doc, st.sel.kind, o.id, nm.value));
     box.append(row("Name", nm));
-    const pos = isCity ? `${o.rect[0]}, ${o.rect[1]} (${o.rect[2] - o.rect[0]} x ${o.rect[3] - o.rect[1]} cells)` : `${o.x}, ${o.y}`;
-    box.append(el("p", { class: "sub" }, "at " + pos));
+    const town_cell_count = (o.grid_cells || []).length;
+    const pos = isCity ? `${town_cell_count} map cell${town_cell_count === 1 ? "" : "s"}` : `at ${o.x}, ${o.y}`;
+    box.append(el("p", { class: "sub" }, pos));
     if (o.story || o.note) box.append(el("p", { class: "story" }, o.story || o.note));
-    if (isCity && modes_that_move_places.has(st.mode)) {
-      const remove = el("button", { type: "button", class: "small" }, "Delete town");
-      remove.onclick = () => delete_town(o.id);
-      box.append(remove);
-    }
   }
   function show_selection_panel_for(selected_object) {
     const selection_title = selected_object ? ({ route: "Route", city: "Town", landmark: "Landmark" }[st.sel.kind] || "Selection") : "Selection";
@@ -1531,14 +1359,8 @@
     box.append(row("Biome", bio, "biome" in ov, () => edit("reset biome", () => ED.setSpecField(r, "biome", undefined))));
 
     const wc = r.rect[2] - r.rect[0], hc = r.rect[3] - r.rect[1];
-    const sz = el("div", { class: "row" });
-    const iw = el("input", { type: "number", min: "6", max: "24", value: String(wc), "aria-label": "width in cells" });
-    const ih = el("input", { type: "number", min: "6", max: "28", value: String(hc), "aria-label": "height in cells" });
-    iw.onchange = () => edit("resize route", () => ED.resizeRoute(st.doc, r.name, "x1", r.rect[0] + (+iw.value || wc)), "places");
-    ih.onchange = () => edit("resize route", () => ED.resizeRoute(st.doc, r.name, "y1", r.rect[1] + (+ih.value || hc)), "places");
-    sz.append(el("span", {}, "Size (cells)"), iw, ih);
-    box.append(sz);
-    box.append(el("p", { class: "sub" }, `${wc * ED.CELL} x ${hc * ED.CELL} metatiles`));
+    const route_cell_count = (r.grid_cells || []).length;
+    box.append(el("p", { class: "sub" }, `${route_cell_count} map cell${route_cell_count === 1 ? "" : "s"} · ${wc * ED.CELL} x ${hc * ED.CELL} metatiles`));
 
     for (const [k, step] of SPEC_FIELDS) {
       const v = k in ov ? ov[k] : spec[k] != null ? spec[k] : SPEC_DEFAULTS[k];
@@ -1562,12 +1384,9 @@
 
     box.append(el("h2", { style: "margin-top:12px" }, "Exits"));
     const ul = el("ul", { class: "exits2" });
-    r.exits.forEach((e, k) => {
+    r.exits.forEach((e) => {
       const li = el("li");
-      const [lo, hi] = ED.sideRange(r.rect, e.side, 1);
-      const rng = el("input", { type: "range", min: String(lo), max: String(hi), step: "1", value: String(ED.exitAlong(e)), "aria-label": `exit ${k + 1} position` });
-      rng.onchange = () => edit("move exit", () => ED.moveExit(st.doc, r.name, k, +rng.value), "places");
-      li.append(el("span", {}, e.side), rng, el("span", { class: "to" }, "to " + (e.to || "nothing") + (e.link && e.link !== r.link ? ` (${e.link})` : "")));
+      li.append(el("span", {}, e.side), el("span", { class: "to" }, "to " + (e.to || "nothing")));
       ul.append(li);
     });
     box.append(ul);
@@ -1580,9 +1399,7 @@
     const btns = el("div", { class: "btns" });
     const ob = el("button", { type: "button", class: "small", title: "Double-click the route on the map" }, "Open in Routes");
     ob.onclick = () => openInBench(r);
-    const db = el("button", { type: "button", class: "small" }, "Delete route");
-    db.onclick = () => deleteSelected();
-    btns.append(ob, db);
+    btns.append(ob);
     box.append(btns);
     if (spec.error) box.append(el("p", { class: "warns" }, "spec: " + spec.error));
   }
@@ -1678,24 +1495,10 @@
     r.pinned = true;
   }
 
-  function delete_drawn_line_of(r) {
-    edit("delete drawn route", () => ED.delete_drawn_line(st.doc, r.link));
-    st.sel = null;
-    refreshInspector();
-    draw();
-    toast(`deleted the drawn line ${r.link}`);
-  }
   function deleteSelected() {
-    if (st.sel && st.sel.kind === "city" && modes_that_move_places.has(st.mode)) { delete_town(st.sel.id); return; }
-    if (!st.sel || st.sel.kind !== "route" || !modes_that_move_places.has(st.mode)) return;
-    const selected_route = ED.routeByName(st.doc, st.sel.id);
-    if (ED.drawn_line_of_route(st.doc, selected_route)) { delete_drawn_line_of(selected_route); return; }
-    const name = st.sel.id;
-    edit("delete route", () => ED.deleteRoute(st.doc, name), "places");
-    st.sel = null;
-    refreshInspector();
-    draw();
-    toast(`deleted ${name}; the rest of its link is pinned so the gap stays`);
+    if (!st.sel || !["region", null].includes(st.mode) || !["city", "route"].includes(st.sel.kind)) return;
+    const selected_place = findSel(st.sel);
+    if (selected_place) erase_place(st.sel.kind, selected_place);
   }
 
   function refresh_route_list() {
@@ -1938,7 +1741,7 @@
   $("help").onclick = (e) => { if (e.target === $("help")) $("help").hidden = true; };
   $("docName").onchange = () => { if (st.doc) { st.doc.name = $("docName").value.trim(); st.unsaved = true; } };
 
-  const KEY_TOOLS = { v: "select", r: "raise", l: "lower", f: "flatten", s: "smooth", b: "biome", w: "water", t: "town", d: "draw" };
+  const KEY_TOOLS = { v: "select", r: "raise", l: "lower", f: "flatten", s: "smooth", b: "biome", w: "water", d: "route", t: "town", e: "erase" };
   on(document, "keydown", (ev) => {
     if (opts.keys === false || !root.isConnected || root.closest("[hidden]")) return; // a host can hide or park the editor
     if (host && host.is_active && !host.is_active()) return; // docked beside another view that has the focus
@@ -1951,7 +1754,7 @@
     if (mod && ev.key.toLowerCase() === "y") { ev.preventDefault(); redo(); return; }
     if (mod || ev.altKey && ev.key !== "Alt") return;
     if (ev.key === " ") { ev.preventDefault(); st.space = true; wrap.style.cursor = "grab"; return; }
-    if (ev.key === "Escape" && st.drag && (st.drag.kind === "stroke" || st.drag.kind === "erase")) { st.drag = null; draw(); return; }
+    if (ev.key === "Escape" && st.drag && st.drag.kind === "paint") { st.drag = null; draw(); return; }
     if (ev.key === "?") { $("help").hidden = !$("help").hidden; return; }
     if (ev.key === "Escape") { $("help").hidden = true; st.sel = null; refreshInspector(); draw(); return; }
     if (!st.doc) return;

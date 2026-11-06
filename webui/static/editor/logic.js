@@ -86,7 +86,7 @@
   // ------------------------------------------------------------ history (undo / redo)
   // Snapshots share grid arrays; an edit copies a grid the first time it touches it
   // (copy on write), so 100 steps cost only the grids that actually changed.
-  const DATA_KEYS = ["cities", "landmarks", "links", "routes", "stale", "meta", "name", "user_note", "story"];
+  const DATA_KEYS = ["cities", "landmarks", "links", "routes", "stale", "meta", "name", "user_note", "story", "map_grid"];
   function snapshot(doc) {
     const data = {};
     for (const k of DATA_KEYS) if (doc[k] !== undefined) data[k] = JSON.parse(JSON.stringify(doc[k]));
@@ -423,7 +423,21 @@
     return c ? { kind: "city", rect: c.rect, city: c } : null;
   }
 
-  // what is under cell (x, y): a landmark marker, a city, or the smallest route rect
+  function covers_grid_cell(place, grid_column, grid_row) {
+    const covers = (place.grid_cells || []).some((cell) => cell[0] === grid_column && cell[1] === grid_row);
+    return covers;
+  }
+  function place_on_map_grid(doc, x, y) {
+    const region_cells_per_grid_cell = (doc.map_grid || {}).cell;
+    if (!region_cells_per_grid_cell) return null;
+    const grid_column = Math.floor(x / region_cells_per_grid_cell), grid_row = Math.floor(y / region_cells_per_grid_cell);
+    const town = doc.cities.find((c) => covers_grid_cell(c, grid_column, grid_row));
+    if (town) return { kind: "city", id: town.id, obj: town };
+    const route = doc.routes.find((r) => covers_grid_cell(r, grid_column, grid_row));
+    if (route) return { kind: "route", id: route.name, obj: route };
+    return null;
+  }
+  // what is under cell (x, y): a landmark marker, a town or route on the Map grid, else the smallest route rect
   function placeAt(doc, x, y, opts) {
     opts = opts || {};
     if (!opts.noLandmarks) {
@@ -434,12 +448,16 @@
       }
       if (best) return { kind: "landmark", id: best.id, obj: best };
     }
+    const place_on_the_grid = place_on_map_grid(doc, x, y);
+    if (place_on_the_grid) return place_on_the_grid;
     for (const c of doc.cities) {
+      if ((c.grid_cells || []).length) continue;
       const [x0, y0, x1, y1] = c.rect;
       if (x >= x0 && x < x1 && y >= y0 && y < y1) return { kind: "city", id: c.id, obj: c };
     }
     let best = null, area = Infinity;
     for (const r of doc.routes) {
+      if ((r.grid_cells || []).length) continue;
       const [x0, y0, x1, y1] = r.rect;
       if (x >= x0 && x < x1 && y >= y0 && y < y1 && (x1 - x0) * (y1 - y0) < area) { best = r; area = (x1 - x0) * (y1 - y0); }
     }
@@ -482,32 +500,6 @@
     return true;
   }
 
-  function moveCity(doc, id, dx, dy) {
-    const c = doc.cities.find((c) => c.id === id);
-    if (!c || (!dx && !dy)) return false;
-    const [x0, y0, x1, y1] = c.rect;
-    const ndx = Math.max(-x0 + 1, Math.min(doc.W - 1 - x1, dx)), ndy = Math.max(-y0 + 1, Math.min(doc.H - 1 - y1, dy));
-    c.rect = [x0 + ndx, y0 + ndy, x1 + ndx, y1 + ndy];
-    return !!(ndx || ndy);
-  }
-  // towns placed by hand: the server checks again, this only saves pointless round trips
-  const TOWN_SIZE = [10, 9];
-  function next_town_name(doc) {
-    const taken = new Set(doc.cities.map((c) => c.name));
-    let number = 1;
-    while (taken.has(`Town ${number}`)) number++;
-    return `Town ${number}`;
-  }
-  function town_spot_problem(doc, x, y) {
-    if (x < 0 || y < 0 || x >= doc.W || y >= doc.H) return "that is off the map";
-    const i = y * doc.W + x;
-    if (!doc.grids.land[i] || doc.grids.lake[i]) return "a town has to stand on dry land";
-    const [width, height] = TOWN_SIZE;
-    const near_town = doc.cities.some((c) => x >= c.rect[0] - width / 2 && x < c.rect[2] + width / 2 &&
-      y >= c.rect[1] - height / 2 && y < c.rect[3] + height / 2);
-    if (near_town) return "too close to another town";
-    return "";
-  }
 
   // landmarks that travel together: Romowe carries its pillar and its gate
   const CARRY = { romowe: ["sky_pillar"], gold_feather_tower: ["brandwald"] };
@@ -529,91 +521,7 @@
     return !!(ndx || ndy);
   }
 
-  // exits: position along their side (x for north/south, y for east/west)
-  function exitAlong(e) { return e.side === "north" || e.side === "south" ? e.cell[0] : e.cell[1]; }
-  function sideRange(rect, side, margin) {
-    const [x0, y0, x1, y1] = rect;
-    const m = margin == null ? 1 : margin;
-    return side === "north" || side === "south" ? [x0 + m, x1 - 1 - m] : [y0 + m, y1 - 1 - m];
-  }
-  function edgeCell(rect, side, t) {
-    const [x0, y0, x1, y1] = rect;
-    if (side === "north") return [t, y0];
-    if (side === "south") return [t, y1 - 1];
-    if (side === "west") return [x0, t];
-    return [x1 - 1, t];
-  }
-  function mirrorExit(doc, r, e) {
-    const o = routeByName(doc, e.to);
-    if (!o) return null;
-    const [dx, dy] = DELTA[e.side];
-    return o.exits.find((q) => q.to === r.name && q.side === OPP[e.side] &&
-      q.cell[0] === e.cell[0] + dx && q.cell[1] === e.cell[1] + dy) || null;
-  }
-  // move exit k of route `name` to position t along its side; keeps it on the shared
-  // stretch with the neighbour and moves the neighbour's matching exit with it
-  function moveExit(doc, name, k, t) {
-    const r = routeByName(doc, name);
-    if (!r || !r.exits[k]) return false;
-    const e = r.exits[k];
-    let [lo, hi] = sideRange(r.rect, e.side, 1);
-    const nb = nodeRect(doc, e.to);
-    if (nb) {
-      const [nlo, nhi] = sideRange(nb.rect, OPP[e.side], nb.kind === "route" ? 1 : 0);
-      lo = Math.max(lo, nlo); hi = Math.min(hi, nhi);
-    }
-    if (lo > hi) return false;
-    t = Math.max(lo, Math.min(hi, Math.round(t)));
-    if (t === exitAlong(e)) return false;
-    const m = mirrorExit(doc, r, e);
-    e.cell = edgeCell(r.rect, e.side, t);
-    if (m) {
-      const o = routeByName(doc, e.to);
-      m.cell = edgeCell(o.rect, m.side, t);
-    }
-    r.pinned = true;
-    if (m) routeByName(doc, e.to).pinned = true;
-    return true;
-  }
   function sizeOk(wc, hc) { return wc <= MAX_W && hc <= MAX_H && (wc * CELL + 15) * (hc * CELL + 14) <= MAP_BUDGET; }
-  // drag one edge of a route rect: edge is x0 | y0 | x1 | y1, v the new coordinate
-  function resizeRoute(doc, name, edge, v) {
-    const r = routeByName(doc, name);
-    if (!r) return false;
-    const rect = r.rect.slice();
-    const k = { x0: 0, y0: 1, x1: 2, y1: 3 }[edge];
-    v = Math.round(v);
-    if (edge === "x0") v = Math.max(1, Math.min(rect[2] - 6, v));
-    if (edge === "x1") v = Math.min(doc.W - 1, Math.max(rect[0] + 6, v));
-    if (edge === "y0") v = Math.max(1, Math.min(rect[3] - 6, v));
-    if (edge === "y1") v = Math.min(doc.H - 1, Math.max(rect[1] + 6, v));
-    if (rect[k] === v) return false;
-    rect[k] = v;
-    r.rect = rect;
-    for (const e of r.exits) {
-      const [lo, hi] = sideRange(rect, e.side, 1);
-      e.cell = edgeCell(rect, e.side, Math.max(lo, Math.min(hi, exitAlong(e))));
-    }
-    if (r.goal) r.goal = [Math.max(rect[0], Math.min(rect[2] - 1, r.goal[0])), Math.max(rect[1], Math.min(rect[3] - 1, r.goal[1]))];
-    r.path = (r.path || []).filter(([x, y]) => x >= rect[0] && x < rect[2] && y >= rect[1] && y < rect[3]);
-    r.pinned = true;
-    return true;
-  }
-  function deleteRoute(doc, name) {
-    const r = routeByName(doc, name);
-    if (!r) return false;
-    doc.routes = doc.routes.filter((o) => o !== r);
-    for (const o of doc.routes) o.exits = o.exits.filter((e) => e.to !== name);
-    const link = doc.links.find((l) => l.name === r.link);
-    if (link) {
-      link.dropped = true;
-      link.routes = (link.routes || []).filter((n) => n !== name);
-      // the rest of that link stays as it is, so the gap doesn't fill itself back in
-      for (const o of doc.routes) if (o.link === r.link) o.pinned = true;
-    }
-    for (const b of doc.story || []) if (b.at === name) b.at = "";
-    return true;
-  }
   // problems a hand edit can leave behind
   function routeWarnings(doc, r) {
     const out = [];
@@ -630,7 +538,8 @@
     for (const o of doc.routes) {
       if (o === r) continue;
       const a = r.rect, b = o.rect;
-      if (a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]) out.push(`overlaps ${o.name}`);
+      const both_on_the_map_grid = !!(r.grid_cells && r.grid_cells.length && o.grid_cells && o.grid_cells.length);
+      if (!both_on_the_map_grid && a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]) out.push(`overlaps ${o.name}`);
     }
     return out;
   }
@@ -736,140 +645,6 @@
     return p;
   }
 
-  // ------------------------------------------------------------ routes drawn by hand (pokeroutes/region/drawn.py)
-  // a freehand stroke snapped to straight runs: it keeps to one axis until the pointer
-  // strays STROKE_TURN cells off it, then turns there
-  const STROKE_TURN = 2;
-  function start_stroke(cell) { return { corners: [[cell[0], cell[1]]], axis: null, end: [cell[0], cell[1]] }; }
-  function other_axis(axis) { return axis === "h" ? "v" : "h"; }
-  function extend_stroke(stroke, cell) {
-    const anchor = stroke.corners[stroke.corners.length - 1];
-    const dx = cell[0] - anchor[0], dy = cell[1] - anchor[1];
-    if (!dx && !dy) return { corners: stroke.corners, axis: stroke.axis, end: anchor.slice() };
-    const axis = stroke.axis || (Math.abs(dx) >= Math.abs(dy) ? "h" : "v");
-    const off_axis = axis === "h" ? dy : dx;
-    const end = axis === "h" ? [cell[0], anchor[1]] : [anchor[0], cell[1]];
-    if (Math.abs(off_axis) < STROKE_TURN) return { corners: stroke.corners, axis, end };
-    const turned_at_anchor = end[0] === anchor[0] && end[1] === anchor[1];
-    const corners = turned_at_anchor ? stroke.corners : stroke.corners.concat([end]);
-    return extend_stroke({ corners, axis: other_axis(axis), end }, cell);
-  }
-  function stroke_corners(stroke) {
-    const last = stroke.corners[stroke.corners.length - 1];
-    if (last[0] === stroke.end[0] && last[1] === stroke.end[1]) return stroke.corners.map((c) => c.slice());
-    return stroke.corners.map((c) => c.slice()).concat([stroke.end.slice()]);
-  }
-  function corners_of_line(waypoints, legs) {
-    const corners = [[waypoints[0][0], waypoints[0][1]]];
-    waypoints.slice(1).forEach(([end_x, end_y], index) => {
-      const [start_x, start_y] = corners[corners.length - 1];
-      const leg = legs[index] || "h";
-      if (start_x !== end_x && start_y !== end_y) corners.push(leg === "h" ? [end_x, start_y] : [start_x, end_y]);
-      const [last_x, last_y] = corners[corners.length - 1];
-      if (last_x !== end_x || last_y !== end_y) corners.push([end_x, end_y]);
-    });
-    return corners;
-  }
-  function cells_of_corners(corners) {
-    const cells = [[corners[0][0], corners[0][1]]];
-    for (const [end_x, end_y] of corners.slice(1)) {
-      let [x, y] = cells[cells.length - 1];
-      while (x !== end_x) { x += end_x > x ? 1 : -1; cells.push([x, y]); }
-      while (y !== end_y) { y += end_y > y ? 1 : -1; cells.push([x, y]); }
-    }
-    return cells;
-  }
-  function rect_centre_cell(rect) { return [Math.floor((rect[0] + rect[2]) / 2), Math.floor((rect[1] + rect[3]) / 2)]; }
-  function anchor_of_place(place, fx, fy) {
-    if (place.kind === "city") return rect_centre_cell(place.obj.rect);
-    if (place.kind === "landmark") return [place.obj.x, place.obj.y];
-    return [Math.floor(fx), Math.floor(fy)];
-  }
-  // what the server would refuse, checked while painting
-  function stroke_problem(doc, cells) {
-    if (cells.some(([x, y]) => x < 2 || y < 2 || x >= doc.W - 2 || y >= doc.H - 2)) return "too close to the map edge";
-    const in_a_place = cells.map(([x, y]) => !!placeAt(doc, x + 0.5, y + 0.5, { noLandmarks: true }));
-    if (!in_a_place.includes(true)) return "start or end the route on a town or a route";
-    if (!in_a_place.includes(false)) return "that stroke only runs over towns and routes that are already there";
-    return "";
-  }
-  function drawn_line_of_route(doc, route) {
-    if (!route || !route.drawn) return null;
-    return (doc.links || []).find((link) => link.name === route.link && link.kind === "drawn") || null;
-  }
-  function with_waypoint_moved(waypoints, index, x, y) {
-    return waypoints.map((point, k) => (k === index ? [x, y] : [point[0], point[1]]));
-  }
-  function delete_drawn_line(doc, line_name) {
-    const gone = new Set(doc.routes.filter((r) => r.link === line_name).map((r) => r.name));
-    if (!gone.size) return false;
-    doc.routes = doc.routes.filter((r) => !gone.has(r.name));
-    for (const r of doc.routes) r.exits = r.exits.filter((e) => !gone.has(e.to));
-    doc.links = doc.links.filter((link) => link.name !== line_name);
-    for (const beat of doc.story || []) if (gone.has(beat.at)) beat.at = "";
-    return true;
-  }
-  function without_straight_runs(points) {
-    if (points.length < 3) return points.slice();
-    const kept = [points[0]];
-    for (let k = 1; k < points.length - 1; k++) {
-      const [ax, ay] = kept[kept.length - 1], [bx, by] = points[k], [cx, cy] = points[k + 1];
-      if ((bx - ax) * (cy - by) - (by - ay) * (cx - bx) !== 0) kept.push(points[k]);
-    }
-    kept.push(points[points.length - 1]);
-    return kept;
-  }
-  // the band each route draws on the town map, in cell-centre coordinates: its path plus a stub over each exit
-  function nearest_cell(cells, cell) {
-    let best = null, best_distance = Infinity;
-    for (const c of cells) {
-      const distance = Math.abs(c[0] - cell[0]) + Math.abs(c[1] - cell[1]);
-      if (distance < best_distance) { best = c; best_distance = distance; }
-    }
-    return best;
-  }
-  // from the nearest cell of the route's own path (a padded rect can end past it), out through the exit
-  function lead_in_to_exit(path, exit) {
-    const [x, y] = exit.cell;
-    const from = nearest_cell(path, exit.cell);
-    if (!from) return [];
-    const across = DELTA[exit.side][0] !== 0;
-    return [[from[0] + 0.5, from[1] + 0.5], across ? [from[0] + 0.5, y + 0.5] : [x + 0.5, from[1] + 0.5]];
-  }
-  function exit_stub(doc, exit, path) {
-    const [dx, dy] = DELTA[exit.side];
-    const [x, y] = exit.cell;
-    const lead_in = lead_in_to_exit(path || [], exit);
-    const town = doc.cities.find((c) => c.name === exit.to);
-    if (!town) return lead_in.concat([[x + 0.5, y + 0.5], [x + dx + 0.5, y + dy + 0.5]]);
-    const centre_x = (town.rect[0] + town.rect[2]) / 2, centre_y = (town.rect[1] + town.rect[3]) / 2;
-    const turn = dx ? [centre_x, y + 0.5] : [x + 0.5, centre_y];
-    return lead_in.concat([[x + 0.5, y + 0.5], turn, [centre_x, centre_y]]);
-  }
-  function town_map_route_lines(doc) {
-    const lines = [];
-    for (const r of doc.routes) {
-      const path = r.path || [];
-      if (path.length) lines.push({ route: r, points: without_straight_runs(path.map(([x, y]) => [x + 0.5, y + 0.5])) });
-      for (const exit of r.exits || []) lines.push({ route: r, points: exit_stub(doc, exit, path) });
-    }
-    return lines;
-  }
-  function point_halfway_along(points) {
-    const step_length = (k) => Math.hypot(points[k][0] - points[k - 1][0], points[k][1] - points[k - 1][1]);
-    let total = 0;
-    for (let k = 1; k < points.length; k++) total += step_length(k);
-    let left = total / 2;
-    for (let k = 1; k < points.length; k++) {
-      const step = step_length(k);
-      if (step >= left && step > 0) {
-        const t = left / step;
-        return [points[k - 1][0] + (points[k][0] - points[k - 1][0]) * t, points[k - 1][1] + (points[k][1] - points[k - 1][1]) * t];
-      }
-      left -= step;
-    }
-    return points[0] ? points[0].slice() : [0, 0];
-  }
 
   // ------------------------------------------------------------ town-map style (Sinnoh-like) base raster
   const TOWN_MAP_RGB = {
@@ -1072,12 +847,9 @@
     History, snapshot, restore, touch, markStale, stagesFor,
     brushCells, lineCells, bbox, brushRaise, brushFlatten, brushSmooth, paintBiome, paintWater,
     shadeGrid, cellColor, renderBase,
-    asciiId, routeByName, nodeRect, placeAt, refOf, renameRoute, renamePlace, moveCity, moveLandmark,
-    TOWN_SIZE, next_town_name, town_spot_problem,
-    exitAlong, sideRange, edgeCell, mirrorExit, moveExit, sizeOk, resizeRoute, deleteRoute, routeWarnings,
+    asciiId, routeByName, nodeRect, placeAt, refOf, renameRoute, renamePlace, moveLandmark,
+    sizeOk, routeWarnings,
     setSpecField, benchParams, HMS, routeNeeds, reachableAt, storyWarnings, moveBeat, removeBeat,
-    start_stroke, extend_stroke, stroke_corners, corners_of_line, cells_of_corners, anchor_of_place, stroke_problem, drawn_line_of_route,
-    with_waypoint_moved, delete_drawn_line, without_straight_runs, town_map_route_lines, point_halfway_along,
     TOWN_MAP_RGB, sea_distance_to_land, town_map_cell_color, renderTownMap, river_segments_by_cell, river_half_width, terrace_level,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;

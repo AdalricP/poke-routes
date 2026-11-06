@@ -59,6 +59,7 @@ class City:
     size: str
     note: str = ""
     pinned: bool = False  # placed, renamed or moved by hand: "Generate map" keeps it
+    grid_cells: List[List[int]] = field(default_factory=list)
 
     @property
     def cx(self) -> float:
