@@ -138,17 +138,6 @@
   const $ = (id) => { for (const p of parts) { const e = p.querySelector(`[data-ed="${id}"]`); if (e) return e; } return null; };
   const $$ = (sel) => parts.flatMap((p) => [...p.querySelectorAll(sel)]);
   const collapsed_tree_groups = new Set();
-  if (host) dock_into_host();
-  const listeners = [];
-  const on = (target, type, fn, o) => { target.addEventListener(type, fn, o); listeners.push([target, type, fn, o]); };
-  const S = 5; // base raster pixels per region cell
-  const STORE_KEY = "pokeroutes-webui-v1"; // the bench's saved params
-  const REGION_KEY = "pokeroutes-region-spec"; // region-bridge.js reads this
-  const TOOLS = {
-    select: "Select", raise: "Raise", lower: "Lower", flatten: "Flatten", smooth: "Smooth",
-    biome: "Paint biome", water: "Coast", route: "Add route",
-  };
-  const BRUSH_TOOLS = new Set(["raise", "lower", "flatten", "smooth", "biome", "water"]);
   // icons for the docked toolbar (dock_into_host); same look as the Scene tool icons.
   const TOOL_ICONS = {
     select: '<path d="M4 2l8 6.2-3.6.5 2 4.1-1.6.8-2-4.1L4 12z" fill="currentColor"/>',
@@ -160,6 +149,17 @@
     water: '<path d="M2 3h12v6.5c-1.3 0-1.3 1.6-2.6 1.6S9.8 9.5 8.5 9.5 7.2 11.1 5.9 11.1 4.6 9.5 3.3 9.5 2 11.1 2 11.1z" fill="currentColor"/>',
     route: '<path d="M2 12l3.5-3.5L8 11l4.5-6" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2.5h1.4v1.4H15v1.4h-1.6V6.7h-1.4V5.3H10.4V3.9H12z" fill="currentColor"/>',
   };
+  if (host) dock_into_host();
+  const listeners = [];
+  const on = (target, type, fn, o) => { target.addEventListener(type, fn, o); listeners.push([target, type, fn, o]); };
+  const S = 5; // base raster pixels per region cell
+  const STORE_KEY = "pokeroutes-webui-v1"; // the bench's saved params
+  const REGION_KEY = "pokeroutes-region-spec"; // region-bridge.js reads this
+  const TOOLS = {
+    select: "Select", raise: "Raise", lower: "Lower", flatten: "Flatten", smooth: "Smooth",
+    biome: "Paint biome", water: "Coast", route: "Add route",
+  };
+  const BRUSH_TOOLS = new Set(["raise", "lower", "flatten", "smooth", "biome", "water"]);
   const SPEC_FIELDS = [
     ["meander", 0.05], ["branches", 1], ["loops", 1], ["dead_ends", 1], ["clearings", 1], ["lakes", 1],
     ["tall_grass", 0.05], ["hidden_paths", 1], ["hidden_items", 1], ["special_area_chance", 0.05],
