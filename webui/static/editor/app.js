@@ -1390,11 +1390,17 @@
   }
   function logLine(t) { if (st.doc) { st.doc.log = (st.doc.log || []).concat([t]); refreshLog(); } }
 
+  function is_stage_shown_in_current_mode(stage_name) {
+    if (st.mode === "geography") return stage_name !== "routes";
+    if (st.mode === "region" || st.mode === "story") return stage_name === "routes";
+    return true;
+  }
   function refreshStages() {
     const ul = $("stages");
     ul.innerHTML = "";
     const names = { water: "water: lakes, rivers", climate: "climate", biomes: "biomes, tiers", routes: "routes, roles" };
     for (const s of ED.STAGES) {
+      if (!is_stage_shown_in_current_mode(s)) continue;
       const stale = st.doc && st.doc.stale.includes(s);
       const li = document.createElement("li");
       li.className = stale ? "stale" : "";
@@ -1787,6 +1793,7 @@
     for (const rail_element of $$(".rail > *, .ed-tools > *")) rail_element.hidden = !is_rail_element_shown_in_current_mode(rail_element);
     $("title").textContent = editor_title_for_each_mode[st.mode] || "region editor";
     $("routeListSection").hidden = st.mode !== "region";
+    for (const geography_only_row of document.querySelectorAll("[data-geography-only]")) geography_only_row.hidden = st.mode !== "geography" && st.mode !== null;
     $$('[data-layer="routes"]')[0].hidden = st.mode === "geography";
     $$('[data-layer="townmap"]')[0].hidden = st.mode === "geography";
     st.layers.routes = st.mode !== "geography";
@@ -1797,6 +1804,7 @@
     st.hover = null;
     refreshTool();
     refreshInspector();
+    refreshStages();
     if (st.doc) rebuildBase();
     draw();
   }
@@ -1849,7 +1857,10 @@
     if (host.dice_icon) dice.innerHTML = host.dice_icon;
     const geography_select = $("geoSel");
     geography_select.className = "grow";
-    host.side.append(fold("Region", [prop("Name", name_input), prop("Seed", seed_input, dice), prop("Geography", geography_select)]));
+    const seed_row = prop("Seed", seed_input, dice), geography_row = prop("Geography", geography_select);
+    seed_row.dataset.geographyOnly = "true";
+    geography_row.dataset.geographyOnly = "true";
+    host.side.append(fold("Region", [prop("Name", name_input), seed_row, geography_row]));
     const section_of = (id) => side.querySelector(`[data-ed="${id}"]`).closest("section");
     const as_fold = (section) => {
       const h = section.querySelector("h2");
