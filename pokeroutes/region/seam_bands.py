@@ -173,8 +173,10 @@ def band_classes_along_shared_edge(world, chain_map: dict, neighbour_rect: Seque
                 continue
             band_classes.append(water_class or wall_class_along_edge(world, chain_map["rect"], shared_edge, along_in_region_cells, wall_class))
     corner_positions = positions_near_map_corners(chain_map["rect"], neighbour_rect, shared_edge)
-    band_classes_with_walled_corners = [TREE_BAND_CLASS if band_index + shared_edge.start_along_in_region_cells * CELL in corner_positions
-                                        else band_class for band_index, band_class in enumerate(band_classes)]
+    band_classes_with_walled_corners = [
+        TREE_BAND_CLASS if (band_index + shared_edge.start_along_in_region_cells * CELL in corner_positions
+                           and band_class not in (SEA_BAND_CLASS, FRESH_WATER_BAND_CLASS))
+        else band_class for band_index, band_class in enumerate(band_classes)]
     trees_beside_raised_grass_widened = without_single_trees_beside_raised_grass(band_classes_with_walled_corners)
     without_single_trees = without_single_wall_cells(trees_beside_raised_grass_widened, wall_class)
     shared_band_classes = "".join(without_single_wall_cells(without_single_trees, RAISED_GRASS_BAND_CLASS))
