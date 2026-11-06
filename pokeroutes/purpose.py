@@ -200,3 +200,34 @@ def _dress(route: Route, kind: str, c: Cell, tip: Cell, pocket: List[Cell], grou
         route.events.append(Event("hidden_item", tip[0], tip[1], {"item": "ITEM_POKE_BALL", "why": "dropped by a hunter"}))
     elif kind == "lookout":
         route.events.append(Event("sign", tip[0], tip[1], {"type": "view", "text": "", "why": kind}))
+
+
+GOAL_KINDS = ["shrine", "ruin", "berry_thicket", "woodcutter_camp"]
+
+
+def goal_zone(route: Route):
+    return next((zone for zone in route.zones if zone.kind == "clearing" and zone.name == "goal"), None)
+
+
+def farthest_from_entry(route: Route, cells: List[Cell]) -> Cell:
+    entry_y, entry_x = route.exits[0][1][0]
+    return max(cells, key=lambda cell: abs(cell[0] - entry_y) + abs(cell[1] - entry_x))
+
+
+def goal_purpose(route: Route, ground, tall, item) -> None:
+    """The far end of a one-exit route: a dressed clearing with an item at the back,
+    so walking to the end of a dead end pays off."""
+    zone = goal_zone(route)
+    if zone is None or not route.exits:
+        return
+    center = tuple(zone.meta["center"])
+    kind = GOAL_KINDS[int(route.rng.integers(0, len(GOAL_KINDS)))]
+    walkable_cells = [cell for cell in zone.cells if route.cls[cell] in WALKABLE] or [center]
+    reward_cell = farthest_from_entry(route, walkable_cells)
+    landmark = zone.meta.get("goal")
+    purpose = record(route, kind, center, goal=True, landmark=landmark if isinstance(landmark, str) else None)
+    zone.meta["purpose"] = purpose
+    pocket = [cell for cell in zone.cells if cell != reward_cell]
+    _dress(route, kind, center, center, pocket, ground, tall, item)
+    route.events.append(Event("item_ball", int(reward_cell[0]), int(reward_cell[1]),
+                              {"item": item(route.rng), "why": "the end of the dead end"}))
