@@ -66,7 +66,9 @@
     region: sget(REGION_KEY),      // {name, region, endings} or null
     file: { handle: null, name: "" },
     saved: "", generated: "",
-    expanded: new Set(["route", "g:lanes", "g:special", "g:layers"]),
+    expanded: new Set(["route", "g:exits", "g:lanes", "g:special", "g:layers"]),
+    route_trail: [],           // names of the region routes walked through, for Back
+    connection_labels: [],     // screen boxes of the exit labels drawn on the Scene: {x, y, w, h, i}
   };
   const undoStack = new SL.History(150, 800);
   function saveView() { sset(VIEW_KEY, { layer: state.layer, ov: state.ov }); }
@@ -230,7 +232,7 @@
       num.setAttribute("aria-label", `Exit ${i + 1} width`);
       const x = el("button", "x", "×");
       x.type = "button";
-      x.disabled = state.exits.length <= 2;
+      x.disabled = state.exits.length <= 1;
       x.setAttribute("aria-label", `Remove exit ${i + 1}`);
       if (e.to) li.title = "to " + e.to;
       sel.onchange = () => { e.side = sel.value; edited("exits"); };
@@ -259,7 +261,7 @@
     if (p.seed != null) $("seed").value = p.seed;
     for (const [k, c] of Object.entries(controls)) if (p[k] != null) c.set(p[k]);
     if (Array.isArray(p.special_areas)) state.specials = p.special_areas.slice(0, 6);
-    if (Array.isArray(p.exits) && p.exits.length >= 2) state.exits = p.exits.map((e) => ({ ...e }));
+    if (Array.isArray(p.exits) && p.exits.length >= 1) state.exits = p.exits.map((e) => ({ ...e }));
     renderChips();
     renderExits();
     sizeWarn();
@@ -691,6 +693,7 @@
       const m = st.tiles[c.y * r.width + c.x];
       $("stCell").textContent = `x ${c.x}  y ${c.y}  ${PR.CLASS_NAMES[k] || k}  0x${m.toString(16).toUpperCase().padStart(3, "0")}`;
     } else $("stCell").textContent = "";
+    wrap.classList.toggle("over-connection", state.tool === "select" && !!connection_label_at(sx, sy));
     if (area) showTip(area, sx, sy); else hideTip();
     if (changed || state.tool !== "select") draw();
   }
@@ -716,6 +719,8 @@
 
   // What is under a cell, most specific first.
   function pickAt(sx, sy) {
+    const label = connection_label_at(sx, sy);
+    if (label) { follow_connection(label.i); return; }
     const r = state.result;
     const c = r && cellOf(sx, sy);
     if (!c) { select(null); return; }
@@ -797,6 +802,7 @@
     if (state.ov.areas) drawAreas(g, zones, ox, oy, s);
     if (!opt.interactive) return;
     drawSelection(g, ox, oy, s);
+    draw_connection_labels(g, ox, oy, s);
     if (state.paint.cells.size) {
       g.globalAlpha = 0.7;
       for (const [k, cls] of state.paint.cells) {
@@ -1181,9 +1187,11 @@
       if (!x) return;
       title(`Exit ${sel.i + 1}: ${x.side}`, "#9cc6f0");
       const sp = state.exits[sel.i];
-      kv([["side", x.side], ["to", x.to || "nothing (open edge)"], ["width", x.cells.length], ["position", sp ? sp.at : null],
-        ["role", sel.i < 2 ? "joined by the main road" : "extra exit"]]);
+      const connection = scene_connections()[sel.i];
+      kv([["side", x.side], ["to", x.to || "nothing (open edge)"], ["leads to", connection && connection.name], ["width", x.cells.length],
+        ["position", sp ? sp.at : null], ["role", sel.i < 2 ? "joined by the main road" : "extra exit"]]);
       actions();
+      if (connection) box.querySelector(".sel-actions").append(follow_button(follow_action(sel.i, connection), "btn go"));
     }
   }
 
@@ -1215,10 +1223,8 @@
         sel: { type: "event", i }, dim: i >= st.events,
       })),
     }));
-    const exits = (r.exits || []).map((x, i) => ({
-      id: "x:" + i, label: `${x.side}${x.to ? " → " + x.to : ""}`, meta: `${x.cells.length} wide`,
-      icon: { color: "#9cc6f0" }, sel: { type: "exit", i },
-    }));
+    const connections = scene_connections();
+    const exits = (r.exits || []).map((x, i) => exit_tree_node(x, i, connections[i]));
     const eye = (k) => ({ on: state.ov[k], toggle: () => toggleOv(k) });
     const layers = [
       { id: "l:tiles", label: "Metatiles", meta: state.layer === "tiles" ? "shown" : "", icon: { color: "#7aa060" }, run: () => setLayer("tiles"), on: state.layer === "tiles" },
@@ -1230,6 +1236,7 @@
     return {
       id: "route", label: r.name, meta: `${r.width}×${r.height}`, sel: { type: "route" }, icon: { color: "#4d90d6" },
       children: [
+        ...back_tree_nodes(),
         { id: "g:exits", label: "Exits", meta: String(exits.length), group: true, children: exits },
         { id: "g:lanes", label: "Lanes", meta: String(lanes.length), group: true, children: lanes },
         { id: "g:special", label: "Special areas", meta: String(special.length), group: true, children: special },
@@ -1287,13 +1294,17 @@
         b.onclick = (ev) => { ev.stopPropagation(); n.eye.toggle(); };
         row.append(b);
       }
+      if (n.follow) row.append(follow_button(n.follow));
       row.onclick = () => {
         if (n.sel) select(n.sel);
         else if (n.run) n.run();
         else if (n.eye) n.eye.toggle();
         else if (n.children) tw.onclick(new Event("click"));
       };
-      row.ondblclick = () => { if (n.sel) { select(n.sel); focusSel(); } };
+      row.ondblclick = () => {
+        if (n.follow) { n.follow.run(); return; }
+        if (n.sel) { select(n.sel); focusSel(); }
+      };
       li.append(row);
       if (n.children && kids.length) {
         const sub = el("ul");
@@ -1505,6 +1516,8 @@
   function openInBench(spec) {
     const { params: p, region } = SL.specToParams(spec, params());
     replaceParams(p, "region route");
+    state.route_trail = state.pending_walk && state.pending_walk.to === p.name ? state.pending_walk.trail : [];
+    state.pending_walk = null;
     state.region = region;
     if (region) sset(REGION_KEY, region); else sdel(REGION_KEY);
     renderRegionLink();
@@ -1532,8 +1545,111 @@
     box.append(el("p", "hint", "Its region block (elevation, rivers, role) goes into Generate while the route keeps this name."));
     const b = el("button", "btn", "Detach from region");
     b.type = "button";
-    b.onclick = () => { state.region = null; sdel(REGION_KEY); renderRegionLink(); log("info", "Detached the route from its region block"); };
+    b.onclick = () => { state.region = null; state.route_trail = []; sdel(REGION_KEY); renderRegionLink(); renderTree(); log("info", "Detached the route from its region block"); };
     box.append(b);
+    if (state.route_trail.length) box.append(follow_button({ label: back_label(), run: go_back_a_route }, "btn go"));
+  }
+
+  // ------------------------------------------------------------ walking the region through its connections
+  // An exit of a route opened from a region leads to the route or town on the other side;
+  // clicking it (its label on the map, its Hierarchy row, or the Inspector) opens that route.
+  const ARROW_OUT_OF_SIDE = { north: "↑", south: "↓", east: "→", west: "←" };
+  function open_region_document() {
+    const editor_actions = region_editor();
+    return editor_actions ? editor_actions.getDoc() : null;
+  }
+  function scene_connections() {
+    const route = state.result;
+    if (!route || !state.region) return [];
+    return SL.exitConnections(route.exits, open_region_document(), state.region.name);
+  }
+  function follow_action(exit_index, connection) {
+    const verb = connection.kind === "town" ? "Show" : "Open";
+    return { label: `${verb} ${connection.name}`, run: () => follow_connection(exit_index) };
+  }
+  function follow_button(follow, class_name) {
+    const button = el("button", class_name || "go", class_name ? follow.label : "go");
+    button.type = "button";
+    button.title = follow.label;
+    button.onclick = (ev) => { ev.stopPropagation(); follow.run(); };
+    return button;
+  }
+  function exit_tree_node(scene_exit, exit_index, connection) {
+    const destination = connection ? connection.name : scene_exit.to;
+    const node = {
+      id: "x:" + exit_index, label: `${scene_exit.side}${destination ? " → " + destination : ""}`,
+      meta: connection && connection.kind === "town" ? "town" : `${scene_exit.cells.length} wide`,
+      icon: { color: "#9cc6f0" }, sel: { type: "exit", i: exit_index },
+    };
+    if (connection) node.follow = follow_action(exit_index, connection);
+    return node;
+  }
+  function back_label() {
+    return `← Back to ${state.route_trail[state.route_trail.length - 1]}`;
+  }
+  function back_tree_nodes() {
+    if (!state.route_trail.length) return [];
+    return [{ id: "back", label: back_label(), icon: { color: "#9cc6f0" }, run: go_back_a_route }];
+  }
+  function follow_connection(exit_index) {
+    const connection = scene_connections()[exit_index];
+    if (!connection) return;
+    if (connection.kind === "unknown") { log("warn", `Open the region in Routes A first to follow the way to ${connection.name}.`); return; }
+    if (connection.kind === "town") { show_town_in_routes_view(connection.town); return; }
+    walk_to(connection.route, [...state.route_trail, state.region.name]);
+  }
+  function go_back_a_route() {
+    const previous_name = state.route_trail[state.route_trail.length - 1];
+    const region_document = open_region_document();
+    const previous_route = region_document && (region_document.routes || []).find((route) => route.name === previous_name);
+    if (!previous_route) { log("warn", `${previous_name} is not in the open region any more.`); return; }
+    walk_to(previous_route, state.route_trail.slice(0, -1));
+  }
+  function walk_to(region_route, trail_after) {
+    state.pending_walk = { to: region_route.name, trail: trail_after };
+    region_editor().openInBench(region_route);
+  }
+  function show_town_in_routes_view(town) {
+    Shell.setCenter("region");
+    region_editor().select({ kind: "city", id: town.id });
+    log("info", `${town.name} is a town; towns can't open in the Scene yet, so it is selected in Routes A.`);
+  }
+  function connection_label_at(sx, sy) {
+    return state.connection_labels.find((box) => sx >= box.x && sx < box.x + box.w && sy >= box.y && sy < box.y + box.h) || null;
+  }
+  function connection_label_box(scene_exit, text_width, label_height, ox, oy, s) {
+    const [x0, y0, x1, y1] = bboxOf(scene_exit.cells);
+    const width = text_width + 12;
+    const center_x = ox + (x0 + x1) / 2 * s - width / 2;
+    const center_y = oy + (y0 + y1) / 2 * s - label_height / 2;
+    switch (scene_exit.side) {
+      case "north": return { x: center_x, y: oy + y1 * s + 4, w: width, h: label_height };
+      case "south": return { x: center_x, y: oy + y0 * s - label_height - 4, w: width, h: label_height };
+      case "west": return { x: ox + x1 * s + 4, y: center_y, w: width, h: label_height };
+      default: return { x: ox + x0 * s - width - 4, y: center_y, w: width, h: label_height };
+    }
+  }
+  function draw_connection_labels(g, ox, oy, s) {
+    state.connection_labels = [];
+    const route = state.result;
+    const connections = scene_connections();
+    const font_size = Math.round(Math.max(11, Math.min(14, s * 0.7)));
+    g.font = `600 ${font_size}px Inter, system-ui, sans-serif`;
+    g.textBaseline = "middle";
+    connections.forEach((connection, exit_index) => {
+      const scene_exit = route.exits[exit_index];
+      if (!connection || !scene_exit || !scene_exit.cells.length) return;
+      const text = `${ARROW_OUT_OF_SIDE[scene_exit.side] || "→"} ${connection.name}`;
+      const box = connection_label_box(scene_exit, g.measureText(text).width, font_size + 8, ox, oy, s);
+      g.fillStyle = connection.kind === "unknown" ? "rgba(28,28,28,0.7)" : "rgba(20,40,64,0.92)";
+      g.fillRect(box.x, box.y, box.w, box.h);
+      g.strokeStyle = "#9cc6f0";
+      g.lineWidth = 1;
+      g.strokeRect(box.x + 0.5, box.y + 0.5, box.w - 1, box.h - 1);
+      g.fillStyle = "#eef5fc";
+      g.fillText(text, box.x + 6, box.y + box.h / 2 + 1);
+      state.connection_labels.push(Object.assign({ i: exit_index }, box));
+    });
   }
 
   function show_center_tab(tab) {
@@ -1996,7 +2112,7 @@
       if (saved.seed != null) $("seed").value = saved.seed;
     }
     state.specials = saved && Array.isArray(saved.special_areas) ? saved.special_areas.slice(0, 6) : DEFAULT_SPECIALS.slice();
-    state.exits = saved && Array.isArray(saved.exits) && saved.exits.length >= 2 ? saved.exits.map((e) => ({ ...e })) : DEFAULT_EXITS.map((e) => ({ ...e }));
+    state.exits = saved && Array.isArray(saved.exits) && saved.exits.length >= 1 ? saved.exits.map((e) => ({ ...e })) : DEFAULT_EXITS.map((e) => ({ ...e }));
     renderChips();
     renderExits();
     lastParams = params();

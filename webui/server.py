@@ -367,7 +367,7 @@ def spec_from(params: dict):
         if ek.get("side") not in SIDES:
             ek["side"] = "south"
         exits.append(Exit(**ek))
-    if len(exits) < 2:
+    if not exits:
         exits = [Exit(side="south", at=0.5), Exit(side="north", at=0.5)]
     kw["exits"] = exits
     kw["special_areas"] = [str(x)[:60] for x in (params.get("special_areas") or []) if str(x).strip()][:6]

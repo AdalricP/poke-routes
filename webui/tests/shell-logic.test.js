@@ -334,10 +334,28 @@ test("region route YAML spec -> params", () => {
   assert.strictEqual(params.biome, "riverland");
   assert.strictEqual(params.branches, 2);           // defaults kept
   assert.strictEqual(params.tileset, undefined);    // not a bench field
-  assert.strictEqual(params.exits.length, 2);       // a stand-in exit on the goal side
-  assert.deepStrictEqual(params.exits[1], { side: "east", at: 0.5, width: 2 });
+  assert.strictEqual(params.exits.length, 1);       // a dead end keeps its one exit
   assert.strictEqual(params.exits[0].to, "Kiefernheide");
   assert.deepStrictEqual(region, { name: "Route 3", region: spec.region, endings: ["cave"] });
+});
+
+test("scene exits lead to the routes and towns on the other side", () => {
+  const doc = {
+    routes: [
+      { name: "Route 1", exits: [{ side: "west", to: "Town 1", to_map: "MAP_TOWN1" }, { side: "north", to: "Route 2", to_map: "MAP_ROUTE2" }] },
+      { name: "Route 2", exits: [{ side: "south", to: "Route 1", to_map: "MAP_ROUTE1" }] },
+    ],
+    cities: [{ id: "town1", name: "Town 1" }],
+  };
+  const scene_exits = [{ side: "west", to: "MAP_TOWN1" }, { side: "north", to: "MAP_ROUTE2" }, { side: "east", to: "" }];
+  const [town, route, open_edge] = SL.exitConnections(scene_exits, doc, "Route 1");
+  assert.deepStrictEqual([town.kind, town.name, town.town.id], ["town", "Town 1", "town1"]);
+  assert.deepStrictEqual([route.kind, route.name, route.route.name], ["route", "Route 2", "Route 2"]);
+  assert.strictEqual(open_edge, null);
+  const without_doc = SL.exitConnections(scene_exits, null, "Route 1");
+  assert.deepStrictEqual(without_doc.map((c) => c && c.name), ["Town 1", "Route 2", null]);
+  assert.strictEqual(without_doc[0].kind, "unknown");
+  assert.deepStrictEqual(SL.exitConnections([], doc, "Route 1"), []);
 });
 
 test("saved spec file round trip", () => {

@@ -441,11 +441,6 @@
         return o;
       });
     }
-    // the bench needs two exits; a dead end gets a stand-in exit on its goal side
-    if (p.exits && p.exits.length < 2) {
-      const g = spec.region && spec.region.goal;
-      p.exits.push({ side: g ? g.side : "north", at: 0.5, width: 2 });
-    }
     const region = spec.region && typeof spec.region === "object" ? { name: p.name, region: spec.region, endings: spec.endings || [] } : null;
     return { params: p, region };
   }
@@ -455,6 +450,39 @@
     const out = { format: "poke-routes-spec", version: 1, params: JSON.parse(JSON.stringify(params)) };
     if (region && region.region) { out.region = region.region; if (region.endings && region.endings.length) out.endings = region.endings; }
     return out;
+  }
+
+  // ------------------------------------------------------------ region connections
+  // Which place each Scene exit leads to, read from the region document the route came
+  // from: [{name, kind: "route" | "town", route, town} | null] in exit order.
+  function name_from_map_constant(map_constant) {
+    const words = String(map_constant || "").replace(/^MAP_/, "").toLowerCase().split("_").filter(Boolean);
+    return words.map((word) => word.replace(/^([a-z]+)(\d+)$/, "$1 $2")).map((word) => word[0].toUpperCase() + word.slice(1)).join(" ");
+  }
+  function region_exit_for(scene_exit, region_exits, used_region_exits) {
+    const matches_side_and_map = (region_exit) => region_exit.to_map === scene_exit.to && region_exit.side === scene_exit.side;
+    const matches_map = (region_exit) => region_exit.to_map === scene_exit.to;
+    const unused = region_exits.filter((region_exit) => !used_region_exits.has(region_exit));
+    return unused.find(matches_side_and_map) || unused.find(matches_map) || null;
+  }
+  function connection_for(region_exit, region_document) {
+    const route = (region_document.routes || []).find((candidate) => candidate.name === region_exit.to) || null;
+    const town = route ? null : (region_document.cities || []).find((candidate) => candidate.name === region_exit.to) || null;
+    if (!route && !town) return null;
+    return { name: region_exit.to, kind: route ? "route" : "town", route, town };
+  }
+  function exitConnections(scene_exits, region_document, route_name) {
+    const exits = scene_exits || [];
+    const region_route = region_document && (region_document.routes || []).find((route) => route.name === route_name);
+    if (!region_route) return exits.map((scene_exit) => (scene_exit.to ? { name: name_from_map_constant(scene_exit.to), kind: "unknown", route: null, town: null } : null));
+    const used_region_exits = new Set();
+    return exits.map((scene_exit) => {
+      if (!scene_exit.to) return null;
+      const region_exit = region_exit_for(scene_exit, region_route.exits || [], used_region_exits);
+      if (!region_exit) return null;
+      used_region_exits.add(region_exit);
+      return connection_for(region_exit, region_document);
+    });
   }
 
   function safeFileName(s, ext) {
@@ -549,7 +577,7 @@
     flattenMenus, findShortcut, shortcutClashes, SHORTCUTS, ALT_SHORTCUTS, NOT_IN_FIELDS, attachShortcuts,
     LAYOUT_KEY, CHROME, BOTTOM_TABS, CENTER_TABS, defaultLayout, sanitizeLayout, loadLayout, saveLayout,
     computeRects, dragSize, nearHomeEdge, MIN_CENTER, MIN_SIDE,
-    History, RECENT_KEY, pushRecent, recentLabel, specToParams, paramsToSpecFile, safeFileName,
+    History, RECENT_KEY, pushRecent, recentLabel, specToParams, paramsToSpecFile, safeFileName, exitConnections,
     STAMPS, brushCells, stampCells, lineCells, PAINT_KEY, paintKey, mergePaint, paintList,
     TWO_WIDE, tidyPaint,
   };
