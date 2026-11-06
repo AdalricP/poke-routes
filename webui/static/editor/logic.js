@@ -731,6 +731,250 @@
     return p;
   }
 
+  // ------------------------------------------------------------ routes drawn by hand (pokeroutes/region/drawn.py)
+  // a freehand stroke snapped to straight runs: it keeps to one axis until the pointer
+  // strays STROKE_TURN cells off it, then turns there
+  const STROKE_TURN = 2;
+  function start_stroke(cell) { return { corners: [[cell[0], cell[1]]], axis: null, end: [cell[0], cell[1]] }; }
+  function other_axis(axis) { return axis === "h" ? "v" : "h"; }
+  function extend_stroke(stroke, cell) {
+    const anchor = stroke.corners[stroke.corners.length - 1];
+    const dx = cell[0] - anchor[0], dy = cell[1] - anchor[1];
+    if (!dx && !dy) return { corners: stroke.corners, axis: stroke.axis, end: anchor.slice() };
+    const axis = stroke.axis || (Math.abs(dx) >= Math.abs(dy) ? "h" : "v");
+    const off_axis = axis === "h" ? dy : dx;
+    const end = axis === "h" ? [cell[0], anchor[1]] : [anchor[0], cell[1]];
+    if (Math.abs(off_axis) < STROKE_TURN) return { corners: stroke.corners, axis, end };
+    const turned_at_anchor = end[0] === anchor[0] && end[1] === anchor[1];
+    const corners = turned_at_anchor ? stroke.corners : stroke.corners.concat([end]);
+    return extend_stroke({ corners, axis: other_axis(axis), end }, cell);
+  }
+  function stroke_corners(stroke) {
+    const last = stroke.corners[stroke.corners.length - 1];
+    if (last[0] === stroke.end[0] && last[1] === stroke.end[1]) return stroke.corners.map((c) => c.slice());
+    return stroke.corners.map((c) => c.slice()).concat([stroke.end.slice()]);
+  }
+  function corners_of_line(waypoints, legs) {
+    const corners = [[waypoints[0][0], waypoints[0][1]]];
+    waypoints.slice(1).forEach(([end_x, end_y], index) => {
+      const [start_x, start_y] = corners[corners.length - 1];
+      const leg = legs[index] || "h";
+      if (start_x !== end_x && start_y !== end_y) corners.push(leg === "h" ? [end_x, start_y] : [start_x, end_y]);
+      const [last_x, last_y] = corners[corners.length - 1];
+      if (last_x !== end_x || last_y !== end_y) corners.push([end_x, end_y]);
+    });
+    return corners;
+  }
+  function cells_of_corners(corners) {
+    const cells = [[corners[0][0], corners[0][1]]];
+    for (const [end_x, end_y] of corners.slice(1)) {
+      let [x, y] = cells[cells.length - 1];
+      while (x !== end_x) { x += end_x > x ? 1 : -1; cells.push([x, y]); }
+      while (y !== end_y) { y += end_y > y ? 1 : -1; cells.push([x, y]); }
+    }
+    return cells;
+  }
+  function rect_centre_cell(rect) { return [Math.floor((rect[0] + rect[2]) / 2), Math.floor((rect[1] + rect[3]) / 2)]; }
+  function anchor_of_place(place, fx, fy) {
+    if (place.kind === "city") return rect_centre_cell(place.obj.rect);
+    if (place.kind === "landmark") return [place.obj.x, place.obj.y];
+    return [Math.floor(fx), Math.floor(fy)];
+  }
+  // what the server would refuse, checked while painting
+  function stroke_problem(doc, cells) {
+    if (cells.some(([x, y]) => x < 2 || y < 2 || x >= doc.W - 2 || y >= doc.H - 2)) return "too close to the map edge";
+    const in_a_place = cells.map(([x, y]) => !!placeAt(doc, x + 0.5, y + 0.5, { noLandmarks: true }));
+    if (!in_a_place.includes(true)) return "start or end the route on a town or a route";
+    if (!in_a_place.includes(false)) return "that stroke only runs over towns and routes that are already there";
+    return "";
+  }
+  function drawn_line_of_route(doc, route) {
+    if (!route || !route.drawn) return null;
+    return (doc.links || []).find((link) => link.name === route.link && link.kind === "drawn") || null;
+  }
+  function with_waypoint_moved(waypoints, index, x, y) {
+    return waypoints.map((point, k) => (k === index ? [x, y] : [point[0], point[1]]));
+  }
+  function delete_drawn_line(doc, line_name) {
+    const gone = new Set(doc.routes.filter((r) => r.link === line_name).map((r) => r.name));
+    if (!gone.size) return false;
+    doc.routes = doc.routes.filter((r) => !gone.has(r.name));
+    for (const r of doc.routes) r.exits = r.exits.filter((e) => !gone.has(e.to));
+    doc.links = doc.links.filter((link) => link.name !== line_name);
+    for (const beat of doc.story || []) if (gone.has(beat.at)) beat.at = "";
+    return true;
+  }
+  function without_straight_runs(points) {
+    if (points.length < 3) return points.slice();
+    const kept = [points[0]];
+    for (let k = 1; k < points.length - 1; k++) {
+      const [ax, ay] = kept[kept.length - 1], [bx, by] = points[k], [cx, cy] = points[k + 1];
+      if ((bx - ax) * (cy - by) - (by - ay) * (cx - bx) !== 0) kept.push(points[k]);
+    }
+    kept.push(points[points.length - 1]);
+    return kept;
+  }
+  // the band each route draws on the town map, in cell-centre coordinates: its path plus a stub over each exit
+  function nearest_cell(cells, cell) {
+    let best = null, best_distance = Infinity;
+    for (const c of cells) {
+      const distance = Math.abs(c[0] - cell[0]) + Math.abs(c[1] - cell[1]);
+      if (distance < best_distance) { best = c; best_distance = distance; }
+    }
+    return best;
+  }
+  // from the nearest cell of the route's own path (a padded rect can end past it), out through the exit
+  function lead_in_to_exit(path, exit) {
+    const [x, y] = exit.cell;
+    const from = nearest_cell(path, exit.cell);
+    if (!from) return [];
+    const across = DELTA[exit.side][0] !== 0;
+    return [[from[0] + 0.5, from[1] + 0.5], across ? [from[0] + 0.5, y + 0.5] : [x + 0.5, from[1] + 0.5]];
+  }
+  function exit_stub(doc, exit, path) {
+    const [dx, dy] = DELTA[exit.side];
+    const [x, y] = exit.cell;
+    const lead_in = lead_in_to_exit(path || [], exit);
+    const town = doc.cities.find((c) => c.name === exit.to);
+    if (!town) return lead_in.concat([[x + 0.5, y + 0.5], [x + dx + 0.5, y + dy + 0.5]]);
+    const centre_x = (town.rect[0] + town.rect[2]) / 2, centre_y = (town.rect[1] + town.rect[3]) / 2;
+    const turn = dx ? [centre_x, y + 0.5] : [x + 0.5, centre_y];
+    return lead_in.concat([[x + 0.5, y + 0.5], turn, [centre_x, centre_y]]);
+  }
+  function town_map_route_lines(doc) {
+    const lines = [];
+    for (const r of doc.routes) {
+      const path = r.path || [];
+      if (path.length) lines.push({ route: r, points: without_straight_runs(path.map(([x, y]) => [x + 0.5, y + 0.5])) });
+      for (const exit of r.exits || []) lines.push({ route: r, points: exit_stub(doc, exit, path) });
+    }
+    return lines;
+  }
+  function point_halfway_along(points) {
+    const step_length = (k) => Math.hypot(points[k][0] - points[k - 1][0], points[k][1] - points[k - 1][1]);
+    let total = 0;
+    for (let k = 1; k < points.length; k++) total += step_length(k);
+    let left = total / 2;
+    for (let k = 1; k < points.length; k++) {
+      const step = step_length(k);
+      if (step >= left && step > 0) {
+        const t = left / step;
+        return [points[k - 1][0] + (points[k][0] - points[k - 1][0]) * t, points[k - 1][1] + (points[k][1] - points[k - 1][1]) * t];
+      }
+      left -= step;
+    }
+    return points[0] ? points[0].slice() : [0, 0];
+  }
+
+  // ------------------------------------------------------------ town-map style (Sinnoh-like) base raster
+  const TOWN_MAP_RGB = {
+    sea: [104, 170, 236], deep_sea: [92, 158, 228], halo: [178, 224, 250], outer_halo: [146, 200, 246], lake: [146, 206, 248],
+    lowland: [168, 216, 128], midland: [146, 202, 108], upland: [122, 180, 94], highland: [170, 150, 108],
+    peak: [200, 186, 160], snow: [240, 242, 246], forest: [140, 200, 110], deep_forest: [120, 184, 100], sand: [228, 218, 156],
+    marsh: [146, 196, 146], ash: [192, 172, 144], volcanic: [176, 140, 120], lava: [212, 132, 92],
+  };
+  const TOWN_MAP_BIOME = { f: "forest", F: "deep_forest", g: "forest", b: "sand", d: "sand", w: "marsh", a: "ash", v: "volcanic", l: "lava", S: "snow" };
+  const HEIGHT_BANDS = [0.28, 0.52, 0.74, 0.9];
+  const BAND_RGB = ["lowland", "midland", "upland", "highland", "peak"];
+  function sea_distance_to_land(doc, limit) {
+    const W = doc.W, H = doc.H, g = doc.grids;
+    const distance = new Uint8Array(W * H).fill(limit + 1);
+    let frontier = [];
+    for (let i = 0; i < W * H; i++) if (g.land[i]) { distance[i] = 0; frontier.push(i); }
+    for (let step = 1; step <= limit && frontier.length; step++) {
+      const next = [];
+      for (const i of frontier) {
+        const x = i % W, y = (i / W) | 0;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const j = ny * W + nx;
+          if (distance[j] <= step) continue;
+          distance[j] = step;
+          next.push(j);
+        }
+      }
+      frontier = next;
+    }
+    return distance;
+  }
+  function height_band(height, hmax) {
+    const t = height / hmax;
+    let band = 0;
+    while (band < HEIGHT_BANDS.length && t >= HEIGHT_BANDS[band]) band++;
+    return band;
+  }
+  function town_map_sea_color(distance_to_land, layers, height) {
+    if (!layers.water) return TOWN_MAP_RGB.sea;
+    if (distance_to_land <= 1) return TOWN_MAP_RGB.halo;
+    if (distance_to_land <= 2) return TOWN_MAP_RGB.outer_halo;
+    return height < -0.3 ? TOWN_MAP_RGB.deep_sea : TOWN_MAP_RGB.sea;
+  }
+  function town_map_cell_color(doc, i, layers, hmax, sea_distance) {
+    const g = doc.grids;
+    if (!g.land[i]) return town_map_sea_color(sea_distance[i], layers, g.height[i]);
+    if (g.lake[i] && layers.water) return TOWN_MAP_RGB.lake;
+    const tint = layers.biome && TOWN_MAP_BIOME[String.fromCharCode(g.biome[i])];
+    const band = layers.height ? height_band(g.height[i], hmax) : 0;
+    if (tint && (band < 3 || tint === "snow")) return TOWN_MAP_RGB[tint];
+    return TOWN_MAP_RGB[BAND_RGB[band]];
+  }
+  function relief_factor(shade_value) {
+    if (shade_value < 0.42) return 0.86;
+    if (shade_value < 0.6) return 0.94;
+    if (shade_value > 0.82) return 1.04;
+    return 1;
+  }
+  function sample_grid(grid, W, H, fx, fy) {
+    const x = Math.max(0, Math.min(W - 1, fx)), y = Math.max(0, Math.min(H - 1, fy));
+    const x0 = Math.floor(x), y0 = Math.floor(y), x1 = Math.min(W - 1, x0 + 1), y1 = Math.min(H - 1, y0 + 1);
+    const tx = x - x0, ty = y - y0;
+    const top = grid[y0 * W + x0] * (1 - tx) + grid[y0 * W + x1] * tx;
+    const bottom = grid[y1 * W + x0] * (1 - tx) + grid[y1 * W + x1] * tx;
+    return top * (1 - ty) + bottom * ty;
+  }
+  // a cell's edge gets a darker rim where it meets the sea or a higher band: coast line and contour lines
+  function rim_factor(doc, i, j, layers, hmax) {
+    const g = doc.grids;
+    if (j < 0 || !g.land[i]) return 1;
+    if (!g.land[j]) return 0.8;
+    if (layers.height && height_band(g.height[j], hmax) > height_band(g.height[i], hmax)) return 0.88;
+    return 1;
+  }
+  function renderTownMap(doc, layers, S, data, rect, shade, sea_distance) {
+    const W = doc.W, H = doc.H, g = doc.grids;
+    const [x0, y0, x1, y1] = rect || [0, 0, W, H];
+    sea_distance = sea_distance || sea_distance_to_land(doc, 3);
+    shade = shade || shadeGrid(g.height, W, H, 9);
+    let hmax = 1e-6;
+    for (let i = 0; i < W * H; i++) if (g.land[i] && g.height[i] > hmax) hmax = g.height[i];
+    const PW = W * S;
+    for (let cy = Math.max(0, y0); cy < Math.min(H, y1); cy++) {
+      for (let cx = Math.max(0, x0); cx < Math.min(W, x1); cx++) {
+        const i = cy * W + cx;
+        const col = town_map_cell_color(doc, i, layers, hmax, sea_distance);
+        const is_dry = g.land[i] && !(g.lake[i] && layers.water);
+        const rims = [cx > 0 ? i - 1 : -1, cx < W - 1 ? i + 1 : -1, cy > 0 ? i - W : -1, cy < H - 1 ? i + W : -1]
+          .map((j) => rim_factor(doc, i, j, layers, hmax));
+        for (let py = 0; py < S; py++) {
+          let o = ((cy * S + py) * PW + cx * S) * 4;
+          for (let px = 0; px < S; px++) {
+            let k = is_dry && layers.height ? relief_factor(sample_grid(shade, W, H, cx + (px + 0.5) / S - 0.5, cy + (py + 0.5) / S - 0.5)) : 1;
+            if (px === 0) k *= rims[0];
+            if (px === S - 1) k *= rims[1];
+            if (py === 0) k *= rims[2];
+            if (py === S - 1) k *= rims[3];
+            data[o] = Math.min(255, col[0] * k);
+            data[o + 1] = Math.min(255, col[1] * k);
+            data[o + 2] = Math.min(255, col[2] * k);
+            data[o + 3] = 255;
+            o += 4;
+          }
+        }
+      }
+    }
+  }
+
   const api = {
     STAGES, STALE_BY, BIOME_NAMES, PAINT_BIOMES, BIOME_RGB, ROLE_RGB, ROLES, SPEC_BIOMES, SIDES, DELTA, OPP, CELL,
     decodeGrid, encodeGrid, decodeDoc, encodeDoc, b64ToBytes, bytesToB64,
@@ -741,6 +985,9 @@
     TOWN_SIZE, next_town_name, town_spot_problem,
     exitAlong, sideRange, edgeCell, mirrorExit, moveExit, sizeOk, resizeRoute, deleteRoute, routeWarnings,
     setSpecField, benchParams, HMS, routeNeeds, reachableAt, storyWarnings, moveBeat, removeBeat,
+    start_stroke, extend_stroke, stroke_corners, corners_of_line, cells_of_corners, anchor_of_place, stroke_problem, drawn_line_of_route,
+    with_waypoint_moved, delete_drawn_line, without_straight_runs, town_map_route_lines, point_halfway_along,
+    TOWN_MAP_RGB, sea_distance_to_land, town_map_cell_color, renderTownMap,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.ED = api;

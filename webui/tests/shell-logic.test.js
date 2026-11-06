@@ -205,6 +205,13 @@ test("layout survives blocked storage and junk", () => {
   assert.deepStrictEqual(bad.inspector, { fine: false });
 });
 
+test("a saved layout on the old Routes B tab opens the Map tab, keeping its tab order", () => {
+  const old = SL.sanitizeLayout({ v: 1, center: "gates", centerOrder: ["story", "gates", "region", "geography", "scene"] });
+  assert.strictEqual(old.center, "region");
+  assert.deepStrictEqual(old.centerOrder, ["story", "region", "geography", "scene"]);
+  assert.ok(!SL.defaultLayout().centerOrder.includes("gates"));
+});
+
 test("rects tile the window without overlap (default, 1440x900)", () => {
   const r = SL.computeRects(SL.defaultLayout(), 1440, 900);
   const C = SL.CHROME;

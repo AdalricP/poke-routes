@@ -1886,14 +1886,13 @@
         return "Generate geography";
       case "region":
       case "story":
-      case "gates":
         return "Generate routes";
       default:
         return "Generate";
     }
   }
   function is_routes_view() {
-    const routes_view_is_open = ["region", "story", "gates"].includes(Shell.layout.center);
+    const routes_view_is_open = ["region", "story"].includes(Shell.layout.center);
     return routes_view_is_open;
   }
   function syncNonSceneToolbar() {
@@ -1906,7 +1905,7 @@
     if (sget("pokeroutes-shell-region-seed") !== doc.seed) sset("pokeroutes-shell-region-seed", doc.seed);
   }
   // Generate/Regenerate are shared between the toolbar and the Generate menu, and drive
-  // whichever view (Scene or the geography/region/story/gates editor) is on screen.
+  // whichever view (Scene or the geography/region/story editor) is on screen.
   function doGenerate() {
     if (isScene()) { generate(); return; }
     const ea = region_editor();
@@ -2234,7 +2233,6 @@
       { id: "w-geography", label: "Geography editor", radio: true, checked: () => Shell.layout.center === "geography", run: () => Shell.setCenter("geography") },
       { id: "w-region", label: "Map", radio: true, checked: () => Shell.layout.center === "region", run: () => Shell.setCenter("region") },
       { id: "w-story", label: "Story", radio: true, checked: () => Shell.layout.center === "story", run: () => Shell.setCenter("story") },
-      { id: "w-gates", label: "Route design B", radio: true, checked: () => Shell.layout.center === "gates", run: () => Shell.setCenter("gates") },
       { sep: true },
       { id: "w-console", label: "Console", run: () => Shell.setBottom("console") },
       { id: "w-improve", label: "Improve queue", enabled: is_improve_tab_shown, run: () => { Shell.setBottom("improve"); const t = document.getElementById("impText"); if (t) t.focus(); } },

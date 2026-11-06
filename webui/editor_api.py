@@ -9,6 +9,10 @@ POST /api/editor/recompute  {doc, stages: [...]}   -> document with those stages
                             stages: water | climate | biomes | routes | all
 POST /api/editor/add-route  {doc, src, dst}        -> document with a new link laid between two
                             places; refs are {"city": id} | {"route": name} | {"landmark": id}
+POST /api/editor/draw-route {doc, waypoints, legs?, replace?} -> document with a route painted by hand:
+                            waypoints are the stroke's corner cells (legs "h" | "v" per gap if they are not
+                            in line); it may start or end on open ground (a dead end) and cross water;
+                            replace redraws an earlier drawn line
 POST /api/editor/add-town   {doc, x, y, name?}     -> document with a town placed on land at cell (x, y)
 POST /api/editor/delete-town {doc, id}             -> document without that town (routes go stale)
 POST /api/editor/save       {doc, name}            -> writes region_out/<name>/ (region.json, routes/*.yaml)
@@ -115,6 +119,9 @@ def post(h, u, srv) -> None:
             return h._json(edit.recompute(b["doc"], stages))
         if p == "/api/editor/add-route":
             return h._json(edit.add_route(b["doc"], b.get("src") or {}, b.get("dst") or {}))
+        if p == "/api/editor/draw-route":
+            return h._json(edit.draw_route(b["doc"], list(b.get("waypoints") or []), list(b.get("legs") or []),
+                                           b.get("replace") or None))
         if p == "/api/editor/add-town":
             return h._json(edit.add_town(b["doc"], int(b["x"]), int(b["y"]), b.get("name")))
         if p == "/api/editor/delete-town":
