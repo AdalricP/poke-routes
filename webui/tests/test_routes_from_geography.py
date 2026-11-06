@@ -65,6 +65,30 @@ def test_majority_biome_decides_the_route_biome_and_a_mix_is_noted():
     assert "forest" in biome_mix_note(biome_shares(biome_rows), {}) and "meadow" in biome_mix_note(biome_shares(biome_rows), {})
 
 
+def test_a_mountain_corner_short_of_half_the_map_does_not_make_the_map_a_mountain():
+    biome_rows = ["M" * 7 + "f" * 5 + "F" * 4 for _ in range(REGION_HEIGHT_IN_CELLS)]
+    region_block = synthetic_region_block(dry_land_rows(), biome_rows)
+    assert geography_spec_fields(region_block, is_sea_route=False)["biome"] == "forest"
+
+
+def test_mountain_cells_inside_a_forest_map_turn_woods_into_rock_only_on_their_side():
+    from pokeroutes.biome_blend import blend_biomes_per_region_cell
+
+    biome_rows = ["M" * 6 + "f" * 10 for _ in range(REGION_HEIGHT_IN_CELLS)]
+    region_block = synthetic_region_block(dry_land_rows(), biome_rows)
+    region_block["rect"] = [0, 0, REGION_WIDTH_IN_CELLS, REGION_HEIGHT_IN_CELLS]
+
+    class route_with_only_trees:
+        h, w = REGION_HEIGHT_IN_CELLS * 4, REGION_WIDTH_IN_CELLS * 4
+        cls = np.full((REGION_HEIGHT_IN_CELLS * 4, REGION_WIDTH_IN_CELLS * 4), "f")
+        spec = route_spec_on(region_block, biome="forest")
+
+    blend_biomes_per_region_cell(route_with_only_trees)
+    rock_columns = np.nonzero((route_with_only_trees.cls == "r").any(axis=0))[0]
+    assert rock_columns.size and rock_columns.max() < 6 * 4 + 6
+    assert (route_with_only_trees.cls[:, :12] == "r").mean() > 0.8
+
+
 def test_open_meadow_without_woods_becomes_plains():
     region_block = synthetic_region_block(dry_land_rows(), ["m" * REGION_WIDTH_IN_CELLS] * REGION_HEIGHT_IN_CELLS)
     assert geography_spec_fields(region_block, is_sea_route=False)["biome"] == "plains"
