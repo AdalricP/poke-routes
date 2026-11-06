@@ -7,7 +7,7 @@
   function grid_of_doc(doc) {
     const map_grid = doc.map_grid || {};
     const size = map_grid.size || [0, 0];
-    const grid = { cell: map_grid.cell || 8, width: size[0], height: size[1], rows: (map_grid.rows || []).slice() };
+    const grid = { cell: map_grid.cell || 12, width: size[0], height: size[1], rows: (map_grid.rows || []).slice() };
     return grid;
   }
 

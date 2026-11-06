@@ -39,6 +39,8 @@ LAND_CLASSES_A_WAY_ROUND_MAY_CROSS = LAND_CLASSES_A_BRIDGE_LANDS_ON + "fro"
 CARVING_COST_PER_BLOCKED_CELL = 3.0
 LONGEST_WAY_ROUND_COST = 60.0
 STEPS = ((0, 1), (1, 0), (0, -1), (-1, 0))
+WIDEST_BRIDGE_IN_METATILES = 2
+WATER_UNDER_A_NARROWED_BRIDGE = "w"
 
 
 def protected_ring_mask(route: Route) -> np.ndarray:
@@ -373,4 +375,66 @@ def straighten_bridges(route: Route) -> int:
     straightened_count = sum(1 for bridge_cells in crooked if straighten_bridge(route, bridge_cells, river_mask, ground_class(route)))
     if crooked:
         route.log.append(f"bridges: {straightened_count} of {len(crooked)} crooked bridges rebuilt as straight spans")
+    planks_on_land_count = ground_under_bridges_on_dry_land(route, ground_class(route))
+    if planks_on_land_count:
+        route.log.append(f"bridges: {planks_on_land_count} bridge cells with no water beside them became ground")
+    narrowed_count = narrow_wide_bridges(route)
+    if narrowed_count:
+        route.log.append(f"bridges: {narrowed_count} bridge cells beyond {WIDEST_BRIDGE_IN_METATILES} wide turned back to water")
     return straightened_count
+
+
+def water_share_of_cells(class_grid: np.ndarray, cells: List[Cell]) -> float:
+    inside_cells = [cell for cell in cells if is_inside(class_grid, cell)]
+    if not inside_cells:
+        return 0.0
+    share = sum(1 for cell in inside_cells if str(class_grid[cell]) in WATER_CLASSES_A_BRIDGE_SPANS) / len(inside_cells)
+    return share
+
+
+def does_bridge_run_east_west(class_grid: np.ndarray, rows: range, columns: range) -> bool:
+    cells_beyond_rows = [(rows.start - 1, column) for column in columns] + [(rows.stop, column) for column in columns]
+    cells_beyond_columns = [(row, columns.start - 1) for row in rows] + [(row, columns.stop) for row in rows]
+    runs_east_west = water_share_of_cells(class_grid, cells_beyond_rows) >= water_share_of_cells(class_grid, cells_beyond_columns)
+    return runs_east_west
+
+
+def lines_kept_across_bridge(across: range) -> range:
+    first_kept = across.start + (len(across) - WIDEST_BRIDGE_IN_METATILES) // 2
+    kept_lines = range(first_kept, first_kept + WIDEST_BRIDGE_IN_METATILES)
+    return kept_lines
+
+
+def narrow_wide_bridge(route: Route, ring: np.ndarray, bridge_cells: List[Cell]) -> int:
+    rows, columns = rectangle_of(bridge_cells)
+    runs_east_west = does_bridge_run_east_west(route.cls, rows, columns)
+    across = rows if runs_east_west else columns
+    if len(across) <= WIDEST_BRIDGE_IN_METATILES:
+        return 0
+    kept_lines = lines_kept_across_bridge(across)
+    removed_cells = [cell for cell in bridge_cells if (cell[0] if runs_east_west else cell[1]) not in kept_lines and not ring[cell]]
+    for removed_cell in removed_cells:
+        route.cls[removed_cell] = WATER_UNDER_A_NARROWED_BRIDGE
+    return len(removed_cells)
+
+
+def touches_water(class_grid: np.ndarray, cell: Cell) -> bool:
+    neighbours = [(cell[0] + step[0], cell[1] + step[1]) for step in STEPS]
+    is_touching = any(is_inside(class_grid, neighbour) and str(class_grid[neighbour]) in WATER_CLASSES_A_BRIDGE_SPANS for neighbour in neighbours)
+    return is_touching
+
+
+def ground_under_bridges_on_dry_land(route: Route, ground_class: str) -> int:
+    ring = protected_ring_mask(route)
+    dry_bridges = [bridge_cells for bridge_cells in cells_of_components(route.cls == BRIDGE_CLASS)
+                   if not any(touches_water(route.cls, cell) for cell in bridge_cells)]
+    dry_cells = [cell for bridge_cells in dry_bridges for cell in bridge_cells if not ring[cell]]
+    for dry_cell in dry_cells:
+        route.cls[dry_cell] = ground_class
+    return len(dry_cells)
+
+
+def narrow_wide_bridges(route: Route) -> int:
+    ring = protected_ring_mask(route)
+    narrowed_count = sum(narrow_wide_bridge(route, ring, bridge_cells) for bridge_cells in cells_of_components(route.cls == BRIDGE_CLASS))
+    return narrowed_count

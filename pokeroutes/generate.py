@@ -352,6 +352,7 @@ def stage_hidden(route: Route) -> None:
 
 
 from .plains import stage_open_plains  # noqa: E402  (plains needs the helpers above)
+from .whole_route import stage_whole_route_void  # noqa: E402
 
 def stage_terraces(route: Route) -> None:
     from .terraces import sculpt_terraces
@@ -488,6 +489,7 @@ STAGES: List[Tuple[str, Callable[[Route], None]]] = [
     ("base", stage_base),
     ("skeleton", stage_skeleton),
     ("branches", stage_branches),
+    ("whole route shape", stage_whole_route_void),
     ("clearings", stage_clearings),
     ("specials", stage_specials),
     ("lakes", stage_lakes),
@@ -557,6 +559,10 @@ def spec_with_a_buildable_size(spec: RouteSpec) -> RouteSpec:
 
 
 def generate(spec: RouteSpec) -> Route:
+    from .whole_route import chain_map_cut_from_whole_route, whole_route_block_of_chain_spec
+
+    if whole_route_block_of_chain_spec(spec) is not None:
+        return chain_map_cut_from_whole_route(spec)
     requested_size = list(spec.size)
     spec = spec_with_a_buildable_size(spec)
     route = Route(spec, np.full((spec.height, spec.width), "f", dtype="<U1"), np.random.default_rng(spec.seed))

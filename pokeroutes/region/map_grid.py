@@ -10,7 +10,7 @@ from .world import City, World
 
 GridCell = Tuple[int, int]
 RegionCell = Tuple[int, int]
-REGION_CELLS_PER_GRID_CELL = 8
+REGION_CELLS_PER_GRID_CELL = 12
 GRID_CELL_SIZES_IN_REGION_CELLS = (4, 6, 8, 10, 12, 16)
 EMPTY_MARK, ROUTE_MARK, TOWN_MARK = ".", "r", "t"
 MARK_OF_BRUSH = {"route": ROUTE_MARK, "town": TOWN_MARK, "erase": EMPTY_MARK}

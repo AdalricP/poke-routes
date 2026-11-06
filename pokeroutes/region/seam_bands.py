@@ -121,8 +121,11 @@ def wall_class_along_edge(world, rect: Sequence[int], shared_edge: SharedEdge, a
     return RAISED_GRASS_BAND_CLASS
 
 
+WIDEST_BRIDGE_IN_METATILES = 2
+
+
 def opening_class(road_class: str, water_class: str, is_sea_crossing: bool) -> str:
-    if is_sea_crossing:
+    if is_sea_crossing or water_class == SEA_BAND_CLASS:
         return SEA_BAND_CLASS
     opening_class_over_ground = BRIDGE_BAND_CLASS if water_class else road_class
     return opening_class_over_ground
@@ -142,6 +145,16 @@ def openings_along_edge_in_metatiles(chain_map: dict, neighbour_rect: Sequence[i
         half_width = EXIT_OPENING_HALF_WIDTH_IN_METATILES
         opening_positions.extend(range(middle_in_metatiles - half_width, middle_in_metatiles + half_width + 1))
     return opening_positions
+
+
+def opening_positions_kept_narrow_over_water(opening_positions: set, position_in_metatiles: int, water_class: str) -> set:
+    if water_class != FRESH_WATER_BAND_CLASS:
+        return opening_positions
+    run_start = position_in_metatiles
+    while run_start - 1 in opening_positions:
+        run_start -= 1
+    narrow_positions = set(range(run_start, run_start + WIDEST_BRIDGE_IN_METATILES))
+    return narrow_positions
 
 
 def without_single_wall_cells(band_classes: List[str], wall_class: str) -> List[str]:
@@ -169,7 +182,8 @@ def band_classes_along_shared_edge(world, chain_map: dict, neighbour_rect: Seque
         for metatile_in_cell in range(CELL):
             position_in_metatiles = along_in_region_cells * CELL + metatile_in_cell
             if position_in_metatiles in opening_positions:
-                band_classes.append(opening_class(road_class, water_class, is_sea_crossing))
+                band_classes.append(opening_class(road_class, water_class, is_sea_crossing) if position_in_metatiles in opening_positions_kept_narrow_over_water(opening_positions, position_in_metatiles, water_class)
+                                    else water_class)
                 continue
             band_classes.append(water_class or wall_class_along_edge(world, chain_map["rect"], shared_edge, along_in_region_cells, wall_class))
     corner_positions = positions_near_map_corners(chain_map["rect"], neighbour_rect, shared_edge)

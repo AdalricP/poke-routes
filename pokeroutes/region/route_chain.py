@@ -270,14 +270,78 @@ def role_of_piece(route: dict, shape: str) -> str:
     return role
 
 
-def empty_piece(route: dict, map_grid: MapGrid, grid_cell: Sequence[int], piece_index: int, piece_count: int) -> dict:
-    rect = region_rect_of_grid_cell(map_grid, grid_cell)
+def empty_piece(route: dict, map_grid: MapGrid, grid_cells: Sequence[Sequence[int]], piece_index: int, piece_count: int) -> dict:
+    rect = region_rect_of_grid_cells_together(map_grid, grid_cells)
     piece = {key: value for key, value in route.items() if key not in ("exits", "path", "rect", "goal", "goal_landmark", "gate", "spec", "chain")}
     piece.update(chain_piece_names(route, piece_index, piece_count))
     piece.update(rect=rect, exits=[], path=[list(cell) for cell in route.get("path") or [] if is_inside_rect(cell, rect)])
-    piece["chain"] = {"route": route["name"], "map_id": piece["id"], "index": piece_index, "count": piece_count, "grid_cell": list(grid_cell),
-                      "map_section": route["map"]}
+    piece["chain"] = {"route": route["name"], "map_id": piece["id"], "index": piece_index, "count": piece_count, "grid_cell": list(grid_cells[0]),
+                      "grid_cells": [list(grid_cell) for grid_cell in grid_cells], "map_section": route["map"]}
     return piece
+
+
+def region_rect_of_grid_cells_together(map_grid: MapGrid, grid_cells: Sequence[Sequence[int]]) -> List[int]:
+    rects = [region_rect_of_grid_cell(map_grid, grid_cell) for grid_cell in grid_cells]
+    rect_around_all = [min(rect[0] for rect in rects), min(rect[1] for rect in rects), max(rect[2] for rect in rects), max(rect[3] for rect in rects)]
+    return rect_around_all
+
+
+GBA_MAP_BUDGET_IN_METATILES = 0x2800
+GBA_MAP_BORDER_WIDTH_IN_METATILES = 15
+GBA_MAP_BORDER_HEIGHT_IN_METATILES = 14
+LONGEST_MAP_SIDE_IN_METATILES = 192
+
+
+def fits_one_gba_map(map_grid: MapGrid, grid_cells: Sequence[Sequence[int]]) -> bool:
+    left, top, right, bottom = region_rect_of_grid_cells_together(map_grid, grid_cells)
+    width_in_metatiles, height_in_metatiles = (right - left) * CELL, (bottom - top) * CELL
+    within_budget = (width_in_metatiles + GBA_MAP_BORDER_WIDTH_IN_METATILES) * (height_in_metatiles + GBA_MAP_BORDER_HEIGHT_IN_METATILES) <= GBA_MAP_BUDGET_IN_METATILES
+    fits = within_budget and max(width_in_metatiles, height_in_metatiles) <= LONGEST_MAP_SIDE_IN_METATILES
+    return fits
+
+
+def is_full_rectangle_of_grid_cells(grid_cells: Sequence[Sequence[int]]) -> bool:
+    columns = [int(grid_cell[0]) for grid_cell in grid_cells]
+    rows = [int(grid_cell[1]) for grid_cell in grid_cells]
+    bounding_area = (max(columns) - min(columns) + 1) * (max(rows) - min(rows) + 1)
+    is_full = bounding_area == len({(column, row) for column, row in zip(columns, rows)})
+    return is_full
+
+
+def can_join_piece(map_grid: MapGrid, piece_grid_cells: Sequence[Sequence[int]], grid_cell: Sequence[int]) -> bool:
+    joined_grid_cells = list(piece_grid_cells) + [grid_cell]
+    can_join = is_full_rectangle_of_grid_cells(joined_grid_cells) and fits_one_gba_map(map_grid, joined_grid_cells)
+    return can_join
+
+
+def grid_cells_grouped_into_fewest_maps(map_grid: MapGrid, ordered_grid_cells: Sequence[Sequence[int]]) -> List[List[List[int]]]:
+    groups: List[List[List[int]]] = []
+    for grid_cell in ordered_grid_cells:
+        if groups and can_join_piece(map_grid, groups[-1], grid_cell):
+            groups[-1].append(list(grid_cell))
+            continue
+        groups.append([list(grid_cell)])
+    return groups
+
+
+def are_groups_touching(map_grid: MapGrid, group: Sequence[Sequence[int]], other_group: Sequence[Sequence[int]]) -> bool:
+    is_touching = any(are_grid_neighbours(grid_cell, other_grid_cell) for grid_cell in group for other_grid_cell in other_group)
+    return is_touching
+
+
+def group_parent_indices(map_grid: MapGrid, groups: Sequence[Sequence[Sequence[int]]]) -> Dict[int, int]:
+    parent_of_group: Dict[int, int] = {}
+    reached = {0} if groups else set()
+    waiting = deque(sorted(reached))
+    while waiting:
+        group_index = waiting.popleft()
+        for neighbour_index in range(len(groups)):
+            if neighbour_index in reached or not are_groups_touching(map_grid, groups[group_index], groups[neighbour_index]):
+                continue
+            reached.add(neighbour_index)
+            parent_of_group[neighbour_index] = group_index
+            waiting.append(neighbour_index)
+    return parent_of_group
 
 
 def place_route_exits_on_pieces(route: dict, pieces: List[dict]) -> None:
@@ -312,10 +376,10 @@ def settle_piece_shapes(route: dict, pieces: List[dict]) -> None:
 def chain_maps_of_route(route: dict, grid_cell_side_in_region_cells: int, gated_entrance_toward: str = "") -> List[dict]:
     map_grid = map_grid_of_route(route, grid_cell_side_in_region_cells)
     ordered_grid_cells = ordered_grid_cells_of_route(route, grid_cell_side_in_region_cells)
-    pieces = [empty_piece(route, map_grid, grid_cell, piece_index, len(ordered_grid_cells))
-              for piece_index, grid_cell in enumerate(ordered_grid_cells)]
+    groups = grid_cells_grouped_into_fewest_maps(map_grid, ordered_grid_cells)
+    pieces = [empty_piece(route, map_grid, group, piece_index, len(groups)) for piece_index, group in enumerate(groups)]
     place_route_exits_on_pieces(route, pieces)
-    for piece_index, parent_index in sorted(chain_parent_indices(ordered_grid_cells).items()):
+    for piece_index, parent_index in sorted(group_parent_indices(map_grid, groups).items()):
         seam_exits_between_pieces(route, pieces, piece_index, parent_index)
     place_goal_on_its_piece(route, pieces)
     place_gate_on_its_piece(route, pieces, gated_entrance_toward)

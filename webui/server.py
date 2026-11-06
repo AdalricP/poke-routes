@@ -323,8 +323,8 @@ def _patch_snap(Route):
 # UI hints for fields we know; anything else in RouteSpec gets a generic control.
 HINTS = {
     "seed": {"group": "route", "min": 0, "max": 2 ** 31 - 1},
-    "width": {"group": "route", "min": 16, "max": 96, "step": 2},
-    "height": {"group": "route", "min": 16, "max": 112, "step": 2},
+    "width": {"group": "route", "min": 16, "max": 192, "step": 2},
+    "height": {"group": "route", "min": 16, "max": 192, "step": 2},
     "biome": {"group": "route", "choices": list(BIOMES)},
     "effect": {"group": "route", "choices": list(ROUTE_EFFECTS)},
     "tree_shade": {"group": "route", "choices": list(SHADE_CHOICES), "label": "under trees"},

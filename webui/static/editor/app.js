@@ -304,7 +304,7 @@
     st.doc = doc;
     if (doc.name) $("docName").value = doc.name;
     $("seed").value = doc.seed;
-    $("gridSel").value = String((doc.map_grid || {}).cell || 8);
+    $("gridSel").value = String((doc.map_grid || {}).cell || 12);
     show_region_size_in_squares();
     if (st.sel && !findSel(st.sel)) st.sel = null;
     rebuildBase();
@@ -416,7 +416,7 @@
   function afterHistory(msg) {
     st.unsaved = true;
     if (st.sel && !findSel(st.sel)) st.sel = null;
-    $("gridSel").value = String((st.doc.map_grid || {}).cell || 8);
+    $("gridSel").value = String((st.doc.map_grid || {}).cell || 12);
     show_region_size_in_squares();
     rebuildBase();
     refreshAll();
@@ -453,7 +453,7 @@
     });
   }
   async function regrid_map(region_cells_per_square) {
-    if (!st.doc || region_cells_per_square === ((st.doc.map_grid || {}).cell || 8)) return;
+    if (!st.doc || region_cells_per_square === ((st.doc.map_grid || {}).cell || 12)) return;
     await busy("changing the map grid", async () => {
       const out = await api("/api/editor/regrid-map", { doc: ED.encodeDoc(st.doc), cell: region_cells_per_square });
       st.hist.begin(st.doc, "change map grid");
@@ -463,7 +463,7 @@
       st.sel_tile = null;
       refreshAll();
     });
-    $("gridSel").value = String((st.doc.map_grid || {}).cell || 8);
+    $("gridSel").value = String((st.doc.map_grid || {}).cell || 12);
   }
   function region_size_in_squares() {
     const region_size = (st.doc && st.doc.map_grid && st.doc.map_grid.size) || [0, 0];
@@ -2306,7 +2306,7 @@
   for (const region_cells_per_square of [4, 6, 8, 10, 12, 16]) {
     $("gridSel").append(el("option", { value: String(region_cells_per_square) }, `${region_cells_per_square * ED.CELL} x ${region_cells_per_square * ED.CELL} tiles`));
   }
-  $("gridSel").value = "8";
+  $("gridSel").value = "12";
   $("gridSel").onchange = () => regrid_map(+$("gridSel").value);
   $("sizeWidth").onchange = $("sizeHeight").onchange = () => resize_region(parseInt($("sizeWidth").value, 10), parseInt($("sizeHeight").value, 10));
   on(window, "pokeroutes-player-on-map", (event) => { st.player_on_map = event.detail || null; draw(); });
