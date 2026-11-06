@@ -334,8 +334,8 @@ test("story: a gated route opens once a beat hands out the move", () => {
   d.routes[0].gate = { after: 1 };
   assert.ok(!ED.reachableAt(d, 0).has("Eins"));
   assert.ok(ED.reachableAt(d, 1).has("Eins"));
-  assert.strictEqual(ED.routeNeeds({ mode: "sea" }), "surf");
-  assert.strictEqual(ED.routeNeeds({ mode: "sea", gate: { needs: "" } }), "");
+  assert.strictEqual(ED.routeNeeds({ mode: "sea" }), "");
+  assert.strictEqual(ED.routeNeeds({ mode: "sea", gate: { needs: "surf" } }), "surf");
 });
 
 test("town map: the sea is lighter along the coast, land and lakes get their own colours", () => {

@@ -165,4 +165,5 @@ def test_towns_on_islands_far_apart_are_joined_by_surf_routes():
     archipelago = edit.generate_map(edit.generate_doc(5, geography_kind="archipelago"))
     surf_routes = [route for route in archipelago["routes"] if route["mode"] == "sea"]
     assert surf_routes
-    assert all(route["role"] == "sea" and route_field_move_needed(route) == "surf" for route in surf_routes)
+    assert all(route["role"] == "sea" for route in surf_routes)
+    assert all(route_field_move_needed(route) == "" for route in surf_routes)

@@ -565,12 +565,13 @@
   // ------------------------------------------------------------ story + route design B
   // Story (by hand, per game): doc.story = [{name, at, unlocks}], in play order; `at` is
   // a town or route name, `unlocks` the field move it hands out ("" = none).
-  // Route design B: r.gate = {needs, after}: the move you need to get onto the route
-  // (sea routes need surf unless set) and the beat after which it opens (an NPC moves...).
+  // Route design B: r.gate = {needs, after}: the move you need to get onto the route,
+  // set by hand only (no route needs anything by default), and the beat after which it
+  // opens (an NPC moves...).
   const HMS = ["cut", "surf", "strength", "rock_smash", "waterfall", "dive"];
   function routeNeeds(r) {
     const g = r.gate || {};
-    return g.needs != null ? g.needs : r.mode === "sea" ? "surf" : "";
+    return g.needs || "";
   }
   function routeOpenAt(r, have, step) {
     const n = routeNeeds(r), after = (r.gate || {}).after;

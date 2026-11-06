@@ -1744,9 +1744,8 @@
   }
 
   // ------------------------------------------------------------ story and route gates
-  function hm_select(value, with_derived) {
+  function hm_select(value) {
     const s = el("select");
-    if (with_derived) s.append(el("option", { value: "derived" }, "derived"));
     for (const k of [""].concat(ED.HMS)) {
       const op = el("option", { value: k }, HM_LABEL[k]);
       if (k === value) op.selected = true;
@@ -1817,9 +1816,8 @@
   }
   function append_route_gate_controls(box, r) {
     const g = r.gate || {};
-    const hm = hm_select(g.needs != null ? g.needs : "derived", true);
-    hm.querySelector('option[value="derived"]').textContent = "derived (" + HM_LABEL[r.mode === "sea" ? "surf" : ""] + ")";
-    hm.onchange = () => edit("set route gate", () => set_gate(r, "needs", hm.value === "derived" ? undefined : hm.value));
+    const hm = hm_select(g.needs || "");
+    hm.onchange = () => edit("set route gate", () => set_gate(r, "needs", hm.value || undefined));
     box.append(row("Needs", hm, g.needs != null, () => edit("reset gate", () => set_gate(r, "needs", undefined))));
     hm.title = "The field move needed to get onto the route";
     if (!(st.doc.story || []).length && g.after == null) return;

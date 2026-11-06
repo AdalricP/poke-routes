@@ -78,7 +78,7 @@ def test_open_sea_route_is_water_you_surf_across():
                    "path": [[region_width // 2, row] for row in range(region_height)], "rivers": []}
     route = generate(spec)
     seal_edges(route)
-    assert any(gate.get("kind") == "surf" and gate.get("built") for gate in route.gates)
+    assert not any(gate.get("kind") == "surf" for gate in route.gates)
     assert float(np.isin(route.cls, ["b", "w"]).mean()) > 0.6
     assert report(route)["reachable_fraction"] == 1.0
 

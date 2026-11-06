@@ -1,8 +1,9 @@
 """Water the map says the route crosses. When a route's link on the region map
-runs over sea or a lake, the route has that water across its main path and you
-Surf over it: while the route is built the lanes out there are kept as bridges
-(so every stage still sees one connected route), and once it is finished they
-become water again and a Surf gate is recorded on the route.
+runs over sea or a lake, the route has that water across its main path: while
+the route is built the lanes out there are kept as bridges (so every stage
+still sees one connected route), and once it is finished they become water
+again. Nothing automatically requires Surf to cross it; the owner places any
+gate by hand through the route's "Needs" setting or by hand-placed obstacles.
 
 A route laid over open sea (region ``mode: sea``) is open water from edge to
 edge: sandy islets with a grass heart, shallow sandbars and sea rocks (single,
@@ -57,8 +58,7 @@ def open_surf_crossings(route: Route) -> int:
     if not opened_count:
         return 0
     drop_things_left_standing_in_water(route)
-    route.gates.append(surf_gate_record(route, opened_count, is_open_sea))
-    route.log.append(f"surf: {opened_count} cells of the main path are the map's water; Surf needed")
+    route.log.append(f"surf: {opened_count} cells of the main path are the map's water; no gate placed automatically")
     return opened_count
 
 
@@ -101,14 +101,6 @@ def drop_things_left_standing_in_water(route: Route) -> None:
     route.events = [event for event in route.events if stands_on_ground(event)]
     route.props = [prop for prop in route.props
                    if "y" not in prop or str(route.cls[int(prop["y"]), int(prop["x"])]) in WALKABLE]
-
-
-def surf_gate_record(route: Route, opened_count: int, is_open_sea: bool) -> dict:
-    note = ("open sea: Surf from exit to exit" if is_open_sea
-            else "the map's water lies across the main path: Surf over it")
-    gate_record = {"kind": "surf", "built": True, "from_map_water": True, "cells_of_water_on_the_path": opened_count,
-                   "note": note}
-    return gate_record
 
 
 def surf_line_mask(route: Route) -> np.ndarray:
