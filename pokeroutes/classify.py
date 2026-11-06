@@ -80,6 +80,31 @@ CLASS_COLORS = {
 WALKABLE_CLASSES = frozenset("gptdhyvzqn")  # shallow water is wade-able
 SURFABLE_CLASSES = frozenset("wb")
 BLOCKED_CLASSES = frozenset("frkul")  # hot springs ('l' walkable in towns) are rare; lava blocks
+LEDGE_CLASSES = frozenset({LEDGE_S, LEDGE_E, LEDGE_W})
+
+
+def defuse_ledge_corners(cls):
+    """Real maps never sit a south ledge against an east or west one: each brink
+    metatile only has art for a straight run over plain ground, so a corner
+    between two directions has no matching tile and looks broken. Where a hand
+    edit put different-facing ledges side by side, drop the touching cell back
+    to its ground so they don't try to join."""
+    from collections import Counter
+
+    out = cls.copy()
+    h, w = cls.shape
+    for y in range(h):
+        for x in range(w):
+            c = cls[y, x]
+            if c not in LEDGE_CLASSES:
+                continue
+            neighbours = [cls[y, x - 1] if x > 0 else None, cls[y, x + 1] if x < w - 1 else None,
+                          cls[y - 1, x] if y > 0 else None, cls[y + 1, x] if y < h - 1 else None]
+            if any(n is not None and n in LEDGE_CLASSES and n != c for n in neighbours):
+                ground = [n for n in neighbours if n is not None and n not in LEDGE_CLASSES]
+                out[y, x] = Counter(ground).most_common(1)[0][0] if ground else GRASS
+    return out
+
 
 # When a model has (almost) no examples of a class, the autotiler paints the
 # next class in this chain instead, so any biome's grid can be tiled with any model.

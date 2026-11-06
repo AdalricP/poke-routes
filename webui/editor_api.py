@@ -31,6 +31,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+from pokeroutes.classify import LEDGE_CLASSES, defuse_ledge_corners  # noqa: E402
 OUT = ROOT / "region_out"
 MAX_BODY = 48 * 1024 * 1024
 PAINT_CLASSES = set("fgptwrsexaq")
@@ -147,6 +148,8 @@ def retile(srv, b: dict) -> dict:
     painted_class_grid = route.cls.copy()
     for cell_x, cell_y, class_code in class_cells:
         painted_class_grid[cell_y, cell_x] = class_code
+    if any(class_code in LEDGE_CLASSES for _, _, class_code in class_cells):
+        painted_class_grid = defuse_ledge_corners(painted_class_grid)
     layout = retile_class_grid_with_route_tiler(srv, gid, route, final, painted_class_grid)
     metatile_overrides = metatile_overrides_by_route_id.setdefault(gid, {})
     for cell_x, cell_y, _class_code in class_cells:

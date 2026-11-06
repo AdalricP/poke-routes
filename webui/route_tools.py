@@ -198,19 +198,26 @@ def route_grid(a):
 
 
 def paint_route(a):
+    from pokeroutes.classify import LEDGE_CLASSES, defuse_ledge_corners
+
     rid, (spec, route, tiler) = _get(a)
     h, w = route.cls.shape
     n = 0
+    painted_ledges = False
     for c in a.get("cells") or []:
         x, y, k = int(c[0]), int(c[1]), str(c[2])
         if 0 <= x < w and 0 <= y < h and len(k) == 1:
             route.cls[y, x] = k
+            painted_ledges = painted_ledges or k in LEDGE_CLASSES
             n += 1
     for r in a.get("rects") or []:
         x0, y0, x1, y1, k = int(r[0]), int(r[1]), int(r[2]), int(r[3]), str(r[4])
         if len(k) == 1:
             route.cls[max(0, y0):min(h, y1 + 1), max(0, x0):min(w, x1 + 1)] = k
+            painted_ledges = painted_ledges or k in LEDGE_CLASSES
             n += max(0, min(w, x1 + 1) - max(0, x0)) * max(0, min(h, y1 + 1) - max(0, y0))
+    if painted_ledges:
+        route.cls = defuse_ledge_corners(route.cls)
     res = _write(rid, spec, route, tiler)
     res["painted"] = n
     return res
