@@ -514,3 +514,8 @@ body.moving, body.moving * { user-select: none !important; cursor: move !importa
 .terrain-brush canvas { width: 40px; height: 40px; image-rendering: pixelated; }
 .biome-swatch { display: block; width: 40px; height: 40px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.35); }
 .ask-input { width: 100%; box-sizing: border-box; margin-top: 6px; }
+.palette-section { margin-bottom: 8px; }
+.palette-heading { margin: 0 0 4px; font-size: 11px; font-weight: 600; color: var(--text-2); text-transform: none; }
+.tiles-exact summary { cursor: pointer; }
+.tiles-exact canvas { display: block; width: 100%; max-width: 192px; image-rendering: pixelated; cursor: crosshair; }
+.tiles-missing { cursor: help; }
