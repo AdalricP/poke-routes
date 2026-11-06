@@ -974,7 +974,10 @@
       b.hidden = !ledge_codes.includes(b.dataset.dir);
       b.classList.toggle("on", b.dataset.dir === state.ledgeDir);
     });
-    $("brushSize").hidden = !["terrain", "ledge"].includes(SL.brush_kind(state.brush).kind);
+    const selected_brush = SL.brush_kind(state.brush);
+    const selected_entry = selected_brush.kind === "terrain" ? SL.palette_terrain_entry(state.palette, selected_brush.key) : null;
+    const places_single_trees = !!(selected_entry && selected_entry.two_wide);
+    $("brushSize").hidden = !["terrain", "ledge"].includes(selected_brush.kind) || places_single_trees;
   }
   function rotateLedgeDir() {
     state.ledgeDir = SL.next_ledge_code(state.palette, state.ledgeDir);
@@ -2198,9 +2201,10 @@
 
   function terrain_brush_cells_at(cell_x, cell_y, class_code) {
     const r = state.result, entry = SL.palette_terrain_entry(state.palette, class_code);
-    const is_two_wide = entry ? entry.two_wide : SL.TWO_WIDE.includes(class_code);
-    const chosen_size = +$("brushSize").value;
-    const brush_cells = SL.brushCells(cell_x, cell_y, is_two_wide ? Math.max(2, chosen_size) : chosen_size, class_code, r.width, r.height);
+    const is_tree_brush = entry ? entry.two_wide : SL.TWO_WIDE.includes(class_code);
+    const one_tree_size_in_cells = 2;
+    const chosen_size = is_tree_brush ? one_tree_size_in_cells : +$("brushSize").value;
+    const brush_cells = SL.brushCells(cell_x, cell_y, chosen_size, class_code, r.width, r.height);
     if (!entry || !entry.snap_blocks) return brush_cells;
     return SL.snap_cells_to_blocks(brush_cells, r.width, r.height);
   }
