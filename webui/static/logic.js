@@ -11,10 +11,15 @@
   const CLASS_COLORS = {
     g: "#78be5a", p: "#d6b478", t: "#28823a", w: "#4678dc", f: "#14461e",
     r: "#825a3c", s: "#e67828", e: "#e6a028", x: "#e6a028", a: "#a0d2ff", o: "#c800c8", q: "#aa783c",
+    j: "#e6b428", d: "#f0dc8c", b: "#1e3caa", h: "#82bee6", y: "#969670", v: "#beb9a0", k: "#5a321e",
+    z: "#e6e6e6", l: "#f03c00", n: "#141414", u: "#6e645a", T: "#a0782a", F: "#b4641e", R: "#8c2323",
   };
   const CLASS_NAMES = {
     g: "grass", p: "dirt road", t: "tall grass", w: "water", f: "trees",
-    r: "rock", s: "ledge (south)", e: "ledge (east)", x: "ledge (west)", a: "waterfall", o: "other", q: "bridge (wood)",
+    r: "rock", s: "ledge (south)", e: "ledge (east)", x: "ledge (west)", a: "waterfall", o: "object", q: "bridge (wood)",
+    j: "ledge (north)", d: "sand", b: "sea", h: "shallow water", y: "ash grass", v: "ash ground", k: "cliff",
+    z: "stairs", l: "lava / hot springs", n: "cave entrance", u: "boulder",
+    T: "tall grass (autumn)", F: "forest (orange)", R: "forest (red)",
   };
 
   // Largest zoom level whose map fits the viewport (falls back to the smallest).

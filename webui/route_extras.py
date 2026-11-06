@@ -10,6 +10,8 @@ from typing import Optional
 
 import numpy as np
 
+from pokeroutes.classify import ONE_WAY_LEDGE_STEPS
+
 WALKABLE = set("gpt")
 DIRS4 = ((-1, 0), (1, 0), (0, -1), (0, 1))
 MAX_MAP_DATA_SIZE = 10240
@@ -127,7 +129,7 @@ def emerald_encounters(route) -> Optional[dict]:
 
 
 def reachable(cls: np.ndarray, starts) -> np.ndarray:
-    """Flood fill honouring one-way south ledges ('s')."""
+    """Flood fill honouring one-way ledges (south 's', north 'j')."""
     h, w = cls.shape
     seen = np.zeros((h, w), dtype=bool)
     stack = [tuple(s) for s in starts if cls[tuple(s)] in WALKABLE]
@@ -140,10 +142,12 @@ def reachable(cls: np.ndarray, starts) -> np.ndarray:
             if not (0 <= ny < h and 0 <= nx < w) or seen[ny, nx]:
                 continue
             c = cls[ny, nx]
-            if c == "s":
-                if dy == 1 and ny + 1 < h and cls[ny + 1, nx] in WALKABLE and not seen[ny + 1, nx]:
-                    seen[ny + 1, nx] = True
-                    stack.append((ny + 1, nx))
+            if c in ONE_WAY_LEDGE_STEPS:
+                landing_y, landing_x = ny + dy, nx + dx
+                hops = (dy, dx) == ONE_WAY_LEDGE_STEPS[c] and 0 <= landing_y < h and 0 <= landing_x < w
+                if hops and cls[landing_y, landing_x] in WALKABLE and not seen[landing_y, landing_x]:
+                    seen[landing_y, landing_x] = True
+                    stack.append((landing_y, landing_x))
                 continue
             if c in WALKABLE:
                 seen[ny, nx] = True

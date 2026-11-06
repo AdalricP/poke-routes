@@ -19,7 +19,7 @@ their meaning):
   w     pond water      calm inland water (MB_POND_WATER, interior deep water)
   f     tree            blocked green: trees, hedges
   r     rock mass       blocked flat rock: mountain tops nobody walks on
-  s/e/x ledges          MB_JUMP_SOUTH / MB_JUMP_EAST / MB_JUMP_WEST
+  s/e/x/j ledges        MB_JUMP_SOUTH / MB_JUMP_EAST / MB_JUMP_WEST / MB_JUMP_NORTH
   a     waterfall       MB_WATERFALL
   o     other           buildings, signs, decorations: never learned or painted
   d     sand            loose sand: beaches, desert (MB_SAND, MB_DEEP_SAND, pale
@@ -52,6 +52,7 @@ from .tileset import NUM_PRIMARY_METATILES, TilesetPair
 GRASS, PATH, TALL, WATER, TREE, ROCK, LEDGE_S, LEDGE_E, LEDGE_W, WATERFALL, OTHER = (
     "g", "p", "t", "w", "f", "r", "s", "e", "x", "a", "o",
 )
+LEDGE_N = "j"
 SAND, SEA, SHALLOW, ASH_GRASS, ASH, CLIFF, STAIRS, LAVA, CAVE_ENTRANCE, BRIDGE, BOULDER = (
     "d", "b", "h", "y", "v", "k", "z", "l", "n", "q", "u",
 )
@@ -64,6 +65,7 @@ CAVE = CAVE_ENTRANCE
 CLASS_NAMES = {
     GRASS: "grass", PATH: "path", TALL: "tall grass", WATER: "pond water", TREE: "tree",
     ROCK: "rock mass", LEDGE_S: "ledge (south)", LEDGE_E: "ledge (east)", LEDGE_W: "ledge (west)",
+    LEDGE_N: "ledge (north)",
     WATERFALL: "waterfall", OTHER: "other",
     SAND: "sand", SEA: "sea", SHALLOW: "shallow water", ASH_GRASS: "ash grass", ASH: "ash ground",
     CLIFF: "cliff", STAIRS: "stairs", LAVA: "lava / hot springs", CAVE_ENTRANCE: "cave entrance",
@@ -72,7 +74,7 @@ CLASS_NAMES = {
 CLASS_COLORS = {
     GRASS: (120, 190, 90), PATH: (214, 180, 120), TALL: (40, 130, 50), WATER: (70, 120, 220),
     TREE: (20, 70, 30), ROCK: (130, 90, 60), LEDGE_S: (230, 120, 40), LEDGE_E: (230, 160, 40),
-    LEDGE_W: (230, 160, 40), WATERFALL: (160, 210, 255), OTHER: (200, 0, 200),
+    LEDGE_W: (230, 160, 40), LEDGE_N: (230, 190, 60), WATERFALL: (160, 210, 255), OTHER: (200, 0, 200),
     SAND: (240, 220, 140), SEA: (30, 60, 170), SHALLOW: (130, 190, 230), ASH_GRASS: (150, 150, 110),
     ASH: (190, 185, 160), CLIFF: (90, 50, 30), STAIRS: (230, 230, 230), LAVA: (240, 60, 0),
     CAVE_ENTRANCE: (20, 20, 20), BRIDGE: (170, 120, 60), BOULDER: (110, 100, 90),
@@ -80,7 +82,8 @@ CLASS_COLORS = {
 WALKABLE_CLASSES = frozenset("gptdhyvzqn")  # shallow water is wade-able
 SURFABLE_CLASSES = frozenset("wb")
 BLOCKED_CLASSES = frozenset("frkul")  # hot springs ('l' walkable in towns) are rare; lava blocks
-LEDGE_CLASSES = frozenset({LEDGE_S, LEDGE_E, LEDGE_W})
+LEDGE_CLASSES = frozenset({LEDGE_S, LEDGE_E, LEDGE_W, LEDGE_N})
+ONE_WAY_LEDGE_STEPS = {LEDGE_S: (1, 0), LEDGE_N: (-1, 0)}
 
 
 def defuse_ledge_corners(cls):
@@ -145,7 +148,7 @@ _BEHAVIOR_CLASS = {
     0x06: SAND, 0x21: SAND, 0x25: SAND,
     0x24: ASH_GRASS,
     0x28: LAVA,
-    0x3B: LEDGE_S, 0x38: LEDGE_E, 0x39: LEDGE_W,
+    0x3B: LEDGE_S, 0x38: LEDGE_E, 0x39: LEDGE_W, 0x3A: LEDGE_N,
     0x70: BRIDGE, 0x71: BRIDGE, 0x72: BRIDGE, 0x73: BRIDGE, 0x78: BRIDGE,
     0x7A: BRIDGE, 0x7B: BRIDGE, 0x7C: BRIDGE, 0x7D: BRIDGE,
     0x74: BRIDGE, 0x75: BRIDGE, 0x76: BRIDGE, 0x77: BRIDGE,  # Pacifidlog floating logs
