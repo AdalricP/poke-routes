@@ -530,14 +530,19 @@
   // scene isn't a dead frame. Only touches the few cells that actually animate.
   const ANIM_MS = 200;
   const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const tile_animation_speeds = [1, 2, 0.5];
+  const tile_animation = { is_playing: !reduceMotion, speed_index: 0 };
   let animLast = 0, animFrame = 0;
   function tickAnim(t) {
     requestAnimationFrame(tickAnim);
-    if (reduceMotion || t - animLast < ANIM_MS) return;
-    const cells = state.animCells[state.stage];
-    if (!state.atlas || !cells || !cells.length) return;
+    if (!tile_animation.is_playing || t - animLast < ANIM_MS / tile_animation_speeds[tile_animation.speed_index]) return;
     animLast = t;
     animFrame++;
+    draw_tile_animation_frame();
+  }
+  function draw_tile_animation_frame() {
+    const cells = state.animCells[state.stage];
+    if (!state.atlas || !cells || !cells.length) return;
     const { meta, img } = state.atlas;
     const g = state.tileCanvases[state.stage].getContext("2d");
     for (const c of cells) {
@@ -549,6 +554,32 @@
     draw();
   }
   requestAnimationFrame(tickAnim);
+  function toggle_tile_animation() {
+    tile_animation.is_playing = !tile_animation.is_playing;
+    sync_tile_animation_buttons();
+  }
+  function step_tile_animation(frame_delta) {
+    tile_animation.is_playing = false;
+    animFrame = Math.max(0, animFrame + frame_delta);
+    draw_tile_animation_frame();
+    sync_tile_animation_buttons();
+  }
+  function restart_tile_animation() {
+    animFrame = 0;
+    draw_tile_animation_frame();
+  }
+  function cycle_tile_animation_speed() {
+    tile_animation.speed_index = (tile_animation.speed_index + 1) % tile_animation_speeds.length;
+    sync_tile_animation_buttons();
+    Shell.status(`Tile animation speed ${tile_animation_speeds[tile_animation.speed_index]}×`);
+  }
+  function sync_tile_animation_buttons() {
+    const play_button = $("tbPlay");
+    play_button.classList.toggle("playing", tile_animation.is_playing);
+    play_button.setAttribute("aria-label", tile_animation.is_playing ? "Pause tile animation" : "Play tile animation");
+    play_button.title = (tile_animation.is_playing ? "Pause" : "Play") + " tile animation (Space)";
+    $("tbLast").title = `Animation speed ${tile_animation_speeds[tile_animation.speed_index]}× (End to change)`;
+  }
 
   // ------------------------------------------------------------ scene view
   const wrap = $("viewScene");
@@ -1340,8 +1371,6 @@
     else { state.prevStage = null; state.flashStart = 0; }
     state.stage = i;
     const label = `${i + 1} / ${r.stages.length} · ${r.stages[i].name}`;
-    $("tbStage").textContent = label;
-    $("tbStage").title = label;
     renderTree();
     draw();
   }
@@ -1371,7 +1400,7 @@
   }
   function togglePlay() { state.playing ? stopPlay() : startPlay(); }
   function syncPlay() {
-    for (const b of [$("tbPlay")]) {
+    for (const b of []) {
       b.classList.toggle("playing", state.playing);
       b.setAttribute("aria-label", state.playing ? "Pause" : "Play stages");
     }
@@ -1909,11 +1938,11 @@
         { id: "t-ark", label: "Ark rule tiles", radio: true, checked: () => prefs.tiler === "ark", enabled: () => !state.tilers || state.tilers.some((t) => t.id === "ark" && t.ok), run: () => setTiler("ark") },
       ] },
       { sep: true },
-      { id: "play", label: "Play / pause stages", enabled: sceneRoute, run: (ev) => { if (ev && document.activeElement && document.activeElement.tagName === "BUTTON") document.activeElement.blur(); togglePlay(); } },
-      { id: "next", label: "Next stage", enabled: sceneRoute, run: () => step(1) },
-      { id: "prev", label: "Previous stage", enabled: sceneRoute, run: () => step(-1) },
-      { id: "first", label: "First stage", enabled: sceneRoute, run: () => stageEnd(false) },
-      { id: "last", label: "Final stage", enabled: sceneRoute, run: () => stageEnd(true) },
+      { id: "play", label: "Play / pause tile animation", enabled: sceneRoute, run: (ev) => { if (ev && document.activeElement && document.activeElement.tagName === "BUTTON") document.activeElement.blur(); toggle_tile_animation(); } },
+      { id: "next", label: "Next animation frame", enabled: sceneRoute, run: () => step_tile_animation(1) },
+      { id: "prev", label: "Previous animation frame", enabled: sceneRoute, run: () => step_tile_animation(-1) },
+      { id: "first", label: "Restart tile animation", enabled: sceneRoute, run: restart_tile_animation },
+      { id: "last", label: "Change animation speed", enabled: sceneRoute, run: cycle_tile_animation_speed },
     ] },
     { label: "Window", items: [
       { id: "w-scene", label: "Route bench (Scene)", radio: true, checked: () => Shell.layout.center === "scene", run: () => Shell.setCenter("scene") },
@@ -1952,11 +1981,12 @@
     document.querySelectorAll("[data-tool]").forEach((b) => { b.onclick = () => setTool(b.dataset.tool); });
     document.querySelectorAll("[data-layer]").forEach((b) => { b.onclick = () => setLayer(b.dataset.layer); });
     document.querySelectorAll("[data-ov]").forEach((b) => { b.onclick = () => toggleOv(b.dataset.ov); });
-    $("tbFirst").onclick = () => stageEnd(false);
-    $("tbPrev").onclick = () => step(-1);
-    $("tbNext").onclick = () => step(1);
-    $("tbLast").onclick = () => stageEnd(true);
-    $("tbPlay").onclick = togglePlay;
+    $("tbFirst").onclick = restart_tile_animation;
+    $("tbPrev").onclick = () => step_tile_animation(-1);
+    $("tbNext").onclick = () => step_tile_animation(1);
+    $("tbLast").onclick = cycle_tile_animation_speed;
+    $("tbPlay").onclick = toggle_tile_animation;
+    sync_tile_animation_buttons();
     $("tbGenerate").onclick = doGenerate;
     $("tbGenerate").title = "Generate";
     $("tbZoomIn").onclick = zoomInView;
