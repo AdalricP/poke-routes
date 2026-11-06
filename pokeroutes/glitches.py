@@ -171,6 +171,42 @@ def open_river_ends(route) -> List[Cell]:
     return open_ends
 
 
+TREE_CLASS = "f"
+
+
+def half_tree_block_stub_cells(class_grid: np.ndarray) -> List[Cell]:
+    from .tree_blocks import half_tree_blocks
+
+    stub_cells = [(int(y), int(x)) for block_cells in half_tree_blocks(class_grid)
+                  for y, x in block_cells if class_grid[y, x] == TREE_CLASS]
+    return stub_cells
+
+
+def orphan_crown_fragments(class_grid: np.ndarray) -> List[Cell]:
+    stub_cells = half_tree_block_stub_cells(class_grid)
+    stub_cell_set = set(stub_cells)
+    orphan_cells = [(y, x) for y, x in stub_cells
+                    if not any(is_inside(class_grid, y + dy, x + dx) and class_grid[y + dy, x + dx] == TREE_CLASS
+                              and (y + dy, x + dx) not in stub_cell_set
+                              for dy in (-1, 0, 1) for dx in (-1, 0, 1))]
+    return orphan_cells
+
+
+def straight_bush_rows_hugging_tree_blocks(class_grid: np.ndarray) -> List[Cell]:
+    stub_cell_set = set(half_tree_block_stub_cells(class_grid))
+    row_start_cells = [(y, x) for y, x in stub_cell_set
+                       if ((y, x - 1) not in stub_cell_set and (y, x + 1) in stub_cell_set and (y, x + 2) in stub_cell_set)
+                       or ((y - 1, x) not in stub_cell_set and (y + 1, x) in stub_cell_set and (y + 2, x) in stub_cell_set)]
+    return row_start_cells
+
+
+def shade_cells_without_a_tree_above(class_grid: np.ndarray) -> List[Cell]:
+    stub_cells = half_tree_block_stub_cells(class_grid)
+    shaded_ground_cells = [(y, x + 1) for y, x in stub_cells
+                           if is_inside(class_grid, y, x + 1) and str(class_grid[y, x + 1]) in WALKABLE_LAND_CLASSES]
+    return shaded_ground_cells
+
+
 def glitches_of_route(route, tiler) -> Dict[str, List[Cell]]:
     class_grid = np.asarray(route.cls).astype(str)
     clipped_crown_cells_by_kind = tiler.clipped_crown_cells(class_grid)
@@ -182,5 +218,9 @@ def glitches_of_route(route, tiler) -> Dict[str, List[Cell]]:
         "ground spikes into water": ground_spikes_into_water(class_grid),
         "signs in water": signs_in_water(route),
         "edge water notches": edge_water_notches(class_grid),
+        "orphan crown fragments": orphan_crown_fragments(class_grid),
+        "single-cell bush stubs": half_tree_block_stub_cells(class_grid),
+        "straight bush rows hugging tree blocks": straight_bush_rows_hugging_tree_blocks(class_grid),
+        "shade cells without a tree above": shade_cells_without_a_tree_above(class_grid),
     }
     return glitches
