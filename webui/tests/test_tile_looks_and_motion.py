@@ -74,11 +74,12 @@ def test_in_game_animated_tiles_can_only_play_or_stop():
     assert motions[6].motion == "off"
 
 
-def test_route_shade_wins_then_tileset_then_biome():
+def test_route_shade_wins_then_tileset_then_green():
     assert resolved_shade("red", "green", "forest") == "red"
-    assert resolved_shade("auto", "yellow", "forest") == "yellow"
-    assert resolved_shade("auto", "auto", "meadow") == "meadow"
-    assert resolved_shade("auto", "auto", "forest") == "leaves"
+    assert resolved_shade("none", "yellow", "meadow") == "none"
+    assert resolved_shade("", "yellow", "forest") == "yellow"
+    assert resolved_shade("", "", "forest") == "green"
+    assert resolved_shade("meadow", "", "plains") == "none"
 
 
 def test_shade_recolours_only_the_floor_pixels():
@@ -89,17 +90,17 @@ def test_shade_recolours_only_the_floor_pixels():
     shaded_pixels = shaded_metatile_pixels(tree_pixels, floor_rows, grass_pixels, "red")
     assert tuple(shaded_pixels[0, 0]) != (0, 0, 0)
     assert (shaded_pixels[0, 2:] == 0).all()
-    meadow_pixels = shaded_metatile_pixels(tree_pixels, floor_rows, grass_pixels, "meadow")
+    meadow_pixels = shaded_metatile_pixels(tree_pixels, floor_rows, grass_pixels, "none")
     assert tuple(meadow_pixels[0, 0]) == (120, 220, 120)
 
 
 def test_floor_plan_skips_trees_already_drawn_in_that_shade():
     class_table = {"classes": {"f": {"floor_shade": "green", "floor_masks": {"10": [1] * 16}},
                                "R": {"floor_shade": "yellow", "floor_masks": {"20": [1] * 16}}}}
-    leaves_plan = floor_plan_for_shade(class_table, "leaves")
-    assert set(leaves_plan) == {20}
-    assert leaves_plan[20][1] == "red"
-    assert set(floor_plan_for_shade(class_table, "meadow")) == {10, 20}
+    green_plan = floor_plan_for_shade(class_table, "green")
+    assert set(green_plan) == {20}
+    assert green_plan[20][1] == "green"
+    assert set(floor_plan_for_shade(class_table, "none")) == {10, 20}
 
 
 def fence_class_table():

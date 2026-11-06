@@ -71,7 +71,7 @@ def motion_overrides(tileset_key: str) -> dict:
 
 
 def tree_shade_of_tileset(tileset_key: str) -> str:
-    tileset_shade = looks_of_tileset(tileset_key).get("tree_shade", "auto")
+    tileset_shade = looks_of_tileset(tileset_key).get("tree_shade", "green")
     return tileset_shade
 
 
