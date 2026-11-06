@@ -463,7 +463,7 @@
     }
     if (st.layers.routes) drawRoutes(d, X, Y, z);
     drawLandmarks(d, X, Y, z);
-    drawCities(d, X, Y, z);
+    if (st.mode !== "geography") drawCities(d, X, Y, z);
     if (st.layers.labels) drawLabels(d, X, Y, z);
     if (st.mode === "story" || st.mode === "gates") drawBeats(d, X, Y, z);
     drawToolOverlay(d, X, Y, z);
