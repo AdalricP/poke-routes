@@ -170,4 +170,22 @@ test("arrival uses the exit leading back, else the opposite side", () => {
   assert.deepStrictEqual(placement, { cell: { x: 2, y: 0 }, facing: "down" });
 });
 
+test("crossing a chain seam lands on the matching cell of the next map", () => {
+  const cell_on_east_map = PlaytestLogic.cell_across_chain_seam({ x: 31, y: 12 }, "right", { x: 0, y: 0 }, { x: 32, y: 0 });
+  assert.deepStrictEqual(cell_on_east_map, { x: 0, y: 12 });
+  const cell_on_south_map = PlaytestLogic.cell_across_chain_seam({ x: 5, y: 31 }, "down", { x: 64, y: 0 }, { x: 64, y: 32 });
+  assert.deepStrictEqual(cell_on_south_map, { x: 5, y: 0 });
+  const cell_back_west = PlaytestLogic.cell_across_chain_seam({ x: 0, y: 7 }, "left", { x: 32, y: 0 }, { x: 0, y: 0 });
+  assert.deepStrictEqual(cell_back_west, { x: 31, y: 7 });
+});
+
+test("entering through a seam keeps walking or swimming from just outside the map", () => {
+  const walking_in = PlaytestLogic.seam_entry_placement(small_world(), { x: 2, y: 0 }, "down", false, {});
+  assert.deepStrictEqual(walking_in, { cell: { x: 2, y: -1 }, facing: "down", is_surfing: false, entry_move: { kind: "walk", to: { x: 2, y: 0 } } });
+  const swimming_in = PlaytestLogic.seam_entry_placement(small_world(), { x: 2, y: 4 }, "left", true, {});
+  assert.deepStrictEqual([swimming_in.is_surfing, swimming_in.entry_move.kind, swimming_in.cell], [true, "swim", { x: 3, y: 4 }]);
+  assert.strictEqual(PlaytestLogic.seam_entry_placement(small_world(), { x: 0, y: 0 }, "down", false, {}), null);
+  assert.strictEqual(PlaytestLogic.seam_entry_placement(small_world(), { x: 9, y: 0 }, "down", false, {}), null);
+});
+
 console.log(`playtest-logic: ${passed_test_count} tests passed`);

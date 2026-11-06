@@ -582,6 +582,58 @@
     const chain = route_holding_map && route_holding_map.chain.length > 1 ? route_holding_map.chain : [];
     return chain;
   }
+  function chain_map_placement(chain_map, chain_left_in_region_cells, chain_top_in_region_cells, metatiles_per_region_cell) {
+    const [x0, y0, x1, y1] = chain_map.rect;
+    const placement = {
+      name: chain_map.name,
+      offset_x_in_metatiles: (x0 - chain_left_in_region_cells) * metatiles_per_region_cell,
+      offset_y_in_metatiles: (y0 - chain_top_in_region_cells) * metatiles_per_region_cell,
+      width_in_metatiles: (x1 - x0) * metatiles_per_region_cell,
+      height_in_metatiles: (y1 - y0) * metatiles_per_region_cell,
+    };
+    return placement;
+  }
+  function chain_layout(chain_maps, metatiles_per_region_cell) {
+    const chain_left_in_region_cells = Math.min(...chain_maps.map((chain_map) => chain_map.rect[0]));
+    const chain_top_in_region_cells = Math.min(...chain_maps.map((chain_map) => chain_map.rect[1]));
+    const placements = chain_maps.map((chain_map) => chain_map_placement(chain_map, chain_left_in_region_cells, chain_top_in_region_cells, metatiles_per_region_cell));
+    const layout = {
+      maps: placements,
+      width_in_metatiles: Math.max(...placements.map((placement) => placement.offset_x_in_metatiles + placement.width_in_metatiles)),
+      height_in_metatiles: Math.max(...placements.map((placement) => placement.offset_y_in_metatiles + placement.height_in_metatiles)),
+    };
+    return layout;
+  }
+  function is_inside_chain_map(placement, world_x_in_metatiles, world_y_in_metatiles) {
+    const is_inside = world_x_in_metatiles >= placement.offset_x_in_metatiles && world_x_in_metatiles < placement.offset_x_in_metatiles + placement.width_in_metatiles &&
+      world_y_in_metatiles >= placement.offset_y_in_metatiles && world_y_in_metatiles < placement.offset_y_in_metatiles + placement.height_in_metatiles;
+    return is_inside;
+  }
+  function chain_map_index_at(layout, world_x_in_metatiles, world_y_in_metatiles) {
+    const map_index = layout.maps.findIndex((placement) => is_inside_chain_map(placement, world_x_in_metatiles, world_y_in_metatiles));
+    return map_index;
+  }
+  function shared_edge_between(placement, other_placement) {
+    const right = placement.offset_x_in_metatiles + placement.width_in_metatiles, bottom = placement.offset_y_in_metatiles + placement.height_in_metatiles;
+    const other_right = other_placement.offset_x_in_metatiles + other_placement.width_in_metatiles, other_bottom = other_placement.offset_y_in_metatiles + other_placement.height_in_metatiles;
+    const overlap_top = Math.max(placement.offset_y_in_metatiles, other_placement.offset_y_in_metatiles), overlap_bottom = Math.min(bottom, other_bottom);
+    const overlap_left = Math.max(placement.offset_x_in_metatiles, other_placement.offset_x_in_metatiles), overlap_right = Math.min(right, other_right);
+    if (right === other_placement.offset_x_in_metatiles && overlap_bottom > overlap_top) return { x0: right, y0: overlap_top, x1: right, y1: overlap_bottom };
+    if (bottom === other_placement.offset_y_in_metatiles && overlap_right > overlap_left) return { x0: overlap_left, y0: bottom, x1: overlap_right, y1: bottom };
+    return null;
+  }
+  function chain_seam_segments(layout) {
+    const seam_segments = layout.maps.flatMap((placement) => layout.maps.map((other_placement) => shared_edge_between(placement, other_placement))).filter(Boolean);
+    return seam_segments;
+  }
+  function chain_map_offset_between(layout, from_map_index, to_map_index) {
+    const from_placement = layout.maps[from_map_index], to_placement = layout.maps[to_map_index];
+    const offset_in_metatiles = {
+      x: to_placement.offset_x_in_metatiles - from_placement.offset_x_in_metatiles,
+      y: to_placement.offset_y_in_metatiles - from_placement.offset_y_in_metatiles,
+    };
+    return offset_in_metatiles;
+  }
   function connection_for(region_exit, region_document) {
     const destination_name = region_exit.to_chain_map || region_exit.to;
     const route = region_route_named(region_document, destination_name);
@@ -926,6 +978,7 @@
     LAYOUT_KEY, CHROME, BOTTOM_TABS, CENTER_TABS, defaultLayout, sanitizeLayout, loadLayout, saveLayout,
     computeRects, dragSize, nearHomeEdge, MIN_CENTER, MIN_SIDE,
     History, RECENT_KEY, pushRecent, recentLabel, specToParams, paramsToSpecFile, safeFileName, exitConnections, region_route_named, chain_of_map, chain_map_with_constant,
+    chain_layout, chain_map_index_at, chain_seam_segments, chain_map_offset_between,
     STAMPS, brushCells, stampCells, lineCells, PAINT_KEY, PAINT_OBJECTS_KEY, paintKey, mergePaint, paintList,
     PLACED_ITEMS_KEY, PLACEABLE_ITEM_KINDS, placed_item_index, place_item, update_placed_item, remove_placed_item,
     remember_placed_items, merge_placement_result,

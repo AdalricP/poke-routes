@@ -481,6 +481,7 @@ def run_stages(spec):
 
 
 _results: "OrderedDict[str, tuple]" = OrderedDict()
+GENERATED_ROUTES_KEPT_FOR_EDITING = 48
 _ark_ids: set = set()  # result ids tiled with the Ark rule tiler (shell_api.py)
 
 
@@ -611,7 +612,7 @@ def generate(params: dict) -> dict:
     _results[gid] = (route, final)
     if use == "ark":
         _ark_ids.add(gid)
-    while len(_results) > 12:
+    while len(_results) > GENERATED_ROUTES_KEPT_FOR_EDITING:
         _ark_ids.discard(_results.popitem(last=False)[0])
     return {
         "id": gid, "name": spec.name, "route_id": spec.id, "seed": spec.seed, "biome": getattr(spec, "biome", ""),

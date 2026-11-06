@@ -65,8 +65,8 @@
       if (document_open) document_open.events = PE.copy_of(rules);
     }
 
-    async function send_to_server() {
-      const route = state.result;
+    async function send_to_server(route_for_rules) {
+      const route = route_for_rules || state.result;
       if (!route) return;
       try {
         const answer = await bench.postJSON("/api/route-events", { id: route.id, rules });
@@ -91,10 +91,10 @@
       bench.draw();
     }
 
-    function on_new_route() {
+    function on_new_route(route) {
       load_project();
-      send_to_server();
-      render();
+      send_to_server(route);
+      if (!route || route === state.result) render();
     }
 
     function change_rule(changed_rule, label) {

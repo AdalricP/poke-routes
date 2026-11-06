@@ -424,7 +424,30 @@
     return placement;
   }
 
+  function cell_across_chain_seam(cell_on_map_left, direction, offset_of_map_left, offset_of_map_entered) {
+    const cell_in_chain = cell_in_direction({ x: cell_on_map_left.x + offset_of_map_left.x, y: cell_on_map_left.y + offset_of_map_left.y }, direction, 1);
+    const cell_on_map_entered = { x: cell_in_chain.x - offset_of_map_entered.x, y: cell_in_chain.y - offset_of_map_entered.y };
+    return cell_on_map_entered;
+  }
+
+  function seam_entry_move(play_world, entered_cell, is_surfing, field_moves) {
+    if (!is_inside_world(play_world, entered_cell) || object_at(play_world, entered_cell)) return null;
+    if (is_surfing && is_surfable_water_at(play_world, entered_cell, field_moves || no_field_moves)) return { kind: "swim", to: entered_cell };
+    if (is_walkable_ground_at(play_world, entered_cell)) return { kind: "walk", to: entered_cell };
+    return null;
+  }
+
+  function seam_entry_placement(play_world, entered_cell, direction, is_surfing, field_moves) {
+    const entry_move = seam_entry_move(play_world, entered_cell, is_surfing, field_moves);
+    if (!entry_move) return null;
+    const placement = {
+      cell: cell_in_direction(entered_cell, direction, -1), facing: direction, is_surfing: entry_move.kind === "swim", entry_move,
+    };
+    return placement;
+  }
+
   const api = {
+    cell_across_chain_seam, seam_entry_placement,
     viewport_width_in_tiles, viewport_height_in_tiles, tile_size_in_pixels, turn_in_place_duration_in_milliseconds,
     direction_vectors, cell_key, cell_in_direction, build_play_world, resolve_step, resolve_interaction,
     world_after_interaction, world_with_boulder_pushed, is_encounter_cell, roll_wild_encounter, wild_encounter_text,
