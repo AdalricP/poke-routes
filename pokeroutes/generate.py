@@ -396,6 +396,27 @@ def stage_seams(route: Route) -> None:
     stamp_seam_bands_shared_with_neighbours(route)
 
 
+def stage_bridges(route: Route) -> None:
+    from .bridges import straighten_bridges
+
+    straighten_bridges(route)
+    route.snap("bridges")
+
+
+def stage_river_ends(route: Route) -> None:
+    from .river_ends import block_open_river_ends
+
+    block_open_river_ends(route)
+    route.snap("river ends")
+
+
+def stage_shores(route: Route) -> None:
+    from .shores import tidy_shores
+
+    tidy_shores(route)
+    route.snap("shores")
+
+
 STAGES: List[Tuple[str, Callable[[Route], None]]] = [
     ("base", stage_base),
     ("skeleton", stage_skeleton),
@@ -418,6 +439,9 @@ STAGES: List[Tuple[str, Callable[[Route], None]]] = [
     ("surf", stage_surf_crossings),
     ("gate", stage_route_gate),
     ("seams", stage_seams),
+    ("bridges", stage_bridges),
+    ("river ends", stage_river_ends),
+    ("shores", stage_shores),
 ]
 
 

@@ -235,46 +235,17 @@ class ArkTiler:
     def _trees(self, grid, ids, blocked, mask_grid=None):
         C = self.C
         H, W = len(grid), len(grid[0])
-        letters = [k for k, v in C.items() if v.get("autotile") == "tree2x2"]
-        BH, BW = (H + 1) // 2, (W + 1) // 2
-        blk = [[None] * BW for _ in range(BH)]
-        for by in range(BH):
-            for bx in range(BW):
-                cells = [grid[y][x] if (y < H and x < W) else None
-                         for y in (2 * by, 2 * by + 1) for x in (2 * bx, 2 * bx + 1)]
-                if cells[0] in letters and all(c == cells[0] for c in cells):
-                    # the crown overhangs the row above; water, rock, ledges... have no
-                    # crown art, so a tree under them would look chopped -> bushes instead
-                    above = {grid[2 * by - 1][x] for x in (2 * bx, 2 * bx + 1) if by > 0 and x < W}
-                    if above <= set(C[cells[0]]["overlays"]) | set(letters):
-                        blk[by][bx] = cells[0]
-
-        def pres(bx, by, letter):
-            if not (0 <= bx < BW and 0 <= by < BH):
-                return False
-            return blk[by][bx] in letters
-
-        def pres_same(bx, by, letter):
-            if not (0 <= bx < BW and 0 <= by < BH):
-                return False
-            return blk[by][bx] == letter
-
-        orth = sum(1 << i for i, d in enumerate(self.bits) if d in ("N", "E", "S", "W"))
+        letters = tree_letters_of(C)
+        blk = self.tree_blocks(grid, mask_grid or grid)
         for letter in letters:
             k = C[letter]
             ctx, ov, nph = k["by_context"], k["overlays"], k.get("phases", 1)
-            tall = [t for t in ov if t not in ("g", "bush", "p")]
             for y in range(H):
                 for x in range(W):
                     bx, by, px, py = x // 2, y // 2, x % 2, y % 2
                     own = blk[by][bx] == letter
-                    b = (own | pres(bx - 1, by, letter) * 2 | pres(bx + 1, by, letter) * 4 |
-                         pres(bx, by + 1, letter) * 8 | pres(bx - 1, by + 1, letter) * 16 |
-                         pres(bx + 1, by + 1, letter) * 32)
-                    if not own:
-                        b = (pres_same(bx - 1, by, letter) * 2 | pres_same(bx + 1, by, letter) * 4 |
-                             pres_same(bx, by + 1, letter) * 8 | pres_same(bx - 1, by + 1, letter) * 16 |
-                             pres_same(bx + 1, by + 1, letter) * 32)
+                    b = (own | neighbour_tree_block_bits(blk, bx, by, set(letters))) if own else \
+                        neighbour_tree_block_bits(blk, bx, by, {letter})
                     key = f"{(bx + by) % nph},{px},{py},{b}"
                     c = grid[y][x]
                     if own:
@@ -285,13 +256,122 @@ class ArkTiler:
                         blocked[y, x] = True
                     elif c == "g":
                         ids[y, x] = ov["g"].get(key, ids[y, x])
-                    elif c == "p" or c in tall:
-                        m = self._mask(mask_grid or grid, x, y, set(C[c].get("joins", c)))
-                        # crown-over-path art only exists for some masks (no road bottom
-                        # edge, 199); fall back to the same mask without the diagonals
-                        tab = ov[c].get(str(m)) or ov[c].get(str(m & orth))
-                        if tab and key in tab:
-                            ids[y, x] = tab[key]
+                    else:
+                        crown_metatile = self.crown_over_ground(grid, mask_grid or grid, letter, x, y, key)
+                        if crown_metatile is not None:
+                            ids[y, x] = crown_metatile
+
+    def crown_over_ground(self, grid, mask_grid, letter: str, x: int, y: int, key: str) -> Optional[int]:
+        overlays = self.C[letter]["overlays"]
+        ground_letter = grid[y][x]
+        if ground_letter == "g":
+            return overlays["g"].get(key)
+        if ground_letter not in overlays or ground_letter == "bush":
+            return None
+        orthogonal_bits = sum(1 << bit_index for bit_index, side in enumerate(self.bits) if side in ("N", "E", "S", "W"))
+        ground_mask = self._mask(mask_grid, x, y, set(self.C[ground_letter].get("joins", ground_letter)))
+        crown_table = overlays[ground_letter].get(str(ground_mask)) or overlays[ground_letter].get(str(ground_mask & orthogonal_bits)) or {}
+        crown_metatile = crown_table.get(key)
+        return crown_metatile
+
+    def tree_blocks(self, grid, mask_grid):
+        letters = tree_letters_of(self.C)
+        blocks = whole_tree_blocks(grid, letters)
+        clipped_blocks = self.blocks_with_clipped_crowns(grid, mask_grid, blocks)
+        while clipped_blocks:
+            for block_x, block_y in clipped_blocks:
+                blocks[block_y][block_x] = None
+            clipped_blocks = self.blocks_with_clipped_crowns(grid, mask_grid, blocks)
+        return blocks
+
+    def blocks_with_clipped_crowns(self, grid, mask_grid, blocks) -> set:
+        clipped_blocks = {block for cell, blocks_reaching_cell in self.cells_with_clipped_crowns(grid, mask_grid, blocks)
+                          if not self.is_crown_tip_over_ground_without_art(grid, cell)
+                          for block in blocks_reaching_cell}
+        return clipped_blocks
+
+    def is_crown_tip_over_ground_without_art(self, grid, cell) -> bool:
+        x, y = cell
+        ground_letter = grid[y][x]
+        is_tip_row = y % 2 == 0
+        is_ground_with_crown_art = any(ground_letter in self.C[letter]["overlays"] for letter in tree_letters_of(self.C))
+        is_tip_without_art = is_tip_row and is_ground_with_crown_art and ground_letter not in ("g", "bush")
+        return is_tip_without_art
+
+    def cells_with_clipped_crowns(self, grid, mask_grid, blocks) -> list:
+        letters = tree_letters_of(self.C)
+        clipped_cells = []
+        for letter in letters:
+            for y, grid_row in enumerate(grid):
+                for x in range(len(grid_row)):
+                    blocks_reaching_cell = self.tree_blocks_clipped_at(grid, mask_grid, blocks, letter, letters, x, y)
+                    if blocks_reaching_cell:
+                        clipped_cells.append(((x, y), blocks_reaching_cell))
+        return clipped_cells
+
+    def tree_blocks_clipped_at(self, grid, mask_grid, blocks, letter: str, letters, x: int, y: int) -> list:
+        block_x, block_y, px, py = x // 2, y // 2, x % 2, y % 2
+        if blocks[block_y][block_x] is not None or grid[y][x] in letters:
+            return []
+        overlays = self.C[letter]["overlays"]
+        phase = (block_x + block_y) % self.C[letter].get("phases", 1)
+        bits = neighbour_tree_block_bits(blocks, block_x, block_y, {letter})
+        key = f"{phase},{px},{py},{bits}"
+        if key not in overlays["g"] or self.crown_over_ground(grid, mask_grid, letter, x, y, key) is not None:
+            return []
+        reaching_bits = [bit for _dx, _dy, bit in TREE_BLOCK_NEIGHBOUR_BITS if bits & bit and f"{phase},{px},{py},{bit}" in overlays["g"]]
+        reaching_bits = reaching_bits or [bit for _dx, _dy, bit in TREE_BLOCK_NEIGHBOUR_BITS if bits & bit]
+        blocks_reaching_cell = [(block_x + dx, block_y + dy) for dx, dy, bit in TREE_BLOCK_NEIGHBOUR_BITS if bit in reaching_bits]
+        return blocks_reaching_cell
+
+    def clipped_crown_cells(self, cls: np.ndarray) -> dict:
+        grid = self.prepare(seal_waterfalls(cls))
+        mask_grid = self.mask_grid_of(grid)
+        blocks = self.tree_blocks(grid, mask_grid)
+        clipped_cells = [cell for cell, _blocks in self.cells_with_clipped_crowns(grid, mask_grid, blocks)]
+        clipped_cells_by_kind = {
+            "clipped tree crowns": [cell for cell in clipped_cells if not self.is_crown_tip_over_ground_without_art(grid, cell)],
+            "crown tips with no art": [cell for cell in clipped_cells if self.is_crown_tip_over_ground_without_art(grid, cell)],
+        }
+        return clipped_cells_by_kind
+
+    def mask_grid_of(self, grid):
+        scratch_ids = np.full((len(grid), len(grid[0])), self.grass, np.int32)
+        scratch_blocked = np.zeros(scratch_ids.shape, bool)
+        self._tile_cells(grid, grid, scratch_ids, scratch_blocked)
+        mask_grid = grid_with_ledge_grounds(grid, tile_ledges_over_ground(grid, scratch_ids, self.C))
+        return mask_grid
+
+
+TREE_BLOCK_NEIGHBOUR_BITS = ((-1, 0, 2), (1, 0, 4), (0, 1, 8), (-1, 1, 16), (1, 1, 32))
+
+
+def tree_letters_of(classes: dict) -> List[str]:
+    letters = [letter for letter, class_entry in classes.items() if class_entry.get("autotile") == "tree2x2"]
+    return letters
+
+
+def whole_tree_blocks(grid: List[str], letters: List[str]):
+    height, width = len(grid), len(grid[0])
+    block_rows, block_columns = (height + 1) // 2, (width + 1) // 2
+    blocks = [[whole_tree_block_letter(grid, letters, block_x, block_y) for block_x in range(block_columns)]
+              for block_y in range(block_rows)]
+    return blocks
+
+
+def whole_tree_block_letter(grid: List[str], letters: List[str], block_x: int, block_y: int) -> Optional[str]:
+    height, width = len(grid), len(grid[0])
+    cells = [grid[y][x] if y < height and x < width else None
+             for y in (2 * block_y, 2 * block_y + 1) for x in (2 * block_x, 2 * block_x + 1)]
+    if cells[0] not in letters or any(cell != cells[0] for cell in cells):
+        return None
+    return cells[0]
+
+
+def neighbour_tree_block_bits(blocks, block_x: int, block_y: int, counted_letters: set) -> int:
+    neighbour_bits = sum(bit for dx, dy, bit in TREE_BLOCK_NEIGHBOUR_BITS
+                         if tree_block_letter(blocks, block_x + dx, block_y + dy) in counted_letters)
+    return neighbour_bits
 
 
 FENCE_SIDE_OFFSETS = (("N", 0, -1), ("E", 1, 0), ("S", 0, 1), ("W", -1, 0))

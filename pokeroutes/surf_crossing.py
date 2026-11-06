@@ -27,7 +27,8 @@ ISLET_RADIUS_RANGE_IN_METATILES = (2.0, 4.2)
 ISLET_GRASS_HEART_SHARE_OF_RADIUS = 0.55
 SANDBAR_COUNT_PER_THOUSAND_CELLS = 0.8
 SANDBAR_LENGTH_RANGE_IN_METATILES = (5, 11)
-SEA_ROCK_SHARE_OF_OPEN_SEA = 0.012
+SEA_ROCK_SHARE_OF_OPEN_SEA = 0.004
+SEA_ROCK_SIDE_IN_METATILES = 2
 EDGE_MARGIN_FOR_SEA_DRESSING = 3
 
 
@@ -205,10 +206,12 @@ def place_sea_rocks(route: Route, keep_clear: np.ndarray) -> int:
     for cell_index in rng.permutation(len(candidate_cells))[:wanted_count * 3]:
         if placed_count >= wanted_count:
             break
-        cell = candidate_cells[cell_index]
-        neighbourhood = route.cls[cell[0] - 1:cell[0] + 2, cell[1] - 1:cell[1] + 2]
-        if not (neighbourhood == sea_class()).all():
+        top, left = candidate_cells[cell_index]
+        neighbourhood = route.cls[top - 1:top + SEA_ROCK_SIDE_IN_METATILES + 1, left - 1:left + SEA_ROCK_SIDE_IN_METATILES + 1]
+        if neighbourhood.shape != (SEA_ROCK_SIDE_IN_METATILES + 2,) * 2 or not (neighbourhood == sea_class()).all():
             continue
-        route.cls[cell] = rock
+        if keep_clear[top:top + SEA_ROCK_SIDE_IN_METATILES, left:left + SEA_ROCK_SIDE_IN_METATILES].any():
+            continue
+        route.cls[top:top + SEA_ROCK_SIDE_IN_METATILES, left:left + SEA_ROCK_SIDE_IN_METATILES] = rock
         placed_count += 1
     return placed_count
