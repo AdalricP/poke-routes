@@ -71,6 +71,7 @@ class Route:
     stats: dict = field(default_factory=dict)
     # height tier per cell (0 = lowest); synthesised per section when no region data is given
     elevation: Optional[np.ndarray] = None
+    gates: List[dict] = field(default_factory=list)
 
     @property
     def h(self) -> int:
@@ -346,6 +347,12 @@ def stage_hidden(route: Route) -> None:
 
 from .plains import stage_open_plains  # noqa: E402  (plains needs the helpers above)
 
+def stage_route_gate(route: Route) -> None:
+    from .gates import build_route_gates
+
+    build_route_gates(route)
+
+
 STAGES: List[Tuple[str, Callable[[Route], None]]] = [
     ("base", stage_base),
     ("skeleton", stage_skeleton),
@@ -361,6 +368,7 @@ STAGES: List[Tuple[str, Callable[[Route], None]]] = [
     ("cleanup", stage_cleanup),
     ("connect", stage_connect),
     ("open plains", stage_open_plains),
+    ("gate", stage_route_gate),
 ]
 
 

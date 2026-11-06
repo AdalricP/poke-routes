@@ -1075,7 +1075,7 @@
           const px = cx + Math.cos(a) * rad, py = cy + Math.sin(a) * rad;
           if (i) g.lineTo(px, py); else g.moveTo(px, py);
         }
-        g.closePath(); g.fillStyle = "#b9b2a3"; g.fill(); g.stroke();
+        g.closePath(); g.fillStyle = e.kind === "story_blocker" ? "#ff50c8" : "#b9b2a3"; g.fill(); g.stroke();
       }
     }
   }
@@ -1323,7 +1323,8 @@
 
   const KIND_NAMES = { main: "Main lane", branch: "Branch", loop: "Loop", dead_end: "Dead end", hidden: "Hidden trail", trail: "Area trail",
     special: "Special area", clearing: "Clearing", lake: "Lake", hidden_item: "Hidden item", cut_tree: "Cut tree", rock_smash: "Smashable rock",
-    sealed_gate: "Sealed stone (opened by a lever)", gate_switch: "Hidden lever" };
+    sealed_gate: "Sealed stone (opened by a lever)", gate_switch: "Hidden lever",
+    strength_boulder: "Strength boulder", story_blocker: "Someone in the way (story gate)" };
   const kname = (k) => KIND_NAMES[k] || String(k).replace(/_/g, " ");
 
   function renderSelection() {
@@ -1625,7 +1626,12 @@
       ["tall grass cells", (rep.classes || {}).t], ["water cells", (rep.classes || {}).w], ["ledge cells", (rep.classes || {}).s],
     ];
     if (ec.rock_smash) rows.push(["smashable rocks", ec.rock_smash]);
+    for (const gate of rep.gates || []) rows.push(["gate", describe_route_gate_record(gate)]);
     return rows;
+  }
+  function describe_route_gate_record(gate) {
+    const gate_description = gate.built ? gate.note : `not built: ${gate.note}`;
+    return gate_description;
   }
 
   function renderInfo() {
@@ -1746,6 +1752,15 @@
     generate();
   }
 
+  function describe_region_gate(gate) {
+    if (!gate) return "";
+    const needs_text = gate.needs ? `needs ${gate.needs.replace(/_/g, " ")}` : "";
+    const opens_text = gate.after_beat ? `opens after ${gate.after_beat}` : "";
+    const entrance_text = gate.entrance_toward ? `at the exit to ${gate.entrance_toward}` : "";
+    const gate_description = [needs_text, opens_text, entrance_text].filter(Boolean).join(", ");
+    return gate_description;
+  }
+
   function renderRegionLink() {
     const fold = $("foldRegion");
     const box = $("regionLink");
@@ -1760,6 +1775,7 @@
     add("role", r.role);
     add("shape", r.shape);
     add("tags", (r.tags || []).join(", "));
+    add("gate", describe_region_gate(r.gate));
     box.append(dl);
     box.append(el("p", "hint", "Its region block (elevation, rivers, role) goes into Generate while the route keeps this name."));
     const b = el("button", "btn", "Detach from region");

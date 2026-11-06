@@ -77,6 +77,7 @@ class RouteSpec:
     role: str = ""  # region role: connector | turn | crossroads | dead_end | ... ("" = from the exits)
     world: List[int] = field(default_factory=list)  # [x, y] of the NW corner on the shared height map (pokeroutes.height)
     region: dict = field(default_factory=dict)  # region-generator block (role, goal, elevation, water, ...)
+    gate: dict = field(default_factory=dict)
     extra: dict = field(default_factory=dict)  # unknown spec keys (e.g. a `region` block), kept, not used
 
     def __post_init__(self) -> None:
