@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT))
 from pokeroutes.classify import BLOCKED_CLASSES, CLASS_NAMES, LEDGE_CLASSES  # noqa: E402
 
 OBJECT_CLASS = "o"
+PROP_NAMES = {"tree_small": "small tree"}
 SAMPLE_GRID_SIZE = 6
 SAMPLE_CORNER = 2
 GROUP_ORDER = ("ground", "water", "trees", "rock", "ledges")
@@ -130,6 +131,8 @@ def ark_object_entry(prop_name: str, prop: dict) -> dict:
 
 
 def prop_display_name(prop_name: str) -> str:
+    if prop_name in PROP_NAMES:
+        return PROP_NAMES[prop_name]
     direction_names = {"_h": " (across)", "_v": " (down)"}
     for suffix, words in direction_names.items():
         if prop_name.endswith(suffix):

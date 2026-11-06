@@ -1,8 +1,9 @@
 """Items in the Routes view: overworld sprites read from the user's own ROM tree, the
 hidden-item glitter, the item constant list, and items placed by hand.
 
-    GET  /api/sprite.png?kind=item_ball   first frame of the event's overworld sprite (404 when no ROM tree has it)
-    GET  /api/sprites                     which event kinds have a sprite
+    GET  /api/sprite.png?kind=item_ball[&tiler=ark|learned]   first frame of the event's overworld sprite
+                                          (404 when no ROM tree has it); tiler picks Ark or Emerald art first
+    GET  /api/sprites[?tiler=ark|learned] which event kinds have a sprite
     GET  /api/glitter.png                 the hidden-item glitter frames (glitter.py)
     GET  /api/item-constants              ITEM_* names, from the ROM's include/constants/items.h when there is one
     POST /api/route-items {id, items}     replace the hand-placed items of a generated route
@@ -32,6 +33,7 @@ SPRITE_SOURCES = {
     "trainer": [("people/youngster.png", 0)],
 }
 FRAME_WIDTH = 16
+SPRITE_TILERS = ("ark", "learned")
 PLACEABLE_KINDS = ("item_ball", "hidden_item")
 WALKABLE = set("gptdhyvzqn")
 ITEM_NAME = re.compile(r"^ITEM_[A-Z0-9_]+$")
@@ -47,7 +49,7 @@ _sprite_cache: dict = {}
 _item_cache: list = []
 
 
-def graphics_roots() -> list:
+def ark_roots() -> list:
     roots = []
     try:
         from pokeroutes.ruletile import ROM_CANDIDATES, find_rom
@@ -59,13 +61,22 @@ def graphics_roots() -> list:
         roots += list(ROM_CANDIDATES)
     except ImportError:
         pass
-    roots += [parent / "arklarna/rom" for parent in ROOT.parents]
-    roots.append(ROOT / "vendor/pokeemerald")
+    return roots + [parent / "arklarna/rom" for parent in ROOT.parents]
+
+
+def emerald_roots() -> list:
+    return [ROOT / "vendor/pokeemerald"]
+
+
+def graphics_roots(tiler: str = "") -> list:
+    """ROM trees to read sprites from, best first: Emerald art first for routes tiled with the
+    learned (Emerald) tilesets, the Arklarna ROM first otherwise."""
+    roots = emerald_roots() + ark_roots() if tiler == "learned" else ark_roots() + emerald_roots()
     return [Path(root) for root in dict.fromkeys(roots) if Path(root).is_dir()]
 
 
-def sprite_file(kind: str):
-    for root in graphics_roots():
+def sprite_file(kind: str, tiler: str = ""):
+    for root in graphics_roots(tiler):
         for relative_path, frame_index in SPRITE_SOURCES.get(kind, []):
             candidate = root / PICS / relative_path
             if candidate.is_file():
@@ -83,20 +94,25 @@ def first_frame(path: Path, frame_index: int) -> Image.Image:
     return sheet.crop((left, 0, left + FRAME_WIDTH, frame_height))
 
 
-def sprite_png(kind: str):
-    if kind in _sprite_cache:
-        return _sprite_cache[kind]
-    path, frame_index = sprite_file(kind)
+def sprite_png(kind: str, tiler: str = ""):
+    if (kind, tiler) in _sprite_cache:
+        return _sprite_cache[(kind, tiler)]
+    path, frame_index = sprite_file(kind, tiler)
     if path is None:
         return None
     buffer = io.BytesIO()
     first_frame(path, frame_index).save(buffer, "PNG")
-    _sprite_cache[kind] = buffer.getvalue()
-    return _sprite_cache[kind]
+    _sprite_cache[(kind, tiler)] = buffer.getvalue()
+    return _sprite_cache[(kind, tiler)]
 
 
-def available_sprites() -> dict:
-    return {kind: sprite_file(kind)[0] is not None for kind in SPRITE_SOURCES}
+def available_sprites(tiler: str = "") -> dict:
+    return {kind: sprite_file(kind, tiler)[0] is not None for kind in SPRITE_SOURCES}
+
+
+def query_tiler(query) -> str:
+    tiler = query.get("tiler", [""])[0]
+    return tiler if tiler in SPRITE_TILERS else ""
 
 
 def item_constants() -> dict:
@@ -170,12 +186,12 @@ def read_body(h) -> dict:
 
 def handle_get(h, u, query) -> bool:
     if u.path == "/api/sprite.png":
-        png = sprite_png(query.get("kind", [""])[0])
+        png = sprite_png(query.get("kind", [""])[0], query_tiler(query))
         if png is None:
             return h._json({"error": "no sprite for that kind in any ROM tree on this machine"}, 404) or True
         return h._send(200, png, "image/png") or True
     if u.path == "/api/sprites":
-        return h._json({"sprites": available_sprites()}) or True
+        return h._json({"sprites": available_sprites(query_tiler(query))}) or True
     if u.path == "/api/glitter.png":
         return h._send(200, glitter.glitter_strip_png(), "image/png") or True
     if u.path == "/api/item-constants":
