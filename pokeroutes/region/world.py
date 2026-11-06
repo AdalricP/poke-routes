@@ -23,7 +23,8 @@ BIOME_NAMES = {
 SPEC_BIOME = {
     "~": "beach", "=": "beach", "o": "riverland",
     "b": "beach", "d": "desert", "m": "meadow", "f": "forest", "F": "forest",
-    "w": "riverland", "M": "mountain", "S": "mountain", "v": "volcanic",
+    "w": "riverland", "M": "mountain", "S": "snow", "v": "volcanic", "l": "volcanic",
+    "a": "desert", "g": "forest", "B": "forest",
 }
 # biome codes from the removed legendary carving, as the biome they now read as
 LEGACY_BIOME_REPLACEMENT = {"l": "v", "a": "d", "g": "f", "B": "f"}

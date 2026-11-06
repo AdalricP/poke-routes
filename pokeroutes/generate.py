@@ -347,6 +347,43 @@ def stage_hidden(route: Route) -> None:
 
 from .plains import stage_open_plains  # noqa: E402  (plains needs the helpers above)
 
+def stage_terraces(route: Route) -> None:
+    from .terraces import sculpt_terraces
+    from .verticality import show_height_steps_as_rock_faces
+
+    sculpt_terraces(route)
+    show_height_steps_as_rock_faces(route)
+    route.snap("terraces")
+
+
+def stage_obstacles(route: Route) -> None:
+    from .obstacles import seat_field_move_obstacles_in_single_gaps
+
+    seat_field_move_obstacles_in_single_gaps(route)
+    route.snap("obstacles")
+
+
+def stage_tree_blocks(route: Route) -> None:
+    from .tree_blocks import settle_half_tree_blocks
+
+    settle_half_tree_blocks(route)
+    route.snap("tree blocks")
+
+
+def stage_rivers_restored(route: Route) -> None:
+    from .rivers import restore_rivers
+
+    restore_rivers(route)
+    route.snap("rivers")
+
+
+def stage_surf_crossings(route: Route) -> None:
+    from .surf_crossing import open_surf_crossings
+
+    open_surf_crossings(route)
+    route.snap("surf")
+
+
 def stage_route_gate(route: Route) -> None:
     from .gates import build_route_gates
 
@@ -367,7 +404,12 @@ STAGES: List[Tuple[str, Callable[[Route], None]]] = [
     ("dressing", stage_dressing),
     ("cleanup", stage_cleanup),
     ("connect", stage_connect),
+    ("terraces", stage_terraces),
     ("open plains", stage_open_plains),
+    ("tree blocks", stage_tree_blocks),
+    ("obstacles", stage_obstacles),
+    ("rivers", stage_rivers_restored),
+    ("surf", stage_surf_crossings),
     ("gate", stage_route_gate),
 ]
 
@@ -392,8 +434,27 @@ def density(route: Route) -> dict:
             "max_walkable": float(getattr(route.spec, "max_walkable", 0.40))}
 
 
+SMALLEST_ROUTE_SIDE_IN_METATILES = 16
+
+
+def spec_with_a_buildable_size(spec: RouteSpec) -> RouteSpec:
+    from dataclasses import replace
+
+    width_in_metatiles, height_in_metatiles = int(spec.size[0]), int(spec.size[1])
+    if min(width_in_metatiles, height_in_metatiles) >= SMALLEST_ROUTE_SIDE_IN_METATILES:
+        return spec
+    buildable_size = [max(width_in_metatiles, SMALLEST_ROUTE_SIDE_IN_METATILES),
+                      max(height_in_metatiles, SMALLEST_ROUTE_SIDE_IN_METATILES)]
+    buildable_spec = replace(spec, size=buildable_size)
+    return buildable_spec
+
+
 def generate(spec: RouteSpec) -> Route:
+    requested_size = list(spec.size)
+    spec = spec_with_a_buildable_size(spec)
     route = Route(spec, np.full((spec.height, spec.width), "f", dtype="<U1"), np.random.default_rng(spec.seed))
+    if list(spec.size) != requested_size:
+        route.log.append(f"size: {requested_size[0]}x{requested_size[1]} is too small to lay a route in; built at {spec.size[0]}x{spec.size[1]}")
     for name, fn in STAGES:
         fn(route)
         route.log.append(name)

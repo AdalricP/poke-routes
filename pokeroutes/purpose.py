@@ -166,7 +166,6 @@ def _dress(route: Route, kind: str, c: Cell, tip: Cell, pocket: List[Cell], grou
     if kind == "woodcutter_camp":
         route.props += [{"kind": "stump", "y": spot(0)[0], "x": spot(0)[1], "why": kind},
                         {"kind": "log_pile", "y": spot(5)[0], "x": spot(5)[1], "why": kind}]
-        route.events.append(Event("npc", cy, cx, {"role": "woodcutter", "text": "", "why": kind}))
     elif kind == "berry_thicket":
         for i in (1, 4, 9):
             q = spot(i)
@@ -179,10 +178,6 @@ def _dress(route: Route, kind: str, c: Cell, tip: Cell, pocket: List[Cell], grou
         water = [q for q in far[:6]]
         for q in water:
             route.cls[q] = "w"
-        dry = [q for q in pocket if q not in water and route.cls[q] in WALKABLE]
-        if dry:
-            q = min(dry, key=lambda d: min(abs(d[0] - w[0]) + abs(d[1] - w[1]) for w in water))
-            route.events.append(Event("npc", q[0], q[1], {"role": "fisherman", "text": "", "why": kind}))
         route.zones.append(Zone("lake", water, "fishing pond"))
     elif kind == "ruin":
         route.props.append({"kind": "ruin_wall", "y": spot(2)[0], "x": spot(2)[1], "why": kind})

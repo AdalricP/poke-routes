@@ -25,14 +25,15 @@ SEA_CHARACTERS_IN_WATER_GRID = "~="
 LAKE_CHARACTER_IN_WATER_GRID = "o"
 RIVER_CHARACTER_IN_WATER_GRID = "r"
 MOUNTAIN_BIOME_CODES_IN_BIOME_GRID = "MS"
-RIVER_WIDTH_IN_METATILES_BY_REGION_WIDTH = {1: 2, 2: 3, 3: 4}
 SHORE_GAP_BETWEEN_LANE_AND_SEA_IN_METATILES = 3
 SHORE_GAP_BETWEEN_LANE_AND_LAKE_IN_METATILES = 1
-BEACH_WIDTH_IN_METATILES = 3
+BEACH_WIDTH_IN_METATILES = 4
+GROUND_CLASSES_THE_BEACH_COVERS = "gtp"
 WATER_OUTLINE_SMOOTHING_IN_METATILES = 1.6
 WATER_OUTLINE_NOISE_STRENGTH = 0.18
-LONGEST_RIVER_BRIDGE_BEYOND_RIVER_WIDTH_IN_METATILES = 4
 CROSSING_REACH_AROUND_REGION_PATH_IN_REGION_CELLS = 1
+SMALLEST_PATH_CELL_COUNT_ON_WATER_THAT_MAKES_A_CROSSING = 2
+SURF_CROSSING_KEY = "_surf_crossing"
 
 
 def region_block_of(route: Route) -> dict:
@@ -193,15 +194,47 @@ def flood_side_lanes(route: Route, wanted_water: np.ndarray, water_class: str) -
     return flooded_cell_count
 
 
+def region_path_cells_on_water(route: Route, characters: str) -> int:
+    region_block = region_block_of(route)
+    rows = region_water_grid_rows(region_block)
+    path = region_block.get("path") or []
+    if not rows:
+        return 0
+    on_water_count = sum(1 for region_x, region_y in path
+                         if 0 <= region_y < len(rows) and 0 <= region_x < len(rows[region_y])
+                         and rows[region_y][region_x] in characters)
+    return on_water_count
+
+
+def route_crosses_map_water(route: Route, characters: str) -> bool:
+    crosses = region_path_cells_on_water(route, characters) >= SMALLEST_PATH_CELL_COUNT_ON_WATER_THAT_MAKES_A_CROSSING
+    return crosses
+
+
+def water_for_route(route: Route, softened_water: np.ndarray, characters: str, shore_gap_in_metatiles: int) -> np.ndarray:
+    if route_crosses_map_water(route, characters):
+        return softened_water
+    receded_water = water_drawn_back_from_main_road(route, softened_water, shore_gap_in_metatiles)
+    return receded_water
+
+
+def remember_surf_crossing(route: Route, crossing_cells: np.ndarray, water_class: str, characters: str) -> None:
+    if not route_crosses_map_water(route, characters) or not crossing_cells.any():
+        return
+    remembered = route.__dict__.setdefault(SURF_CROSSING_KEY, {})
+    remembered[water_class] = remembered.get(water_class, np.zeros(route.cls.shape, dtype=bool)) | crossing_cells
+
+
 def paint_region_sea(route: Route) -> int:
     from .stages import code
 
     blocky_sea = region_water_mask(route, SEA_CHARACTERS_IN_WATER_GRID)
     if not blocky_sea.any():
         return 0
-    sea = water_drawn_back_from_main_road(route, soften_water_outline(blocky_sea, route.rng),
-                                          SHORE_GAP_BETWEEN_LANE_AND_SEA_IN_METATILES)
+    sea = water_for_route(route, soften_water_outline(blocky_sea, route.rng), SEA_CHARACTERS_IN_WATER_GRID,
+                          SHORE_GAP_BETWEEN_LANE_AND_SEA_IN_METATILES)
     flood_side_lanes(route, sea, code("SEA", "w"))
+    remember_surf_crossing(route, lanes_to_bridge(route, sea), code("SEA", "w"), SEA_CHARACTERS_IN_WATER_GRID)
     sea_cells, bridge_cells = paint_water_with_bridges(route, sea, code("SEA", "w"))
     beach_cells = paint_beach_along_sea(route, route.cls == code("SEA", "w"))
     route.zones.append(Zone("lake", [tuple(map(int, cell)) for cell in zip(*np.nonzero(sea & (route.cls == code("SEA", "w"))))],
@@ -216,7 +249,8 @@ def paint_beach_along_sea(route: Route, sea: np.ndarray) -> int:
     if not sea.any():
         return 0
     beach_band = binary_dilation(sea, iterations=BEACH_WIDTH_IN_METATILES) & ~sea
-    beach_band &= ~np.isin(route.cls, list(WALKABLE)) & (route.cls != "w") & ~special_area_mask(route)
+    becomes_sand = ~np.isin(route.cls, list(WALKABLE)) | np.isin(route.cls, list(GROUND_CLASSES_THE_BEACH_COVERS))
+    beach_band &= becomes_sand & (route.cls != "w") & ~special_area_mask(route)
     beach_band &= away_from_map_border(route)
     route.cls[beach_band] = code("SAND", "p")
     beach_cell_count = int(beach_band.sum())
@@ -233,9 +267,10 @@ def paint_region_lakes(route: Route) -> int:
     blocky_lakes = region_water_mask(route, LAKE_CHARACTER_IN_WATER_GRID)
     if not blocky_lakes.any():
         return 0
-    lakes = water_drawn_back_from_main_road(route, soften_water_outline(blocky_lakes, route.rng),
-                                            SHORE_GAP_BETWEEN_LANE_AND_LAKE_IN_METATILES)
+    lakes = water_for_route(route, soften_water_outline(blocky_lakes, route.rng), LAKE_CHARACTER_IN_WATER_GRID,
+                            SHORE_GAP_BETWEEN_LANE_AND_LAKE_IN_METATILES)
     flood_side_lanes(route, lakes, "w")
+    remember_surf_crossing(route, lanes_to_bridge(route, lakes), "w", LAKE_CHARACTER_IN_WATER_GRID)
     lake_cells, bridge_cells = paint_water_with_bridges(route, lakes, "w")
     painted = [tuple(map(int, cell)) for cell in zip(*np.nonzero(lakes & (route.cls == "w")))]
     if painted:
@@ -277,41 +312,9 @@ def river_course_in_metatiles(river: dict, region_shape, cell_size_in_metatiles:
     return course_with_edges
 
 
-def orthogonal_steps_between(start: Cell, end: Cell, rng: np.random.Generator) -> List[Cell]:
-    start_y, start_x = start
-    end_y, end_x = end
-    turn_at_row_first = rng.random() < 0.5
-    corner = (end_y, start_x) if turn_at_row_first else (start_y, end_x)
-    cells = straight_run(start, corner) + straight_run(corner, end)
-    return cells
-
-
-def straight_run(start: Cell, end: Cell) -> List[Cell]:
-    start_y, start_x = start
-    end_y, end_x = end
-    step_y = int(np.sign(end_y - start_y))
-    step_x = int(np.sign(end_x - start_x))
-    length = max(abs(end_y - start_y), abs(end_x - start_x))
-    run = [(start_y + step_y * step_index, start_x + step_x * step_index) for step_index in range(length + 1)]
-    return run
-
-
-def river_mask_in_metatiles(route: Route, river: dict, region_shape, cell_size_in_metatiles: int) -> np.ndarray:
-    course = river_course_in_metatiles(river, region_shape, cell_size_in_metatiles)
-    river_mask = np.zeros(route.cls.shape, dtype=bool)
-    if not course:
-        return river_mask
-    width_in_metatiles = RIVER_WIDTH_IN_METATILES_BY_REGION_WIDTH.get(int(river.get("width", 1)), 2)
-    lower_offset = -((width_in_metatiles - 1) // 2)
-    for start, end in zip(course, course[1:]):
-        for centre_y, centre_x in orthogonal_steps_between(start, end, route.rng):
-            row_slice = slice(max(0, centre_y + lower_offset), max(0, centre_y + lower_offset + width_in_metatiles))
-            column_slice = slice(max(0, centre_x + lower_offset), max(0, centre_x + lower_offset + width_in_metatiles))
-            river_mask[row_slice, column_slice] = True
-    return river_mask
-
-
 def paint_region_rivers(route: Route) -> int:
+    from .rivers import RIVER_HALF_WIDTH_BY_REGION_WIDTH, paint_river, river_mask_along_course
+
     region_block = region_block_of(route)
     rivers = region_block.get("rivers") or []
     rows = region_water_grid_rows(region_block)
@@ -321,15 +324,14 @@ def paint_region_rivers(route: Route) -> int:
     cell_size_in_metatiles = region_cell_size_in_metatiles(region_block)
     painted_rivers = 0
     for river_number, river in enumerate(rivers, start=1):
-        river_mask = river_mask_in_metatiles(route, river, region_shape, cell_size_in_metatiles)
+        course = river_course_in_metatiles(river, region_shape, cell_size_in_metatiles)
+        if not course:
+            continue
+        half_width = RIVER_HALF_WIDTH_BY_REGION_WIDTH.get(int(river.get("width", 1)), 1.2)
+        river_mask = river_mask_along_course(route.cls.shape, course, half_width)
         if not river_mask.any():
             continue
-        width_in_metatiles = RIVER_WIDTH_IN_METATILES_BY_REGION_WIDTH.get(int(river.get("width", 1)), 2)
-        longest_bridge = width_in_metatiles + LONGEST_RIVER_BRIDGE_BEYOND_RIVER_WIDTH_IN_METATILES
-        water_cells, bridge_cells = paint_water_with_bridges(route, river_mask, "w", longest_bridge)
-        wet_cells = [tuple(map(int, cell)) for cell in zip(*np.nonzero(river_mask & (route.cls == "w")))]
-        route.zones.append(Zone("lake", wet_cells, f"region river {river_number}",
-                                {"river": True, "region_river": True, "crossings": bridge_cells}))
+        water_cells, bridge_cells = paint_river(route, river_mask, f"region river {river_number}", {"region_river": True})
         route.log.append(f"region river {river_number}: {water_cells} water cells, {bridge_cells} bridge cells")
         painted_rivers += 1
     return painted_rivers

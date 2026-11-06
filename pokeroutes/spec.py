@@ -8,13 +8,14 @@ from typing import List, Optional
 import yaml
 
 
-BIOMES = ("forest", "meadow", "plains", "riverland", "beach", "desert", "mountain", "volcanic")
+BIOMES = ("forest", "meadow", "plains", "riverland", "beach", "desert", "mountain", "snow", "volcanic")
 # Emerald routes that look like each biome: General + their secondary tileset
 BIOME_TILESET = {
     "forest": "general_fortree", "meadow": "general_fortree", "plains": "general_fortree",
     "riverland": "general_fortree",
     "beach": "general_slateport",  # Route 109
     "desert": "general_mauville",  # Route 111
+    "snow": "general_fallarbor",  # no snow in Emerald: Route 113's ash-covered ground, grass and trees are the nearest
     "mountain": "general_lavaridge",  # Route 112
     "volcanic": "general_lavaridge",  # Mt. Chimney / Jagged Pass rock (the Route 113 model draws cliff interiors as brick)
 }

@@ -69,7 +69,8 @@ Other tools:
 - **riverland**: rivers come out as straight east–west bars plus thin north–south streams. There is no meandering river spine yet.
 - **plains**: open fields (Kanto Route 1 / Ash Gray feel). The lane maze is opened into grass with tall-grass plots and a few groves; the map's edge rises into a grassy verge: a tree line, raised grass (class `o`, unwalkable scenery) with a few bushes and small trees, and a low ledge lip facing the field (open at the exits); rock only on a side the region block puts against mountains. At most 0-2 short one-way steps from the height map. Tall grass is soft patches (6-40 cells) plus strips along the road (`pokeroutes/plains.py`, `pokeroutes/plains_grass.py`). Expect 60–75% walkable, over the `max_walkable` budget on purpose.
 - **desert**: Route 111 style rock walls, sand and boulders. Close in feel.
-- **beach, mountain, volcanic**: rough. Beach has no shoreline foam and leaves stray teal cells. Volcanic uses Lavaridge's red rock (`BIOME_TILESET`), not Route 113's ash.
+- **mountain, snow, volcanic**: terraces in contour bands (`terraces.py`); snow previews through Route 113's ash set washed white (no snow art in Emerald or Ark yet); volcanic has a lava crater near the top.
+- **beach**: rough. Beach has no shoreline foam and leaves stray teal cells. Volcanic uses Lavaridge's red rock (`BIOME_TILESET`), not Route 113's ash.
 
 ## Recipes (real knobs only; verify with 3+ seeds)
 

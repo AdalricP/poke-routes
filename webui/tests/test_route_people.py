@@ -19,13 +19,24 @@ sys.path.insert(0, str(ROOT))
 import route_items  # noqa: E402
 from pokeroutes import route_people  # noqa: E402
 from pokeroutes.export import write_emerald  # noqa: E402
-from pokeroutes.generate import generate  # noqa: E402
+from pokeroutes.generate import Event, generate  # noqa: E402
 from pokeroutes.layout import Layout  # noqa: E402
 from pokeroutes.spec import RouteSpec  # noqa: E402
 
 
+HAND_PLACED_ROLES = ("hiker", "villager", "picnicker")
+
+
+def place_hand_placed_people(route):
+    taken = {(event.y, event.x) for event in route.events}
+    free_cells = [cell for cell in route.critical_path[5:-5:7] if cell not in taken]
+    for role, (y, x) in zip(HAND_PLACED_ROLES, free_cells):
+        route.events.append(Event("npc", y, x, {"role": role, "text": ""}))
+
+
 def npc_graphics(tmp_path, ark_people):
     route = generate(RouteSpec.load(ROOT / "examples/bernsteinweg.yaml"))
+    place_hand_placed_people(route)
     roles = {(e.x, e.y): e.data.get("role") for e in route.events if e.kind == "npc"}
     write_emerald(route, Layout.blank(route.w, route.h), tmp_path, "ark_outdoor", "ark_woodland", ark_people=ark_people)
     objects = json.loads((tmp_path / "data/maps" / route.spec.id / "map.json").read_text())["object_events"]

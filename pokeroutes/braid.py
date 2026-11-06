@@ -41,6 +41,24 @@ MAIN_W = 3
 SIDE_W = 2
 
 
+BIOMES_WITH_SEVERAL_WAYS_TO_THE_EXIT = ("forest", "meadow")
+SHARE_OF_DEAD_ENDS_KEPT_WHERE_LANES_BRAID = 0.45
+SHARE_OF_EARLY_MERGES_KEPT_WHERE_LANES_BRAID = 0.6
+LEAST_MEANDER_WHERE_LANES_BRAID = 0.6
+
+
+def braids_to_the_exit(spec) -> bool:
+    has_several_ways = getattr(spec, "biome", "") in BIOMES_WITH_SEVERAL_WAYS_TO_THE_EXIT
+    return has_several_ways
+
+
+def meander_of(spec) -> float:
+    meander = float(spec.meander)
+    if braids_to_the_exit(spec):
+        meander = max(meander, LEAST_MEANDER_WHERE_LANES_BRAID)
+    return meander
+
+
 def wspan(width: int) -> Tuple[int, int]:
     return -((width - 1) // 2), width // 2
 
@@ -430,7 +448,7 @@ class Planner:
                 v_lin = (prev_v if li == 0 else 0) * (1 - t) + v_end * t if li == n_legs - 1 else 0
                 # consecutive nodes sit on opposite sides of the map, so the road crosses
                 # it section by section instead of beelining from exit to exit
-                swing = rng.uniform(0.6, 1.0) * (vhi - vlo) * 0.45 * spec.meander
+                swing = rng.uniform(0.6, 1.0) * (vhi - vlo) * 0.45 * meander_of(spec)
                 v = int((vlo + vhi) / 2 + node_side * swing) if li < n_legs - 1 or m > 1 else \
                     int(v_lin + node_side * swing * 0.6)
                 node_side = -node_side
@@ -510,11 +528,11 @@ class Planner:
         if snake:
             # a plain stretch with no lanes beside it: the road snakes, each bend swinging
             # it over to the far side of the band and back
-            k = int(round(jog_scale * spec.meander * (max(0, room) / 10 + 1) + rng.uniform(-0.3, 0.3)))
+            k = int(round(jog_scale * meander_of(spec) * (max(0, room) / 10 + 1) + rng.uniform(-0.3, 0.3)))
             k = max(0, min(k, 4))
             mid = (band[0] + band[1]) / 2
             side = -1 if va > mid else 1 if va < mid else (1 if rng.random() < 0.5 else -1)
-            inset = max(1, int((band[1] - band[0]) * (1 - spec.meander) * 0.25))
+            inset = max(1, int((band[1] - band[0]) * (1 - meander_of(spec)) * 0.25))
             for _ in range(k):
                 edge = band[1] if side > 0 else band[0]
                 nv = int(edge - side * rng.integers(0, inset + 1))
@@ -522,9 +540,9 @@ class Planner:
                     levels.append(nv)
                 side = -side
         else:
-            k = int(round(jog_scale * spec.meander * max(0, room) / 15 + rng.uniform(-0.4, 0.4)))
+            k = int(round(jog_scale * meander_of(spec) * max(0, room) / 15 + rng.uniform(-0.4, 0.4)))
             k = max(0, min(k, 4))
-            amp_hi = 4 + int(11 * spec.meander)
+            amp_hi = 4 + int(11 * meander_of(spec))
             for _ in range(k):
                 for _try in range(10):
                     step = int(rng.integers(4, amp_hi + 1)) * (1 if rng.random() < 0.5 else -1)
@@ -621,13 +639,14 @@ class Planner:
             length = (ub - hub) - (ua + hua)
             vlo, vhi = self.vrange(f)
             # how many lanes: limited options, but rarely none
+            braided = braids_to_the_exit(spec)
             if length < 14 or max_lanes == 1:
                 n = 1
             else:
                 n = 2
-                if max_lanes >= 3 and length >= 20 and rng.random() < 0.5:
+                if max_lanes >= 3 and length >= 20 and rng.random() < (0.75 if braided else 0.5):
                     n = 3
-                if s.id > 0 and rng.random() < 0.25:
+                if s.id > 0 and rng.random() < (0.08 if braided else 0.25):
                     n = 1  # now and then a plain stretch that snakes instead: limited options
             plan = []  # (side, level, offset)
             if n >= 2:
@@ -713,6 +732,8 @@ class Planner:
         r = rng.random()
         dc = float(getattr(spec, "dead_end_chance", 0.3))
         mc = float(getattr(spec, "merge_chance", 0.35))
+        if braids_to_the_exit(spec):
+            dc, mc = dc * SHARE_OF_DEAD_ENDS_KEPT_WHERE_LANES_BRAID, mc * SHARE_OF_EARLY_MERGES_KEPT_WHERE_LANES_BRAID
         if r < dc:
             return "dead"
         if r < dc + mc:

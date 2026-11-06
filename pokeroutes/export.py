@@ -46,8 +46,30 @@ def grade_forest(im: Image.Image) -> Image.Image:
     return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
 
 
+SNOW_GRADE_SATURATION_KEPT = 0.22
+SNOW_GRADE_BRIGHTNESS_FLOOR = 0.5
+SNOW_GRADE_COOL_TINT_RGB = (0.94, 0.97, 1.06)
+
+
+def grade_snow(im: Image.Image) -> Image.Image:
+    """Emerald has no snow: a snow route is tiled with Route 113's ash set, then
+    washed toward white (bright ground, blue-grey rock) for the preview until the
+    tileset has snow art. Preview only: the ROM keeps the ash tiles."""
+    rgb = np.asarray(im.convert("RGB")).astype(np.float32) / 255.0
+    grey = rgb.mean(axis=2, keepdims=True)
+    washed = grey + (rgb - grey) * SNOW_GRADE_SATURATION_KEPT
+    brightened = SNOW_GRADE_BRIGHTNESS_FLOOR + (1 - SNOW_GRADE_BRIGHTNESS_FLOOR) * washed
+    cooled = brightened * np.array(SNOW_GRADE_COOL_TINT_RGB, dtype=np.float32)
+    graded = Image.fromarray(np.clip(cooled * 255, 0, 255).astype(np.uint8))
+    return graded
+
+
 def grade_for_biome(im: Image.Image, biome: str) -> Image.Image:
-    return grade_forest(im) if biome == "forest" else im
+    if biome == "forest":
+        return grade_forest(im)
+    if biome == "snow":
+        return grade_snow(im)
+    return im
 
 
 def encounters(route: Route) -> dict:
@@ -139,6 +161,7 @@ def connection_offset(my_start: int, their_start: int) -> int:
     return my_start - their_start
 
 
+WATER_THAT_RUNS_OFF_THE_MAP_EDGE = "wba"
 SEAL_DEPTH = 2  # GBA trees are 2x2 metatiles; a 1-deep ring tiles as half trees
 
 
@@ -164,11 +187,20 @@ def seal_edges(route: Route) -> int:
                 keep[yy, xx] = True
     before = route.cls.copy()
     # rock-mass tops and trees (a plains verge's tree line) are wall already
-    route.cls[~keep & ~np.isin(route.cls, [wall, "r", "f"])] = wall
+    route.cls[~keep & ~np.isin(route.cls, [wall, "r", "f"] + list(WATER_THAT_RUNS_OFF_THE_MAP_EDGE))] = wall
     seen = reachable(class_grid_with_route_gates_open(route), route.exits[0][1])
     orphan = np.isin(route.cls, list("gpt")) & ~seen
     route.cls[orphan] = wall
+    drop_obstacles_left_standing_in_walls(route)
     return int((before != route.cls).sum())
+
+
+def drop_obstacles_left_standing_in_walls(route: Route) -> None:
+    from .generate import WALKABLE
+    from .obstacles import FIELD_MOVE_OBSTACLE_KINDS
+
+    route.events = [event for event in route.events
+                    if event.kind not in FIELD_MOVE_OBSTACLE_KINDS or str(route.cls[event.y, event.x]) in WALKABLE]
 
 
 def exits_dict(route: Route) -> list:
