@@ -507,7 +507,6 @@ STAGES: List[Tuple[str, Callable[[Route], None]]] = [
     ("gate", stage_route_gate),
     ("seams", stage_seams),
     ("bridges", stage_bridges),
-    ("shores", stage_shores),
     ("biome blend", stage_biome_blend),
     ("open land", stage_open_land),
     ("woodland terraces", stage_woodland_terraces),
@@ -518,6 +517,7 @@ STAGES: List[Tuple[str, Callable[[Route], None]]] = [
     ("raised ground dressing", stage_raised_ground_dressing),
     ("small details", stage_small_details),
     ("river ends", stage_river_ends),
+    ("shores", stage_shores),
 ]
 
 
