@@ -12,7 +12,7 @@ writes (``tools/arklarna_tiles/build.py`` in the ROM tree):
   becomes a tree; leftover 'f' cells become 1x1 bushes. Grass, path and tall
   grass cells next to trees get crown overhang metatiles (crown drawn above the
   player);
-* ledges: south ledges as rows, east/west ledges as columns, with end caps;
+* ledges: south and north ledges as rows, east/west ledges as columns, with end caps;
   where differently-facing ledges touch, corner / T / cross pieces from the
   class's ``corners`` table (keyed by :func:`ledge_arm_key`), when it has one;
 * waterfalls: top/mid/bottom by left/mid/right pieces.
@@ -40,34 +40,37 @@ ROM_CANDIDATES = [EXPERIMENTS / "arklarna/rom-wt/tiles-outdoor", EXPERIMENTS / "
 PRIMARY, SECONDARY = "ark_outdoor", "ark_woodland"
 PRIMARY_SYMBOL, SECONDARY_SYMBOL = "gTileset_ArkOutdoor", "gTileset_ArkWoodland"
 
-# classes the Ark tileset draws: g p t w f r s e x a (and o = grass)
+# classes the Ark tileset draws: g p t w f r s e x j a (and o = grass)
 FALLBACK = {
     "d": "p", "v": "p", "z": "p", "q": "p", "n": "r",   # sand, ash, stairs, bridge, cave -> path / rock
     "b": "w", "h": "w",                                  # sea, shallow -> water
     "y": "t",                                            # ash grass -> tall grass
     "k": "r", "l": "r", "u": "r",                        # cliff, lava, boulder -> rock
     "o": "g",
+    "j": "s",
 }
 DIRS = {"N": (0, -1), "NE": (1, -1), "E": (1, 0), "SE": (1, 1),
         "S": (0, 1), "SW": (-1, 1), "W": (-1, 0), "NW": (-1, -1)}
 DIAG = {"NE": ("N", "E"), "NW": ("N", "W"), "SE": ("S", "E"), "SW": ("S", "W")}
 
 
-LEDGE_LETTERS = ("s", "e", "x")
-SOUTH_LEDGE = "s"
+ROW_LEDGES = ("s", "j")
+COLUMN_LEDGES = ("e", "x")
+LEDGE_LETTERS = ROW_LEDGES + COLUMN_LEDGES
 
 
 def ledge_arm(own: str, neighbour: str, side_by_side: bool) -> str:
     """Which band a ledge cell reaches out with towards one neighbour ('.' = none).
-    Side by side, ledges join through a south-ledge row; above/below, through a
-    column (an east/west ledge), which a south ledge meets as that column's letter."""
+    Side by side, ledges join through a row (a south or north ledge); above/below,
+    through a column (an east or west ledge). The arm is the letter of the row or
+    column that runs across the shared edge."""
     if neighbour not in LEDGE_LETTERS:
         return "."
-    if side_by_side:
-        return SOUTH_LEDGE if SOUTH_LEDGE in (own, neighbour) else "."
-    if own == SOUTH_LEDGE:
-        return neighbour if neighbour != SOUTH_LEDGE else "."
-    return own if neighbour in (SOUTH_LEDGE, own) else "."
+    own_kind = ROW_LEDGES if own in ROW_LEDGES else COLUMN_LEDGES
+    along_own_run = side_by_side == (own in ROW_LEDGES)
+    if along_own_run:
+        return own if neighbour == own or neighbour not in own_kind else "."
+    return neighbour if neighbour not in own_kind else "."
 
 
 def ledge_arm_key(grid: List[str], x: int, y: int) -> str:
@@ -139,7 +142,8 @@ class ArkTiler:
         return load_pair(self.rom / "data/tilesets", PRIMARY, SECONDARY)
 
     def joins_ledge_corners(self) -> bool:
-        return all("corners" in self.C.get(letter, {}) for letter in LEDGE_LETTERS)
+        drawn = [letter for letter in LEDGE_LETTERS if letter in self.C]
+        return bool(drawn) and all("corners" in self.C[letter] for letter in drawn)
 
     def border(self) -> List[int]:
         return list(self.C["f"]["base"])
@@ -204,13 +208,13 @@ class ArkTiler:
                     # the crown overhangs the row above; water, rock, ledges... have no
                     # crown art, so a tree under them would look chopped -> bushes instead
                     above = {grid[2 * by - 1][x] for x in (2 * bx, 2 * bx + 1) if by > 0 and x < W}
-                    if above <= set(C[cells[0]]["overlays"]) | {cells[0], "f"}:
+                    if above <= set(C[cells[0]]["overlays"]) | set(letters):
                         blk[by][bx] = cells[0]
 
         def pres(bx, by, letter):
             if not (0 <= bx < BW and 0 <= by < BH):
                 return False
-            return blk[by][bx] == letter
+            return blk[by][bx] in letters
 
         orth = sum(1 << i for i, d in enumerate(self.bits) if d in ("N", "E", "S", "W"))
         for letter in letters:

@@ -492,9 +492,13 @@
     // tickAnim() can redraw just those few cells instead of the whole stage each frame
     const anim = [];
     if (meta.anim) {
+      const breeze_metatiles = new Set(meta.breeze || []);
       for (let k = 0; k < st.tiles.length; k++) {
         const m = st.tiles[k];
-        if (meta.anim[m]) anim.push({ x: (k % W) * CELL, y: Math.floor(k / W) * CELL, mid: m });
+        if (!meta.anim[m]) continue;
+        const cell_x = k % W, cell_y = Math.floor(k / W);
+        const phase = breeze_metatiles.has(m) ? breeze_phase_for_tree_block(cell_x, cell_y) : 0;
+        anim.push({ x: cell_x * CELL, y: cell_y * CELL, mid: m, phase, shown_atlas_cell: -1 });
       }
     }
     return { tiles: c, classes: cc, mask: prevTiles ? mask : null, changed: prevTiles ? changed : st.tiles.length, anim };
@@ -544,11 +548,21 @@
     const g = state.tileCanvases[state.stage].getContext("2d");
     for (const c of cells) {
       const seq = [meta.index[c.mid], ...meta.anim[c.mid]];
-      const a = seq[animFrame % seq.length];
+      const a = seq[(animFrame + c.phase) % seq.length];
+      if (a === c.shown_atlas_cell) continue;
+      c.shown_atlas_cell = a;
       g.clearRect(c.x, c.y, CELL, CELL);
       g.drawImage(img, (a % meta.columns) * CELL, Math.floor(a / meta.columns) * CELL, CELL, CELL, c.x, c.y, CELL, CELL);
     }
     draw();
+  }
+  const breeze_wave_ticks_per_tree_block_step = 3;
+  const breeze_phase_jitter_in_ticks = 4;
+  function breeze_phase_for_tree_block(cell_x, cell_y) {
+    const tree_block_x = Math.floor(cell_x / 2), tree_block_y = Math.floor(cell_y / 2);
+    const tree_block_hash = ((tree_block_x * 73856093) ^ (tree_block_y * 19349663)) >>> 0;
+    const breeze_phase_in_ticks = (tree_block_x + tree_block_y) * breeze_wave_ticks_per_tree_block_step + (tree_block_hash % breeze_phase_jitter_in_ticks);
+    return breeze_phase_in_ticks;
   }
   requestAnimationFrame(tickAnim);
   function toggle_tile_animation() {
@@ -784,6 +798,171 @@
     select(hit || { type: "route" });
   }
 
+  const route_effect_presets = {
+    leaves: {
+      particle_count: 70, shape: "leaf", colours: ["#d8692c", "#b9381f", "#e9a63a", "#c4822b", "#9c2f1c"],
+      fall_speed_in_map_pixels_per_second: [14, 26], drift_speed_in_map_pixels_per_second: [6, 16],
+      size_in_map_pixels: [2, 3], sway_amplitude_in_map_pixels: 10, sway_frequency_in_hertz: [0.4, 0.9],
+    },
+    snow: {
+      particle_count: 120, shape: "flake", colours: ["#ffffff", "#f1f6ff", "#dde7f4"],
+      fall_speed_in_map_pixels_per_second: [9, 18], drift_speed_in_map_pixels_per_second: [-3, 3],
+      size_in_map_pixels: [1, 2], sway_amplitude_in_map_pixels: 6, sway_frequency_in_hertz: [0.2, 0.5],
+    },
+    rain: {
+      particle_count: 140, shape: "streak", colours: ["rgba(214,228,255,0.8)", "rgba(176,204,246,0.65)"],
+      fall_speed_in_map_pixels_per_second: [190, 240], drift_speed_in_map_pixels_per_second: [-58, -48],
+      size_in_map_pixels: [1, 1], sway_amplitude_in_map_pixels: 0, sway_frequency_in_hertz: [0, 0],
+    },
+    ash: {
+      particle_count: 90, shape: "fleck", colours: ["#8b8681", "#a6a19b", "#6f6b67", "#c0bbb4"],
+      fall_speed_in_map_pixels_per_second: [4, 10], drift_speed_in_map_pixels_per_second: [3, 9],
+      size_in_map_pixels: [1, 2], sway_amplitude_in_map_pixels: 7, sway_frequency_in_hertz: [0.15, 0.35],
+    },
+  };
+  const rain_streak_length_in_map_pixels = 6;
+  const longest_particle_frame_in_seconds = 0.1;
+  const largest_particle_pixel_scale = 4;
+  const particle_canvas = el("canvas");
+  particle_canvas.setAttribute("aria-hidden", "true");
+  particle_canvas.style.pointerEvents = "none";
+  canvas.after(particle_canvas);
+  const particle_context = particle_canvas.getContext("2d");
+  const route_effect_particles = { effect: "none", particles: [], last_time_in_milliseconds: 0, is_canvas_clear: true };
+
+  function current_route_effect() {
+    const effect_control = controls.effect;
+    const selected_effect = effect_control ? effect_control.get() : "none";
+    return selected_effect;
+  }
+  function random_between(range_of_values) {
+    const value_in_range = range_of_values[0] + Math.random() * (range_of_values[1] - range_of_values[0]);
+    return value_in_range;
+  }
+  function random_colour_of(preset) {
+    const colour = preset.colours[Math.floor(Math.random() * preset.colours.length)];
+    return colour;
+  }
+  function new_particle_for(preset, should_start_anywhere) {
+    const particle = {
+      x_fraction: Math.random(),
+      y_fraction: should_start_anywhere ? Math.random() : -0.02,
+      fall_speed: random_between(preset.fall_speed_in_map_pixels_per_second),
+      drift_speed: random_between(preset.drift_speed_in_map_pixels_per_second),
+      size: Math.round(random_between(preset.size_in_map_pixels)),
+      sway_frequency: random_between(preset.sway_frequency_in_hertz),
+      sway_phase: Math.random() * Math.PI * 2,
+      colour: random_colour_of(preset),
+    };
+    return particle;
+  }
+  function particles_for_effect(effect) {
+    const preset = route_effect_presets[effect];
+    if (!preset) return [];
+    const fresh_particles = Array.from({ length: preset.particle_count }, () => new_particle_for(preset, true));
+    return fresh_particles;
+  }
+  function visible_map_rectangle(view_width, view_height) {
+    const route_result = state.result;
+    const { zoom, ox, oy } = state.view;
+    const left = Math.max(0, ox), top = Math.max(0, oy);
+    const right = Math.min(view_width, ox + route_result.width * CELL * zoom), bottom = Math.min(view_height, oy + route_result.height * CELL * zoom);
+    const visible_rectangle = { left, top, width: right - left, height: bottom - top };
+    return visible_rectangle;
+  }
+  function particle_pixel_scale() {
+    const pixel_scale = Math.max(1, Math.min(largest_particle_pixel_scale, Math.round(state.view.zoom)));
+    return pixel_scale;
+  }
+  function wrap_fraction(fraction) {
+    const wrapped_fraction = fraction - Math.floor(fraction);
+    return wrapped_fraction;
+  }
+  function advance_particle(particle, preset, elapsed_in_seconds, rectangle, pixel_scale) {
+    particle.sway_phase += particle.sway_frequency * elapsed_in_seconds * Math.PI * 2;
+    const sway_speed = Math.cos(particle.sway_phase) * preset.sway_amplitude_in_map_pixels * particle.sway_frequency;
+    particle.x_fraction = wrap_fraction(particle.x_fraction + (particle.drift_speed + sway_speed) * pixel_scale * elapsed_in_seconds / rectangle.width);
+    particle.y_fraction += particle.fall_speed * pixel_scale * elapsed_in_seconds / rectangle.height;
+    if (particle.y_fraction <= 1.02) return;
+    Object.assign(particle, new_particle_for(preset, false));
+  }
+  function draw_particle(particle, preset, rectangle, pixel_scale) {
+    const screen_x = Math.round(rectangle.left + particle.x_fraction * rectangle.width);
+    const screen_y = Math.round(rectangle.top + particle.y_fraction * rectangle.height);
+    const square_size = particle.size * pixel_scale;
+    particle_context.fillStyle = particle.colour;
+    switch (preset.shape) {
+      case "streak":
+        draw_rain_streak(screen_x, screen_y, particle, pixel_scale);
+        break;
+      case "leaf": {
+        const tumble_width = Math.abs(Math.sin(particle.sway_phase)) > 0.35 ? square_size : pixel_scale;
+        particle_context.fillRect(screen_x, screen_y, tumble_width, square_size);
+        break;
+      }
+      default:
+        particle_context.fillRect(screen_x, screen_y, square_size, square_size);
+    }
+  }
+  function draw_rain_streak(screen_x, screen_y, particle, pixel_scale) {
+    const slant_per_pixel_of_fall = particle.drift_speed / particle.fall_speed;
+    for (let streak_step = 0; streak_step < rain_streak_length_in_map_pixels; streak_step++) {
+      const step_x = Math.round(screen_x - streak_step * slant_per_pixel_of_fall * pixel_scale);
+      particle_context.fillRect(step_x, screen_y - streak_step * pixel_scale, pixel_scale, pixel_scale);
+    }
+  }
+  function clear_route_effect_canvas() {
+    if (route_effect_particles.is_canvas_clear) return;
+    particle_context.setTransform(1, 0, 0, 1, 0, 0);
+    particle_context.clearRect(0, 0, particle_canvas.width, particle_canvas.height);
+    route_effect_particles.is_canvas_clear = true;
+  }
+  function size_particle_canvas_to_scene() {
+    if (particle_canvas.width === canvas.width && particle_canvas.height === canvas.height) return;
+    particle_canvas.width = canvas.width;
+    particle_canvas.height = canvas.height;
+    route_effect_particles.is_canvas_clear = true;
+  }
+  function should_show_route_effect(effect) {
+    const has_preset = !!route_effect_presets[effect];
+    const is_route_on_screen = !!state.result && state.tileCanvases.length > 0 && Shell.layout.center === "scene" && !wrap.hidden;
+    return has_preset && is_route_on_screen;
+  }
+  function tick_route_effect(time_in_milliseconds) {
+    requestAnimationFrame(tick_route_effect);
+    const elapsed_in_seconds = Math.min(longest_particle_frame_in_seconds, (time_in_milliseconds - route_effect_particles.last_time_in_milliseconds) / 1000);
+    route_effect_particles.last_time_in_milliseconds = time_in_milliseconds;
+    const effect = current_route_effect();
+    if (!should_show_route_effect(effect)) { clear_route_effect_canvas(); return; }
+    if (effect !== route_effect_particles.effect) {
+      route_effect_particles.effect = effect;
+      route_effect_particles.particles = particles_for_effect(effect);
+    }
+    draw_route_effect_frame(route_effect_presets[effect], tile_animation.is_playing ? elapsed_in_seconds * tile_animation_speeds[tile_animation.speed_index] : 0);
+  }
+  function draw_route_effect_frame(preset, elapsed_in_seconds) {
+    const device_pixel_ratio = window.devicePixelRatio || 1;
+    size_particle_canvas_to_scene();
+    const view_box = wrap.getBoundingClientRect();
+    const rectangle = visible_map_rectangle(view_box.width, view_box.height);
+    particle_context.setTransform(1, 0, 0, 1, 0, 0);
+    particle_context.clearRect(0, 0, particle_canvas.width, particle_canvas.height);
+    route_effect_particles.is_canvas_clear = false;
+    if (rectangle.width <= 0 || rectangle.height <= 0) return;
+    particle_context.setTransform(device_pixel_ratio, 0, 0, device_pixel_ratio, 0, 0);
+    particle_context.save();
+    particle_context.beginPath();
+    particle_context.rect(rectangle.left, rectangle.top, rectangle.width, rectangle.height);
+    particle_context.clip();
+    const pixel_scale = particle_pixel_scale();
+    for (const particle of route_effect_particles.particles) {
+      advance_particle(particle, preset, elapsed_in_seconds, rectangle, pixel_scale);
+      draw_particle(particle, preset, rectangle, pixel_scale);
+    }
+    particle_context.restore();
+  }
+  requestAnimationFrame(tick_route_effect);
+
   // ------------------------------------------------------------ drawing
   let raf = 0;
   function draw() {
@@ -990,7 +1169,10 @@
       b.hidden = !ledge_codes.includes(b.dataset.dir);
       b.classList.toggle("on", b.dataset.dir === state.ledgeDir);
     });
-    $("brushSize").hidden = !["terrain", "ledge"].includes(SL.brush_kind(state.brush).kind);
+    const selected_brush = SL.brush_kind(state.brush);
+    const selected_entry = selected_brush.kind === "terrain" ? SL.palette_terrain_entry(state.palette, selected_brush.key) : null;
+    const places_single_trees = !!(selected_entry && selected_entry.two_wide);
+    $("brushSize").hidden = !["terrain", "ledge"].includes(selected_brush.kind) || places_single_trees;
   }
   function rotateLedgeDir() {
     state.ledgeDir = SL.next_ledge_code(state.palette, state.ledgeDir);
@@ -1080,6 +1262,7 @@
       const d = drawStage(last, last ? state.tileCanvases[last - 1] : null, last ? r.stages[last - 1].tiles : null);
       state.tileCanvases[last] = d.tiles;
       state.classCanvases[last] = d.classes;
+      state.animCells[last] = d.anim;
       if (!quiet) log("info", `Painted ${res.painted} cells; re-tiled ${res.retiled}`);
       return true;
     } catch (e) {
@@ -2097,8 +2280,9 @@
     { id: "x-zout", label: "Zoom out", group: "Scene view", enabled: sceneRoute, run: () => zoomBy(-1) },
     { id: "x-zfit", label: "Fit to view", group: "Scene view", enabled: sceneRoute, run: fit },
     { id: "x-help", label: "Keyboard shortcuts", group: "Help", enabled: isScene, run: () => Shell.showShortcuts() },
-    { id: "x-ledge-rot", label: "Rotate ledge direction", group: "Scene tools",
-      enabled: () => isScene() && state.tool === "paint" && state.brush === LEDGE_BRUSH, run: rotateLedgeDir },
+    { id: "x-ledge-rot", label: "Rotate ledge or fence", group: "Scene tools",
+      enabled: () => isScene() && state.tool === "paint" && (state.brush === LEDGE_BRUSH || is_rotatable_object_selected()),
+      run: () => (state.brush === LEDGE_BRUSH ? rotateLedgeDir() : rotate_selected_object()) },
   ];
 
   // ------------------------------------------------------------ wiring
@@ -2220,9 +2404,10 @@
 
   function terrain_brush_cells_at(cell_x, cell_y, class_code) {
     const r = state.result, entry = SL.palette_terrain_entry(state.palette, class_code);
-    const is_two_wide = entry ? entry.two_wide : SL.TWO_WIDE.includes(class_code);
-    const chosen_size = +$("brushSize").value;
-    const brush_cells = SL.brushCells(cell_x, cell_y, is_two_wide ? Math.max(2, chosen_size) : chosen_size, class_code, r.width, r.height);
+    const is_tree_brush = entry ? entry.two_wide : SL.TWO_WIDE.includes(class_code);
+    const one_tree_size_in_cells = 2;
+    const chosen_size = is_tree_brush ? one_tree_size_in_cells : +$("brushSize").value;
+    const brush_cells = SL.brushCells(cell_x, cell_y, chosen_size, class_code, r.width, r.height);
     if (!entry || !entry.snap_blocks) return brush_cells;
     return SL.snap_cells_to_blocks(brush_cells, r.width, r.height);
   }
@@ -2379,21 +2564,66 @@
 
   function terrain_buttons(group_name) {
     const painting = state.tool === "paint";
-    return state.palette.terrain.filter((entry) => entry.group === group_name).map((entry) => {
-      if (group_name === "ledges") {
-        const is_on = painting && state.brush === LEDGE_BRUSH && state.ledgeDir === entry.code;
-        return palette_button(LEDGE_BRUSH, entry.name, `Paint ${entry.name} (R turns the ledge)`, sample_rows(entry), is_on, () => choose_ledge(entry.code));
-      }
-      return palette_button(entry.code, entry.name, `Paint ${entry.name}`, sample_rows(entry), painting && state.brush === entry.code, () => choose_brush(entry.code));
-    });
+    const entries_in_group = state.palette.terrain.filter((entry) => entry.group === group_name);
+    if (group_name === "ledges") return single_ledge_button(entries_in_group, painting);
+    return entries_in_group.map((entry) => palette_button(entry.code, entry.name, `Paint ${entry.name}`, sample_rows(entry), painting && state.brush === entry.code, () => choose_brush(entry.code)));
+  }
+
+  function single_ledge_button(ledge_entries, painting) {
+    if (!ledge_entries.length) return [];
+    const current_ledge = ledge_entries.find((entry) => entry.code === state.ledgeDir) || ledge_entries[0];
+    const ledge_is_selected = painting && state.brush === LEDGE_BRUSH;
+    const ledge_button = palette_button(LEDGE_BRUSH, current_ledge.name, `Paint ${current_ledge.name}; click again or press R to turn it`, sample_rows(current_ledge), ledge_is_selected,
+      () => (ledge_is_selected ? rotateLedgeDir() : choose_ledge(current_ledge.code)));
+    return [ledge_button];
+  }
+
+  const rotatable_object_suffixes = ["_h", "_v"];
+
+  function rotatable_object_base(object_id) {
+    const suffix = rotatable_object_suffixes.find((candidate_suffix) => object_id.endsWith(candidate_suffix));
+    const object_base = suffix ? object_id.slice(0, -suffix.length) : null;
+    return object_base;
+  }
+
+  function is_rotatable_object_group(object_base) {
+    const ids = state.palette.objects.map((entry) => entry.id);
+    const group_has_both_orientations = rotatable_object_suffixes.every((suffix) => ids.includes(object_base + suffix));
+    return group_has_both_orientations;
+  }
+
+  function rotate_selected_object() {
+    const object_id = state.brush.startsWith("object:") ? state.brush.slice("object:".length) : "";
+    const object_base = rotatable_object_base(object_id);
+    if (!object_base || !is_rotatable_object_group(object_base)) return;
+    const next_suffix = object_id.endsWith("_h") ? "_v" : "_h";
+    choose_brush("object:" + object_base + next_suffix);
+  }
+
+  function is_rotatable_object_selected() {
+    const object_id = state.brush.startsWith("object:") ? state.brush.slice("object:".length) : "";
+    const object_base = rotatable_object_base(object_id);
+    return !!object_base && is_rotatable_object_group(object_base);
+  }
+
+  function object_button(entry, painting) {
+    const brush = "object:" + entry.id, size = `${entry.cells[0].length}×${entry.cells.length}`;
+    const object_base = rotatable_object_base(entry.id);
+    const is_rotatable = !!object_base && is_rotatable_object_group(object_base);
+    if (!is_rotatable) return palette_button(brush, entry.name, `Place ${entry.name} (${size}, exact tiles with their own collision)`, entry.cells, painting && state.brush === brush, () => choose_brush(brush));
+    const selected_variant = state.brush.startsWith("object:" + object_base + "_") ? state.brush.slice("object:".length) : object_base + "_h";
+    const shown_entry = state.palette.objects.find((candidate) => candidate.id === selected_variant) || entry;
+    const group_is_selected = painting && state.brush === "object:" + shown_entry.id;
+    const group_name = object_base.replace(/_/g, " ");
+    const direction_name = shown_entry.id.endsWith("_v") ? "down" : "across";
+    return palette_button("object:" + shown_entry.id, `${group_name} (${direction_name})`, `Place ${group_name}; click again or press R to switch across/down`, shown_entry.cells, group_is_selected,
+      () => (group_is_selected ? rotate_selected_object() : choose_brush("object:" + shown_entry.id)));
   }
 
   function object_buttons() {
     const painting = state.tool === "paint";
-    const objects = state.palette.objects.map((entry) => {
-      const brush = "object:" + entry.id, size = `${entry.cells[0].length}×${entry.cells.length}`;
-      return palette_button(brush, entry.name, `Place ${entry.name} (${size}, exact tiles with their own collision)`, entry.cells, painting && state.brush === brush, () => choose_brush(brush));
-    });
+    const shown_object_entries = state.palette.objects.filter((entry) => !(entry.id.endsWith("_v") && is_rotatable_object_group(rotatable_object_base(entry.id))));
+    const objects = shown_object_entries.map((entry) => object_button(entry, painting));
     if (state.palette.tiler !== "learned") return objects;
     const stamps = Object.entries(SL.STAMPS).map(([stamp_name, stamp]) => {
       const brush = "stamp:" + stamp_name;
