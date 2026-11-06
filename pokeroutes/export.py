@@ -186,14 +186,25 @@ def seal_edges(route: Route) -> int:
                 yy = y + k if e.side == "north" else y - k if e.side == "south" else y
                 xx = x + k if e.side == "west" else x - k if e.side == "east" else x
                 keep[yy, xx] = True
+    open_seam_cells = cells_on_edges_open_to_the_same_route(route)
+    for open_seam_cell in open_seam_cells:
+        keep[open_seam_cell] = True
     before = route.cls.copy()
     # rock-mass tops and trees (a plains verge's tree line) are wall already
     route.cls[~keep & ~np.isin(route.cls, [wall, "r", "f", RAISED_GROUND_CLASS, "s", "e", "x", "j"] + list(WATER_THAT_RUNS_OFF_THE_MAP_EDGE))] = wall
-    seen = reachable(class_grid_with_route_gates_open(route), route.exits[0][1])
+    seen = reachable(class_grid_with_route_gates_open(route), list(route.exits[0][1]) + open_seam_cells)
     orphan = np.isin(route.cls, list("gpt")) & ~seen
     route.cls[orphan] = wall
     drop_obstacles_left_standing_in_walls(route)
     return int((before != route.cls).sum())
+
+
+def cells_on_edges_open_to_the_same_route(route: Route) -> list:
+    from .whole_route import EDGES_OPEN_TO_THE_SAME_ROUTE_KEY, cells_of_open_edge
+
+    open_edges = route.__dict__.get(EDGES_OPEN_TO_THE_SAME_ROUTE_KEY) or []
+    open_cells = [cell for open_edge in open_edges for cell in cells_of_open_edge(route, open_edge, SEAL_DEPTH)]
+    return open_cells
 
 
 def drop_obstacles_left_standing_in_walls(route: Route) -> None:

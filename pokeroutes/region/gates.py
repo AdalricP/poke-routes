@@ -3,8 +3,6 @@ from __future__ import annotations
 from collections import deque
 from typing import Dict, List, Optional, Sequence, Set
 
-SEA_ROUTE_FIELD_MOVE = "surf"
-
 
 def gate_block_for_route_spec(world, gated_route: dict, exits_in_spec_order: Sequence[dict]) -> dict:
     story_beats = list(world.overrides.get("story") or [])
@@ -111,10 +109,7 @@ def hop_counts_from_place(routes: Sequence[dict], start_place_name: str, skipped
 
 def route_field_move_needed(route: dict) -> str:
     gate = route.get("gate") or {}
-    if gate.get("needs") is not None:
-        return gate["needs"]
-    derived_field_move = SEA_ROUTE_FIELD_MOVE if route.get("mode") == "sea" else ""
-    return derived_field_move
+    return gate.get("needs") or ""
 
 
 def is_route_open_at_story_step(route: dict, field_moves_held: Set[str], story_step: int) -> bool:

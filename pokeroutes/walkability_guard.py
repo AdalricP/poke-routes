@@ -82,6 +82,35 @@ def exits_reached_past_standing_obstacles(route) -> FrozenSet[Tuple[bool, int, i
     return exits_reached
 
 
+def grid_with_every_move_allowed(route) -> np.ndarray:
+    grid = np.array(route.cls, copy=True)
+    grid[np.isin(grid, list(SURFABLE_CLASSES))] = "p"
+    grid[grid == "a"] = "p"
+    return grid
+
+
+def gated_entrances_still_reach_other_exits(route) -> FrozenSet[int]:
+    if not route.gates or not route.exits:
+        return frozenset()
+    grid = grid_with_every_move_allowed(route)
+    entrance_indices_that_still_reach_out = set()
+    for gate_record in route.gates:
+        if not gate_record.get("built"):
+            continue
+        entrance_index = gate_record.get("entrance")
+        if entrance_index is None or not (0 <= entrance_index < len(route.exits)):
+            continue
+        entrance_cells = walkable_cells_of(route, route.exits[entrance_index][1])
+        if not entrance_cells:
+            continue
+        other_exit_cells = [cell for position, (_, cells) in enumerate(route.exits)
+                            if position != entrance_index for cell in walkable_cells_of(route, cells)]
+        reached = reachable(grid, entrance_cells)
+        if any(reached[cell] for cell in other_exit_cells):
+            entrance_indices_that_still_reach_out.add(entrance_index)
+    return frozenset(entrance_indices_that_still_reach_out)
+
+
 def walkability_summary(route) -> tuple:
     entrance_cells = entrance_cells_on_land(route)
     exit_cells = [cell for _exit, cells in route.exits for cell in cells]
@@ -90,7 +119,8 @@ def walkability_summary(route) -> tuple:
     every_exit_reached = all(any(reached[cell] for cell in cells) for _exit, cells in route.exits
                              if walkable_cells_of(route, cells))
     trapped_count = int((reached & ~leavable).sum())
-    summary = (every_exit_reached, trapped_count, exits_reached_past_standing_obstacles(route))
+    summary = (every_exit_reached, trapped_count, exits_reached_past_standing_obstacles(route),
+              gated_entrances_still_reach_other_exits(route))
     return summary
 
 
@@ -105,10 +135,12 @@ def remembered_walkability_summary(route) -> tuple:
 
 
 def is_no_worse(before: tuple, after: tuple) -> bool:
-    every_exit_reached_before, trapped_before, gated_exits_before = before
-    every_exit_reached_after, trapped_after, gated_exits_after = after
+    every_exit_reached_before, trapped_before, gated_exits_before, gates_still_open_before = before
+    every_exit_reached_after, trapped_after, gated_exits_after, gates_still_open_after = after
     no_new_way_round_a_gate = gated_exits_after <= gated_exits_before
-    no_worse = (every_exit_reached_after or not every_exit_reached_before) and trapped_after <= trapped_before and no_new_way_round_a_gate
+    no_gate_newly_sealed_shut = gates_still_open_before <= gates_still_open_after
+    no_worse = ((every_exit_reached_after or not every_exit_reached_before) and trapped_after <= trapped_before
+               and no_new_way_round_a_gate and no_gate_newly_sealed_shut)
     return no_worse
 
 

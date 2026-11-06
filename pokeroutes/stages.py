@@ -707,6 +707,8 @@ def _lane_patches(route: Route) -> None:
             for u in range(st, st + ln):
                 for v in range(a[1] + lo, a[1] + hi + 1):
                     y, x = f.yx(u, v)
+                    if not route.inside(y, x):
+                        continue
                     if on_road and not grass_over_road and route.cls[y, x] == path_class(route):
                         continue
                     if route.cls[y, x] in (ground_class(route), path_class(route), side_surface(route)):

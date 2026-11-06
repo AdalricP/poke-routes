@@ -215,8 +215,8 @@ def handle(h, method: str, u, srv) -> bool:
                 return h._json({"error": "PokeRoutes tiler unavailable: " + err}, 404) or True
             from pokeroutes.tree_shade import SHADE_CHOICES
 
-            requested_shade = q.get("shade", ["leaves"])[0]
-            png, meta = ark_atlas(srv, requested_shade if requested_shade in SHADE_CHOICES and requested_shade != "auto" else "leaves",
+            requested_shade = q.get("shade", ["green"])[0]
+            png, meta = ark_atlas(srv, requested_shade if requested_shade in SHADE_CHOICES else "green",
                                   q.get("secondary", [""])[0])
             if u.path == "/api/atlas.png":
                 return h._send(200, png, "image/png") or True

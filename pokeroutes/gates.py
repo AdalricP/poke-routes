@@ -642,8 +642,10 @@ def built_gate_record(gate_kind: str, gate_request: dict, draft: GateDraft, surr
 
 
 def class_grid_with_route_gates_open(route: Route) -> np.ndarray:
+    from .surf_crossing import route_lies_on_open_sea
+
     has_built_gate = any(gate_record.get("built") for gate_record in route.gates)
-    if not has_built_gate:
+    if not has_built_gate and not route_lies_on_open_sea(route):
         return route.cls
     class_grid_with_gates_open = class_grid_with_gate_kinds(route.cls, route.events, EVERY_GATE_KIND)
     return class_grid_with_gates_open

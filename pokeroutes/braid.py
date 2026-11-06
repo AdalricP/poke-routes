@@ -340,6 +340,8 @@ class Planner:
     def build_spine(self) -> None:
         (e0, c0, _), (e1, c1, _) = self.exits[0], self.exits[1]
         d0, d1 = SIDE_IN[e0.side], SIDE_IN[e1.side]
+        if self.build_spine_through_whole_route_squares(c0, c1, d0):
+            return
 
         def frame(o: Cell, d) -> Frame:
             return Frame(o[0], o[1], d, (abs(d[1]), abs(d[0])))
@@ -361,7 +363,37 @@ class Planner:
             dl = (int(np.sign(p2[0] - p1[0])), int(np.sign(p2[1] - p1[1])))
             self.legs = [(frame(c0, d0), depth), (frame(p1, dl), dist(p1, p2)), (frame(p2, (-d0[0], -d0[1])), depth)]
 
+    def build_spine_through_whole_route_squares(self, entry_cell: Cell, exit_cell: Cell, entry_direction) -> bool:
+        from .whole_route_spine import (lateral_band_inside_mask, mask_of_squares, orthogonal_points_through, spine_waypoints,
+                                        square_rects_of_spec, straight_runs_of_points)
+
+        square_rects = square_rects_of_spec(self.spec)
+        if len(square_rects) < 2:
+            return False
+        mask_inside_route = mask_of_squares(square_rects, self.h, self.w)
+        points = orthogonal_points_through(spine_waypoints(square_rects, entry_cell, exit_cell), entry_direction)
+        straight_runs = straight_runs_of_points(points)
+        if not straight_runs:
+            return False
+        self.legs = [(Frame(run_start[0], run_start[1], direction, (abs(direction[1]), abs(direction[0]))), length_in_metatiles)
+                     for run_start, direction, length_in_metatiles in straight_runs]
+        self.whole_route_band_of_leg = {id(leg_frame): lateral_band_inside_mask(mask_inside_route, (leg_frame.oy, leg_frame.ox), leg_frame.d,
+                                                                                leg_length, MARGIN)
+                                        for leg_frame, leg_length in self.legs}
+        return True
+
     def vrange(self, f: Frame) -> Tuple[int, int]:
+        lowest_lateral_offset, highest_lateral_offset = self.vrange_of_whole_map(f)
+        band_inside_route = getattr(self, "whole_route_band_of_leg", {}).get(id(f))
+        if band_inside_route is None:
+            return lowest_lateral_offset, highest_lateral_offset
+        band_low, band_high = band_inside_route
+        clamped_band = (max(lowest_lateral_offset, band_low), min(highest_lateral_offset, band_high))
+        if clamped_band[0] > clamped_band[1]:
+            return lowest_lateral_offset, highest_lateral_offset
+        return clamped_band
+
+    def vrange_of_whole_map(self, f: Frame) -> Tuple[int, int]:
         if f.l[1]:  # v along x
             lo, hi = MARGIN - f.ox, self.w - 1 - MARGIN - f.ox
         else:

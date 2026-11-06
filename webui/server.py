@@ -323,8 +323,8 @@ def _patch_snap(Route):
 # UI hints for fields we know; anything else in RouteSpec gets a generic control.
 HINTS = {
     "seed": {"group": "route", "min": 0, "max": 2 ** 31 - 1},
-    "width": {"group": "route", "min": 16, "max": 96, "step": 2},
-    "height": {"group": "route", "min": 16, "max": 112, "step": 2},
+    "width": {"group": "route", "min": 16, "max": 192, "step": 2},
+    "height": {"group": "route", "min": 16, "max": 192, "step": 2},
     "biome": {"group": "route", "choices": list(BIOMES)},
     "effect": {"group": "route", "choices": list(ROUTE_EFFECTS)},
     "tree_shade": {"group": "route", "choices": list(SHADE_CHOICES), "label": "under trees"},
@@ -570,7 +570,34 @@ def _event_json(e) -> dict:
     return {"kind": e.kind, "y": int(e.y), "x": int(e.x), **{k: str(v) for k, v in data.items() if k not in ("kind", "x", "y")}}
 
 
+generated_responses_by_cache_key: "OrderedDict[str, dict]" = OrderedDict()
+generated_responses_lock = threading.Lock()
+
+
+def generation_cache_key(params: dict) -> str:
+    from pokeroutes.tileset_overlay import ARK_TILESET_PAIR_NAME, overlay_file_change_token
+
+    G()
+    cache_key = json.dumps({"params": {key: value for key, value in params.items() if key != "fresh"}, "generator": _gen_stamp,
+                            "tiles": overlay_file_change_token(ARK_TILESET_PAIR_NAME)}, sort_keys=True, default=str)
+    return cache_key
+
+
 def generate(params: dict) -> dict:
+    cache_key = generation_cache_key(params)
+    with generated_responses_lock:
+        cached_response = generated_responses_by_cache_key.get(cache_key)
+    if cached_response is not None and cached_response["id"] in _results and not params.get("fresh"):
+        return dict(cached_response, cached=True)
+    response = generate_without_cache(params)
+    with generated_responses_lock:
+        generated_responses_by_cache_key[cache_key] = response
+        while len(generated_responses_by_cache_key) > GENERATED_ROUTES_KEPT_FOR_EDITING:
+            generated_responses_by_cache_key.popitem(last=False)
+    return response
+
+
+def generate_without_cache(params: dict) -> dict:
     """Run the generator and tile every stage. Only the generator itself and the
     final tiling are required; every other part degrades to a warning."""
     t0 = time.time()

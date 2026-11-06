@@ -2,7 +2,7 @@ from typing import Dict, List, Mapping, Tuple
 
 import numpy as np
 
-from .spec import TREE_SHADES
+from .spec import TREE_SHADE_OF_RETIRED_CHOICE, TREE_SHADES
 
 SHADE_CHOICES = TREE_SHADES
 FLOOR_COLOURS_BY_SHADE = {
@@ -16,23 +16,21 @@ LEAF_COLOURS_BY_TREE_LETTER = {
     "F": ["#e9a63a", "#d8692c", "#c4822b", "#f0c05a"],
     "R": ["#b9381f", "#9c2f1c", "#d0503a", "#e06a4a"],
 }
-MEADOW_SHADE = "meadow"
-BIOMES_WITH_MEADOW_SHADE = ("meadow", "plains")
-SHADE_WHEN_NOTHING_IS_SET = "leaves"
+NO_SHADE = "none"
+SHADE_WHEN_NOTHING_IS_SET = "green"
+
+
+def known_shade(shade_choice: str) -> str:
+    shade = TREE_SHADE_OF_RETIRED_CHOICE.get(shade_choice, shade_choice)
+    return shade if shade in SHADE_CHOICES else ""
 
 
 def resolved_shade(route_choice: str, tileset_choice: str, biome: str) -> str:
-    if route_choice in SHADE_CHOICES and route_choice != "auto":
-        return route_choice
-    if tileset_choice in SHADE_CHOICES and tileset_choice != "auto":
-        return tileset_choice
-    biome_shade = MEADOW_SHADE if biome in BIOMES_WITH_MEADOW_SHADE else SHADE_WHEN_NOTHING_IS_SET
-    return biome_shade
+    shade = known_shade(route_choice) or known_shade(tileset_choice) or SHADE_WHEN_NOTHING_IS_SET
+    return shade
 
 
 def shade_for_tree_letter(shade: str, tree_letter: str) -> str:
-    if shade == "leaves":
-        return LEAF_SHADE_BY_TREE_LETTER.get(tree_letter, "green")
     return shade
 
 
@@ -43,7 +41,7 @@ def grass_ramp(plain_grass_pixels: np.ndarray) -> List[Tuple[int, int, int]]:
 
 
 def shade_colour_for_grass_pixel(grass_pixel: Tuple[int, int, int], ramp: List[Tuple[int, int, int]], shade: str) -> Tuple[int, int, int]:
-    if shade == MEADOW_SHADE:
+    if shade == NO_SHADE:
         return grass_pixel
     floor_colours = FLOOR_COLOURS_BY_SHADE[shade]
     rank = ramp.index(grass_pixel) if grass_pixel in ramp else 0
