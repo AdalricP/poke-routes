@@ -18,6 +18,7 @@ PLATEAU_SIZES_IN_CELLS = ((6, 7), (5, 7), (6, 6), (5, 6), (5, 5))
 PLATEAU_TRIES = 40
 PLATEAUS_PER_THOUSAND_CELLS = 1.2
 KEEP_PLATEAUS_FROM_EXITS_IN_CELLS = 5
+PLATEAU_EDGE_ROUGHNESS = 0.45
 
 Cell = Tuple[int, int]
 
@@ -151,7 +152,17 @@ def raise_small_plateaus_in_clearings(route) -> None:
         spot = find_plateau_spot(route, is_plateau_ground, kept_off)
         if spot is None:
             return
-        for plateau_cell in plateau_cells(*spot):
+        for plateau_cell in rounded_plateau_cells(route, *spot):
             route.cls[plateau_cell] = RAISED_GROUND_CLASS
         top, left, height_in_cells, width_in_cells = spot
         kept_off[max(0, top - 3):top + height_in_cells + 3, max(0, left - 3):left + width_in_cells + 3] = True
+
+
+def rounded_plateau_cells(route, top: int, left: int, height_in_cells: int, width_in_cells: int) -> List[Cell]:
+    centre_y, centre_x = top + (height_in_cells - 1) / 2.0, left + (width_in_cells - 1) / 2.0
+    radius_y, radius_x = height_in_cells / 2.0, width_in_cells / 2.0
+    edge_noise = fbm(height_in_cells, width_in_cells, 2.5, route.rng, octaves=2)
+    cells = [(top + row, left + column) for row in range(height_in_cells) for column in range(width_in_cells)
+             if ((top + row - centre_y) / radius_y) ** 2 + ((left + column - centre_x) / radius_x) ** 2
+             + PLATEAU_EDGE_ROUGHNESS * (edge_noise[row, column] - 0.5) < 1.0]
+    return cells
