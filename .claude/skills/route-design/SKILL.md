@@ -67,7 +67,7 @@ Other tools:
   - The real fix is a palette or remap change: road → `d` in `stages.BIOME_CODES`, or a `p`→`d` remap before the learned tiler.
   - Say which one you did.
 - **riverland**: rivers come out as straight east–west bars plus thin north–south streams. There is no meandering river spine yet.
-- **plains**: like meadow, but the space between lanes is low cliff instead of trees.
+- **plains**: open fields (Kanto Route 1 / Ash Gray feel). The lane maze is opened into grass with tall-grass plots and a few groves; the map's edge rises into a rock rim faced with ledges (open at the exits), plus a few one-way terrace ledges from the height map (`pokeroutes/plains.py`). Expect 60–75% walkable, over the `max_walkable` budget on purpose.
 - **desert**: Route 111 style rock walls, sand and boulders. Close in feel.
 - **beach, mountain, volcanic**: rough. Beach has no shoreline foam and leaves stray teal cells. Volcanic uses Lavaridge's red rock (`BIOME_TILESET`), not Route 113's ash.
 
