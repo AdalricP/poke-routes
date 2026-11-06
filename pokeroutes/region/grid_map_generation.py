@@ -18,7 +18,8 @@ COST_OF_RUNNING_ON_AN_EARLIER_ROUTE = 0.8
 COST_OF_RUNNING_BESIDE_AN_EARLIER_ROUTE = 10.0
 COST_OF_RUNNING_BESIDE_ANOTHER_TOWN = 40.0
 COST_OF_THE_GRID_BORDER = 4.0
-SMALLEST_GAP_BETWEEN_TOWNS_IN_GRID_CELLS = 3
+SMALLEST_GAP_BETWEEN_TOWNS_IN_REGION_CELLS = 24
+SMALLEST_GAP_BETWEEN_TOWNS_IN_GRID_CELLS = 2
 
 
 def grid_cell_costs(w: World, variant: int) -> np.ndarray:
@@ -35,7 +36,7 @@ def cost_of_one_grid_cell(w: World, region_cell_costs: np.ndarray, cell: GridCel
     border_cost = COST_OF_THE_GRID_BORDER if cell[0] in (0, grid_size[0] - 1) or cell[1] in (0, grid_size[1] - 1) else 0.0
     if map_grid.is_sea_grid_cell(w, cell):
         return COST_OF_A_SEA_GRID_CELL + border_cost
-    left, top, right, bottom = map_grid.region_rect_of_grid_cells([cell])
+    left, top, right, bottom = map_grid.region_rect_of_grid_cells([cell], map_grid.region_cells_per_grid_cell(w))
     block_costs = region_cell_costs[top:bottom, left:right]
     finite_costs = block_costs[np.isfinite(block_costs)]
     land_cost = float(np.median(finite_costs)) if finite_costs.size else COST_OF_A_GRID_CELL_WITHOUT_DRY_GROUND
@@ -48,21 +49,28 @@ def chebyshev_distance(cell: GridCell, other_cell: GridCell) -> int:
     return distance
 
 
+def smallest_town_gap_in_grid_cells(size: int) -> int:
+    smallest_gap = max(SMALLEST_GAP_BETWEEN_TOWNS_IN_GRID_CELLS, round(SMALLEST_GAP_BETWEEN_TOWNS_IN_REGION_CELLS / size))
+    return smallest_gap
+
+
 def is_good_town_cell(w: World, cell: GridCell, marks: Dict[GridCell, str]) -> bool:
     if not map_grid.is_inside_grid(cell, map_grid.grid_size_of_world(w)) or cell in marks:
         return False
     if map_grid.is_sea_grid_cell(w, cell):
         return False
     town_cells = [town_cell for town_cell, mark in marks.items() if mark == TOWN_MARK]
-    keeps_a_gap = all(chebyshev_distance(cell, town_cell) >= SMALLEST_GAP_BETWEEN_TOWNS_IN_GRID_CELLS for town_cell in town_cells)
+    smallest_gap = smallest_town_gap_in_grid_cells(map_grid.region_cells_per_grid_cell(w))
+    keeps_a_gap = all(chebyshev_distance(cell, town_cell) >= smallest_gap for town_cell in town_cells)
     return keeps_a_gap
 
 
 def with_generated_towns(w: World, marks: Dict[GridCell, str], variant: int) -> Dict[GridCell, str]:
-    kept_centres = [map_grid.centre_region_cell_of_grid_cell(cell) for cell, mark in marks.items() if mark == TOWN_MARK]
+    size = map_grid.region_cells_per_grid_cell(w)
+    kept_centres = [map_grid.centre_region_cell_of_grid_cell(cell, size) for cell, mark in marks.items() if mark == TOWN_MARK]
     town_marks = dict(marks)
     for site in pick_town_sites(w, variant, kept_centres):
-        cell = map_grid.grid_cell_of_region_cell(site)
+        cell = map_grid.grid_cell_of_region_cell(site, size)
         if is_good_town_cell(w, cell, town_marks):
             town_marks[cell] = TOWN_MARK
     return town_marks
@@ -144,27 +152,44 @@ def walked_back_path(came_from: Dict, last_state: Tuple[GridCell, Optional[GridC
     return forward_path
 
 
-def with_generated_routes(w: World, marks: Dict[GridCell, str], variant: int) -> Dict[GridCell, str]:
+def with_path_assigned(assignment: Dict[GridCell, str], path: Sequence[GridCell]) -> Dict[GridCell, str]:
+    fresh_cells = [cell for cell in path if cell not in assignment]
+    extended = dict(assignment)
+    for run in map_grid.connected_groups(fresh_cells):
+        fresh_key = map_grid.next_free_route_key(extended)
+        extended.update({cell: fresh_key for cell in run})
+    return extended
+
+
+def with_generated_routes(w: World, marks: Dict[GridCell, str], assignment: Dict[GridCell, str],
+                          variant: int) -> Tuple[Dict[GridCell, str], Dict[GridCell, str]]:
     costs = grid_cell_costs(w, variant)
     stops = town_stops(marks)
     all_town_cells = {cell for stop in stops for cell in stop.cells}
     route_marks = dict(marks)
+    route_assignment = dict(assignment)
     for start_town, end_town in town_pairs_to_join(stops, variant, w.seed):
         path = metro_path(start_town, end_town, all_town_cells, costs, route_marks)
         route_marks.update({cell: ROUTE_MARK for cell in path})
-    return route_marks
+        route_assignment = with_path_assigned(route_assignment, path)
+    return route_marks, route_assignment
 
 
-def kept_marks(w: World) -> Dict[GridCell, str]:
+def kept_marks_and_assignment(w: World) -> Tuple[Dict[GridCell, str], Dict[GridCell, str]]:
     grid_size = map_grid.grid_size_of_world(w)
-    pinned_route_cells = [cell for route in w.routes if route.get("pinned") for cell in map_grid.old_route_grid_cells(route)]
-    pinned_town_cells = [cell for town in w.cities if town.pinned for cell in map_grid.old_town_grid_cells(town)]
-    marks = map_grid.with_cells_painted({}, pinned_route_cells, "route", grid_size)
+    size = map_grid.region_cells_per_grid_cell(w)
+    pinned_routes = [route for route in w.routes if route.get("pinned")]
+    assignment = {cell: route.get("grid_key") or f"pinned{index}" for index, route in enumerate(pinned_routes)
+                  for cell in map_grid.old_route_grid_cells(route, size)}
+    pinned_town_cells = [cell for town in w.cities if town.pinned for cell in map_grid.old_town_grid_cells(town, size)]
+    marks = map_grid.with_cells_painted({}, list(assignment), "route", grid_size)
     marks = map_grid.with_cells_painted(marks, pinned_town_cells, "town", grid_size)
-    return marks
+    kept_assignment = {cell: key for cell, key in assignment.items() if marks.get(cell) == ROUTE_MARK}
+    return marks, kept_assignment
 
 
-def generated_marks(w: World, variant: int) -> Dict[GridCell, str]:
-    marks_with_towns = with_generated_towns(w, kept_marks(w), variant)
-    marks_with_routes = with_generated_routes(w, marks_with_towns, variant)
-    return marks_with_routes
+def generated_marks_and_assignment(w: World, variant: int) -> Tuple[Dict[GridCell, str], Dict[GridCell, str]]:
+    marks, assignment = kept_marks_and_assignment(w)
+    marks_with_towns = with_generated_towns(w, marks, variant)
+    marks_with_routes, route_assignment = with_generated_routes(w, marks_with_towns, assignment, variant)
+    return marks_with_routes, route_assignment

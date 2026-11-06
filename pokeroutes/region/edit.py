@@ -219,7 +219,7 @@ def stage_biomes(w: World) -> None:
 
 
 def stage_routes(w: World) -> None:
-    map_grid.map_from_marks(w, map_grid.marks_of_map_grid(map_grid.map_grid_of_world(w)))
+    map_grid.map_from_map_grid(w, map_grid.map_grid_of_world(w))
 
 
 RUN = {"water": stage_water, "climate": stage_climate, "biomes": stage_biomes, "routes": stage_routes}
@@ -260,13 +260,17 @@ def place_names_of(w: World) -> set:
     return place_names
 
 
-def paint_map(doc: dict, cells: list, brush: str) -> dict:
+def paint_map(doc: dict, cells: list, brush: str, route_key: Optional[str] = None) -> dict:
     """Paint Map-grid cells (``[[gx, gy], ...]``) with the route, town or erase brush and
-    derive every town and route from the painted grid (see map_grid.py)."""
+    derive every town and route from the painted grid (see map_grid.py). ``route_key``
+    picks the route the cells go to: an existing route's ``grid_key`` or "new" (both
+    take the cells from other routes); left out, a stroke that starts on a route
+    extends it and any other stroke starts a new route."""
     w = doc_to_world(doc)
-    map_grid_size = map_grid.grid_size_of_world(w)
-    marks = map_grid.with_cells_painted(map_grid.marks_of_map_grid(map_grid.map_grid_of_world(w)), cells, brush, map_grid_size)
-    merged_away = map_grid.map_from_marks(w, marks)
+    stored_map_grid = map_grid.map_grid_of_world(w)
+    marks, assignment = map_grid.painted_map(map_grid.marks_of_map_grid(stored_map_grid), map_grid.assignment_of_map_grid(stored_map_grid),
+                                             cells, brush, map_grid.grid_size_of_world(w), route_key or None)
+    merged_away = map_grid.map_from_marks(w, marks, assignment)
     w.log.append(f"editor: painted {len(cells)} map cell(s) with the {brush} brush")
     out = finish(w, doc, [stage for stage in doc.get("stale", []) if stage != "routes"])
     if "story" in out:
@@ -274,18 +278,27 @@ def paint_map(doc: dict, cells: list, brush: str) -> dict:
     return out
 
 
+def regrid_map(doc: dict, region_cells_per_grid_cell: int) -> dict:
+    """Snap every town and route onto a Map grid of another cell size (see map_grid.regrid_world)."""
+    w = doc_to_world(doc)
+    map_grid.regrid_world(w, int(region_cells_per_grid_cell))
+    w.log.append(f"editor: map grid set to {region_cells_per_grid_cell} region cells a square")
+    out = finish(w, doc, [stage for stage in doc.get("stale", []) if stage != "routes"])
+    return out
+
+
 def generate_map(doc: dict) -> dict:
     """The whole map on the current geography, on the Map grid: towns placed where the
     land suits them, then metro-style routes between them. Pinned towns and pinned
     routes stay; every other town and route is replaced."""
-    from .grid_map_generation import generated_marks
+    from .grid_map_generation import generated_marks_and_assignment
 
     w = doc_to_world(doc)
     route_variant = next_route_variant(doc)
-    marks = generated_marks(w, route_variant)
+    marks, assignment = generated_marks_and_assignment(w, route_variant)
     w.cities = [c for c in w.cities if c.pinned]
     w.routes = [r for r in w.routes if r.get("pinned")]
-    map_grid.map_from_marks(w, marks)
+    map_grid.map_from_marks(w, marks, assignment)
     if len(w.cities) < 2:
         raise RegionEditRefused("this map has no room for two towns: raise or paint more dry land first")
     w.log.append(f"editor: generated the map: {len(w.cities)} towns, {len(w.routes)} routes (network variant {route_variant})")
@@ -374,7 +387,7 @@ def load(path: Path) -> dict:
         doc["preset"] = "generic"
         w = doc_to_world(doc)
         if not doc.get("map_grid"):
-            map_grid.map_from_marks(w, map_grid.marks_of_places(w))
+            map_grid.map_from_map_grid(w, map_grid.map_grid_of_world(w))
             return finish(w, doc, doc.get("stale", []))
         doc["routes"] = with_specs(w)
         return doc

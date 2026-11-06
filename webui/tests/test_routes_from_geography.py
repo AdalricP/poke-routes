@@ -115,7 +115,7 @@ def generic_doc_with_towns(seed=3, town_count=4):
 
     doc = edit.generate_doc(seed, "generic")
     sites = pick_town_sites(edit.doc_to_world(doc), 0, [])[:town_count]
-    doc = edit.paint_map(doc, [list(map_grid.grid_cell_of_region_cell(site)) for site in sites], "town")
+    doc = edit.paint_map(doc, [list(map_grid.grid_cell_of_region_cell(site, map_grid.REGION_CELLS_PER_GRID_CELL)) for site in sites], "town")
     return doc
 
 

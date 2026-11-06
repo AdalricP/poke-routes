@@ -10,10 +10,13 @@ POST /api/editor/recompute  {doc, stages: [...]}   -> document with those stages
 POST /api/editor/generate-map {doc}                -> document with towns and metro-style routes painted
                             on the Map grid (unpinned towns and routes replaced, pinned kept);
                             "message" for the log
-POST /api/editor/paint-map  {doc, cells, brush}    -> document with Map-grid cells [[gx, gy], ...] painted
-                            (brush route | town | erase); towns and routes are derived from the
-                            grid: neighbouring town cells are one town, neighbouring route cells
-                            one route, each route carries its cells in path order (grid_cells)
+POST /api/editor/paint-map  {doc, cells, brush, route_key?} -> document with Map-grid cells [[gx, gy], ...]
+                            painted (brush route | town | erase); neighbouring town cells are one town;
+                            route cells belong to the route they were painted for (route_key: a route's
+                            grid_key or "new"; left out, a stroke starting on a route extends it, else a
+                            new route); each route carries its cells in path order (grid_cells)
+POST /api/editor/regrid-map {doc, cell}            -> document with towns and routes snapped onto a Map grid
+                            of `cell` region cells a square (4, 6, 8, 10, 12 or 16)
 POST /api/editor/save       {doc, name}            -> writes region_out/<name>/ (region.json, routes/*.yaml)
 POST /api/editor/spec       {doc, id}              -> one route's full spec (with its region block)
 POST /api/editor/render     {doc, scale}           -> PNG of the edited region (server-side render)
@@ -118,8 +121,10 @@ def post(h, u, srv) -> None:
             return h._json(edit.recompute(b["doc"], stages))
         if p == "/api/editor/generate-map":
             return h._json(edit.generate_map(b["doc"]))
+        if p == "/api/editor/regrid-map":
+            return h._json(edit.regrid_map(b["doc"], int(b.get("cell") or 0)))
         if p == "/api/editor/paint-map":
-            return h._json(edit.paint_map(b["doc"], list(b.get("cells") or []), str(b.get("brush") or "")))
+            return h._json(edit.paint_map(b["doc"], list(b.get("cells") or []), str(b.get("brush") or ""), b.get("route_key") or None))
         if p == "/api/editor/save":
             name = _name(b.get("name") or b["doc"].get("name"))
             with _lock:
