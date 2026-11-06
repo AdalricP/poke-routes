@@ -17,23 +17,10 @@
   const REGION_KEY = "pokeroutes-region-spec";    // region block of a route opened from a region
   const PREFS_KEY = "pokeroutes-shell-prefs-v1";
   const VIEW_KEY = "pokeroutes-shell-view-v1";
-  const PAINT_CLASSES = "gptwrsaqdbhyvkzlnu";  // terrain brushes; trees are TREES below
-  const CLASS_CODES = "gptwfrsexaqdbhyvkzlnu";  // every class the paint backend takes (all but "o")
-  const LEDGE_CLASS = "s";           // one brush for all ledge directions; state.ledgeDir picks s/e/x
-  const LEDGE_DIRS = ["s", "e", "x"];
-  // Whole trees, painted as their exact metatiles (top row first) on class "f" cells, so a
-  // stroke never leaves half a tree. The first two are General (every learned tileset).
-  const TREES = {
-    "tree:green": { label: "tree", w: 1, ids: [0x00E, 0x016] },
-    "tree:pine": { label: "pine", w: 2, ids: [0x01E, 0x01F, 0x026, 0x027] },
-    "tree:round": { label: "round tree", w: 2, ids: [0x1D4, 0x1D5, 0x1DC, 0x1DD], tileset: "general_fortree" },
-  };
-  const treeFits = (k, r) => !!TREES[k] && !!r && r.tiler !== "ark" && (!TREES[k].tileset || TREES[k].tileset === r.tileset);
-  // A tree cell is stored as class + "#" + metatile ("f#14"); /api/retile gets it as two cells.
-  const expandPaint = (cells) => cells.flatMap(([x, y, k]) => {
-    const m = /^([a-z])(#\d+)$/.exec(k);
-    return m ? [[x, y, m[1]], [x, y, m[2]]] : [[x, y, k]];
-  });
+  // Brushes come from the route's paint palette (GET /api/paint-palette, webui/paint_palette.py):
+  // every class its tiler draws, its objects and its exact tiles. One "ledge" brush covers every
+  // ledge direction; state.ledgeDir picks the class.
+  const LEDGE_BRUSH = SL.LEDGE_BRUSH;
   const store = Shell.store;
 
   const sget = (k) => { try { return JSON.parse(store.getItem(k) || "null"); } catch (e) { return null; } };
@@ -62,11 +49,13 @@
     hover: null, hoverArea: null, sel: null,
     playing: false, timer: null, busy: false,
     specials: [], exits: [], tab: "dex",
-    tool: "select", paint: { cells: new Map(), busy: false }, ledgeDir: "s",
+    tool: "select", paint: { cells: new Map(), busy: false }, ledgeDir: "s", brush: "g", palette: null, palettes: {},
     region: sget(REGION_KEY),      // {name, region, endings} or null
     file: { handle: null, name: "" },
     saved: "", generated: "",
-    expanded: new Set(["route", "g:lanes", "g:special", "g:layers"]),
+    expanded: new Set(["route", "g:exits", "g:lanes", "g:special", "g:layers"]),
+    route_trail: [],           // names of the region routes walked through, for Back
+    connection_labels: [],     // screen boxes of the exit labels drawn on the Scene: {x, y, w, h, i}
   };
   const undoStack = new SL.History(150, 800);
   function saveView() { sset(VIEW_KEY, { layer: state.layer, ov: state.ov }); }
@@ -230,7 +219,7 @@
       num.setAttribute("aria-label", `Exit ${i + 1} width`);
       const x = el("button", "x", "×");
       x.type = "button";
-      x.disabled = state.exits.length <= 2;
+      x.disabled = state.exits.length <= 1;
       x.setAttribute("aria-label", `Remove exit ${i + 1}`);
       if (e.to) li.title = "to " + e.to;
       sel.onchange = () => { e.side = sel.value; edited("exits"); };
@@ -259,7 +248,7 @@
     if (p.seed != null) $("seed").value = p.seed;
     for (const [k, c] of Object.entries(controls)) if (p[k] != null) c.set(p[k]);
     if (Array.isArray(p.special_areas)) state.specials = p.special_areas.slice(0, 6);
-    if (Array.isArray(p.exits) && p.exits.length >= 2) state.exits = p.exits.map((e) => ({ ...e }));
+    if (Array.isArray(p.exits) && p.exits.length >= 1) state.exits = p.exits.map((e) => ({ ...e }));
     renderChips();
     renderExits();
     sizeWarn();
@@ -393,8 +382,7 @@
       const resized = !state.result || state.result.width !== res.width || state.result.height !== res.height;
       state.result = res;
       state.atlas = atlas;
-      if (!$("leftTiles").hidden) render_terrain_brushes();
-      syncTreeOptions();
+      await load_paint_palette(res);
       state.sel = null;
       undoStack.filter((e) => e.kind !== "paint");
       buildCanvases();
@@ -734,6 +722,7 @@
       const m = st.tiles[c.y * r.width + c.x];
       $("stCell").textContent = `x ${c.x}  y ${c.y}  ${PR.CLASS_NAMES[k] || k}  0x${m.toString(16).toUpperCase().padStart(3, "0")}`;
     } else $("stCell").textContent = "";
+    wrap.classList.toggle("over-connection", state.tool === "select" && !!connection_label_at(sx, sy));
     if (area) showTip(area, sx, sy); else hideTip();
     if (changed || state.tool !== "select") draw();
   }
@@ -759,6 +748,8 @@
 
   // What is under a cell, most specific first.
   function pickAt(sx, sy) {
+    const label = connection_label_at(sx, sy);
+    if (label) { follow_connection(label.i); return; }
     const r = state.result;
     const c = r && cellOf(sx, sy);
     if (!c || !state.ov.markings) { select(null); return; }
@@ -1005,16 +996,16 @@
     if (state.ov.markings && state.ov.areas) drawAreas(g, zones, ox, oy, s);
     if (!opt.interactive) return;
     if (state.ov.markings) drawSelection(g, ox, oy, s);
+    if (state.ov.markings) draw_connection_labels(g, ox, oy, s); else state.connection_labels = [];
     if (state.paint.cells.size) {
       g.globalAlpha = 0.7;
-      for (const [k, cls] of state.paint.cells) {
+      for (const [k, value] of state.paint.cells) {
         const [x, y] = k.split(",").map(Number);
-        if (cls.includes("#")) { draw_metatile(g, +cls.split("#")[1], ox + x * s, oy + y * s, s); continue; }
-        g.fillStyle = PR.CLASS_COLORS[cls] || "#f0f";
-        g.fillRect(ox + x * s, oy + y * s, s, s);
+        draw_paint_value(g, x, y, value, ox + x * s, oy + y * s, s);
       }
       g.globalAlpha = 1;
     }
+    if (state.hover && !state.hoverArea && !state.paint.cells.size) draw_brush_preview_under_cursor(g, ox, oy, s);
     if (state.hover && !state.hoverArea) {
       const cells = hoverCells();
       g.strokeStyle = "rgba(255,255,255,0.9)";
@@ -1025,8 +1016,7 @@
 
   function hoverCells() {
     const h = state.hover, r = state.result;
-    if (state.tool === "paint" && TREES[$("paintClass").value]) return treeCells($("paintClass").value, h.x, h.y, r).map(([x, y]) => [x, y]);
-    if (state.tool === "paint") return SL.brushCells(h.x, h.y, +$("brushSize").value, "g", r.width, r.height);
+    if (state.tool === "paint") return brush_cells_at(h.x, h.y).map(([x, y]) => [x, y]);
     if (state.tool === "stamp") return SL.stampCells($("stampKind").value, h.x, h.y, r.width, r.height);
     return [[h.x, h.y]];
   }
@@ -1156,36 +1146,30 @@
   // One ledge brush, rotated with the toolbar widget or the R key, instead of a
   // separate tile per direction.
   function updateLedgeUI() {
-    const active = $("paintClass").value === LEDGE_CLASS;
-    $("ledgeRot").hidden = !active;
-    $("ledgeRot").querySelectorAll(".ledge-dir-btn").forEach((b) => b.classList.toggle("on", b.dataset.dir === state.ledgeDir));
+    const ledge_codes = SL.palette_ledge_codes(state.palette);
+    if (ledge_codes.length && !ledge_codes.includes(state.ledgeDir)) state.ledgeDir = ledge_codes[0];
+    $("ledgeRot").hidden = state.brush !== LEDGE_BRUSH;
+    $("ledgeRot").querySelectorAll(".ledge-dir-btn").forEach((b) => {
+      b.hidden = !ledge_codes.includes(b.dataset.dir);
+      b.classList.toggle("on", b.dataset.dir === state.ledgeDir);
+    });
+    $("brushSize").hidden = !["terrain", "ledge"].includes(SL.brush_kind(state.brush).kind);
   }
   function rotateLedgeDir() {
-    const i = LEDGE_DIRS.indexOf(state.ledgeDir);
-    state.ledgeDir = LEDGE_DIRS[(i + 1) % LEDGE_DIRS.length];
+    state.ledgeDir = SL.next_ledge_code(state.palette, state.ledgeDir);
     updateLedgeUI();
-    if (!$("leftTiles").hidden) render_terrain_brushes();
+    if (!$("leftTiles").hidden) render_paint_palette();
   }
   function paintAt(sx, sy) {
     const r = state.result;
     const c = cellOf(sx, sy);
     if (!c) { state.paint.last = null; return; }
-    if (state.tool === "paint" && TREES[$("paintClass").value]) {
-      // one whole tree per cell the stroke passes, skipped where it would overlap one already placed
-      const pts = state.paint.last ? SL.lineCells(state.paint.last, c).slice(1) : [c];
-      for (const p of pts) {
-        const tree = treeCells($("paintClass").value, p.x, p.y, r);
-        if (tree.some(([x, y]) => state.paint.cells.has(`${x},${y}`))) continue;
-        for (const [x, y, k] of tree) state.paint.cells.set(`${x},${y}`, k);
-      }
-    } else if (state.tool === "stamp") {
+    if (state.tool === "stamp") {
       if (state.paint.last && state.paint.last.x === c.x && state.paint.last.y === c.y) return;
       for (const [x, y, k] of SL.stampCells($("stampKind").value, c.x, c.y, r.width, r.height)) state.paint.cells.set(`${x},${y}`, k);
     } else {
-      const pts = state.paint.last ? SL.lineCells(state.paint.last, c).slice(1) : [c];
-      const chosen = $("paintClass").value, k = chosen === LEDGE_CLASS ? state.ledgeDir : chosen;
-      const size = SL.TWO_WIDE.includes(k) ? Math.max(2, +$("brushSize").value) : +$("brushSize").value;
-      for (const p of pts) for (const [x, y] of SL.brushCells(p.x, p.y, size, k, r.width, r.height)) state.paint.cells.set(`${x},${y}`, k);
+      const stroke_points = state.paint.last ? SL.lineCells(state.paint.last, c).slice(1) : [c];
+      for (const stroke_point of stroke_points) add_brush_cells_to_stroke(brush_cells_at(stroke_point.x, stroke_point.y));
     }
     state.paint.last = c;
     draw();
@@ -1195,17 +1179,19 @@
     const fin = r.stages[r.stages.length - 1];
     const stroke = [...state.paint.cells].map(([k, cls]) => [...k.split(",").map(Number), cls]);
     const cells = [], old = [];
-    const plain = (k) => (CLASS_CODES.includes(k) ? k : "g");
+    const class_codes = SL.palette_class_codes(state.palette);
+    const plain = (k) => (class_codes.includes(k) ? k : "g");
     const remembered = savedPaint(r);
     const isTree = (x, y) => String(remembered[`${x},${y}`] || "").includes("#");
     for (const [x, y, k] of stroke.filter((c) => c[2].includes("#"))) {
       const was = fin.cls[y][x] + "#" + fin.tiles[y * r.width + x];
       if (was === k) continue;
+      const [was_class, was_tile] = was.split("#");
       cells.push([x, y, k]);
-      old.push([x, y, plain(was.split("#")[0]) + "#" + was.split("#")[1]]);
+      old.push([x, y, (was_class === "o" ? "o" : plain(was_class)) + "#" + was_tile]);
     }
     const class_stroke = stroke.filter((c) => !c[2].includes("#"));
-    // the tidy pass leaves painted trees alone (a 1-wide tree is not a stray tree wall)
+    // the tidy pass leaves exact tiles and objects alone (a 1-wide tree is not a stray tree wall)
     const tidy = SL.tidyPaint(fin.cls, class_stroke).filter(([x, y]) => !isTree(x, y));
     for (const [x, y, cls] of class_stroke.concat(tidy)) {
       const was = fin.cls[y][x];
@@ -1249,7 +1235,7 @@
     const r = state.result;
     if (!r) return false;
     try {
-      const res = await postJSON("/api/retile", { id: r.id, cells: expandPaint(cells) });
+      const res = await postJSON("/api/retile", { id: r.id, cells: SL.expand_paint_cells(cells) });
       if (state.result !== r) return false; // a new route arrived meanwhile
       const last = r.stages.length - 1;
       r.stages[last].cls = res.cls;
@@ -1390,9 +1376,11 @@
       if (!x) return;
       title(`Exit ${sel.i + 1}: ${x.side}`, "#9cc6f0");
       const sp = state.exits[sel.i];
-      kv([["side", x.side], ["to", x.to || "nothing (open edge)"], ["width", x.cells.length], ["position", sp ? sp.at : null],
-        ["role", sel.i < 2 ? "joined by the main road" : "extra exit"]]);
+      const connection = scene_connections()[sel.i];
+      kv([["side", x.side], ["to", x.to || "nothing (open edge)"], ["leads to", connection && connection.name], ["width", x.cells.length],
+        ["position", sp ? sp.at : null], ["role", sel.i < 2 ? "joined by the main road" : "extra exit"]]);
       actions();
+      if (connection) box.querySelector(".sel-actions").append(follow_button(follow_action(sel.i, connection), "btn go"));
     }
   }
 
@@ -1424,10 +1412,8 @@
         sel: { type: "event", i }, dim: i >= st.events,
       })),
     }));
-    const exits = (r.exits || []).map((x, i) => ({
-      id: "x:" + i, label: `${x.side}${x.to ? " → " + x.to : ""}`, meta: `${x.cells.length} wide`,
-      icon: { color: "#9cc6f0" }, sel: { type: "exit", i },
-    }));
+    const connections = scene_connections();
+    const exits = (r.exits || []).map((x, i) => exit_tree_node(x, i, connections[i]));
     const eye = (k) => ({ on: state.ov[k], toggle: () => toggleOv(k) });
     const layers = [
       { id: "l:tiles", label: "Metatiles", meta: state.layer === "tiles" ? "shown" : "", icon: { color: "#7aa060" }, run: () => setLayer("tiles"), on: state.layer === "tiles" },
@@ -1439,6 +1425,7 @@
     return {
       id: "route", label: r.name, meta: `${r.width}×${r.height}`, sel: { type: "route" }, icon: { color: "#4d90d6" },
       children: [
+        ...back_tree_nodes(),
         { id: "g:exits", label: "Exits", meta: String(exits.length), group: true, children: exits },
         { id: "g:lanes", label: "Lanes", meta: String(lanes.length), group: true, children: lanes },
         { id: "g:special", label: "Special areas", meta: String(special.length), group: true, children: special },
@@ -1496,13 +1483,17 @@
         b.onclick = (ev) => { ev.stopPropagation(); n.eye.toggle(); };
         row.append(b);
       }
+      if (n.follow) row.append(follow_button(n.follow));
       row.onclick = () => {
         if (n.sel) select(n.sel);
         else if (n.run) n.run();
         else if (n.eye) n.eye.toggle();
         else if (n.children) tw.onclick(new Event("click"));
       };
-      row.ondblclick = () => { if (n.sel) { select(n.sel); focusSel(); } };
+      row.ondblclick = () => {
+        if (n.follow) { n.follow.run(); return; }
+        if (n.sel) { select(n.sel); focusSel(); }
+      };
       li.append(row);
       if (n.children && kids.length) {
         const sub = el("ul");
@@ -1720,6 +1711,8 @@
   function openInBench(spec) {
     const { params: p, region } = SL.specToParams(spec, params());
     replaceParams(p, "region route");
+    state.route_trail = state.pending_walk && state.pending_walk.to === p.name ? state.pending_walk.trail : [];
+    state.pending_walk = null;
     state.region = region;
     if (region) sset(REGION_KEY, region); else sdel(REGION_KEY);
     renderRegionLink();
@@ -1747,8 +1740,111 @@
     box.append(el("p", "hint", "Its region block (elevation, rivers, role) goes into Generate while the route keeps this name."));
     const b = el("button", "btn", "Detach from region");
     b.type = "button";
-    b.onclick = () => { state.region = null; sdel(REGION_KEY); renderRegionLink(); log("info", "Detached the route from its region block"); };
+    b.onclick = () => { state.region = null; state.route_trail = []; sdel(REGION_KEY); renderRegionLink(); renderTree(); log("info", "Detached the route from its region block"); };
     box.append(b);
+    if (state.route_trail.length) box.append(follow_button({ label: back_label(), run: go_back_a_route }, "btn go"));
+  }
+
+  // ------------------------------------------------------------ walking the region through its connections
+  // An exit of a route opened from a region leads to the route or town on the other side;
+  // clicking it (its label on the map, its Hierarchy row, or the Inspector) opens that route.
+  const ARROW_OUT_OF_SIDE = { north: "↑", south: "↓", east: "→", west: "←" };
+  function open_region_document() {
+    const editor_actions = region_editor();
+    return editor_actions ? editor_actions.getDoc() : null;
+  }
+  function scene_connections() {
+    const route = state.result;
+    if (!route || !state.region) return [];
+    return SL.exitConnections(route.exits, open_region_document(), state.region.name);
+  }
+  function follow_action(exit_index, connection) {
+    const verb = connection.kind === "town" ? "Show" : "Open";
+    return { label: `${verb} ${connection.name}`, run: () => follow_connection(exit_index) };
+  }
+  function follow_button(follow, class_name) {
+    const button = el("button", class_name || "go", class_name ? follow.label : "go");
+    button.type = "button";
+    button.title = follow.label;
+    button.onclick = (ev) => { ev.stopPropagation(); follow.run(); };
+    return button;
+  }
+  function exit_tree_node(scene_exit, exit_index, connection) {
+    const destination = connection ? connection.name : scene_exit.to;
+    const node = {
+      id: "x:" + exit_index, label: `${scene_exit.side}${destination ? " → " + destination : ""}`,
+      meta: connection && connection.kind === "town" ? "town" : `${scene_exit.cells.length} wide`,
+      icon: { color: "#9cc6f0" }, sel: { type: "exit", i: exit_index },
+    };
+    if (connection) node.follow = follow_action(exit_index, connection);
+    return node;
+  }
+  function back_label() {
+    return `← Back to ${state.route_trail[state.route_trail.length - 1]}`;
+  }
+  function back_tree_nodes() {
+    if (!state.route_trail.length) return [];
+    return [{ id: "back", label: back_label(), icon: { color: "#9cc6f0" }, run: go_back_a_route }];
+  }
+  function follow_connection(exit_index) {
+    const connection = scene_connections()[exit_index];
+    if (!connection) return;
+    if (connection.kind === "unknown") { log("warn", `Open the region in the Map view first to follow the way to ${connection.name}.`); return; }
+    if (connection.kind === "town") { show_town_in_routes_view(connection.town); return; }
+    walk_to(connection.route, [...state.route_trail, state.region.name]);
+  }
+  function go_back_a_route() {
+    const previous_name = state.route_trail[state.route_trail.length - 1];
+    const region_document = open_region_document();
+    const previous_route = region_document && (region_document.routes || []).find((route) => route.name === previous_name);
+    if (!previous_route) { log("warn", `${previous_name} is not in the open region any more.`); return; }
+    walk_to(previous_route, state.route_trail.slice(0, -1));
+  }
+  function walk_to(region_route, trail_after) {
+    state.pending_walk = { to: region_route.name, trail: trail_after };
+    region_editor().openInBench(region_route);
+  }
+  function show_town_in_routes_view(town) {
+    Shell.setCenter("region");
+    region_editor().select({ kind: "city", id: town.id });
+    log("info", `${town.name} is a town; towns can't open in the Routes view yet, so it is selected on the Map.`);
+  }
+  function connection_label_at(sx, sy) {
+    return state.connection_labels.find((box) => sx >= box.x && sx < box.x + box.w && sy >= box.y && sy < box.y + box.h) || null;
+  }
+  function connection_label_box(scene_exit, text_width, label_height, ox, oy, s) {
+    const [x0, y0, x1, y1] = bboxOf(scene_exit.cells);
+    const width = text_width + 12;
+    const center_x = ox + (x0 + x1) / 2 * s - width / 2;
+    const center_y = oy + (y0 + y1) / 2 * s - label_height / 2;
+    switch (scene_exit.side) {
+      case "north": return { x: center_x, y: oy + y1 * s + 4, w: width, h: label_height };
+      case "south": return { x: center_x, y: oy + y0 * s - label_height - 4, w: width, h: label_height };
+      case "west": return { x: ox + x1 * s + 4, y: center_y, w: width, h: label_height };
+      default: return { x: ox + x0 * s - width - 4, y: center_y, w: width, h: label_height };
+    }
+  }
+  function draw_connection_labels(g, ox, oy, s) {
+    state.connection_labels = [];
+    const route = state.result;
+    const connections = scene_connections();
+    const font_size = Math.round(Math.max(11, Math.min(14, s * 0.7)));
+    g.font = `600 ${font_size}px Inter, system-ui, sans-serif`;
+    g.textBaseline = "middle";
+    connections.forEach((connection, exit_index) => {
+      const scene_exit = route.exits[exit_index];
+      if (!connection || !scene_exit || !scene_exit.cells.length) return;
+      const text = `${ARROW_OUT_OF_SIDE[scene_exit.side] || "→"} ${connection.name}`;
+      const box = connection_label_box(scene_exit, g.measureText(text).width, font_size + 8, ox, oy, s);
+      g.fillStyle = connection.kind === "unknown" ? "rgba(28,28,28,0.7)" : "rgba(20,40,64,0.92)";
+      g.fillRect(box.x, box.y, box.w, box.h);
+      g.strokeStyle = "#9cc6f0";
+      g.lineWidth = 1;
+      g.strokeRect(box.x + 0.5, box.y + 0.5, box.w - 1, box.h - 1);
+      g.fillStyle = "#eef5fc";
+      g.fillText(text, box.x + 6, box.y + box.h / 2 + 1);
+      state.connection_labels.push(Object.assign({ i: exit_index }, box));
+    });
   }
 
   function show_center_tab(tab) {
@@ -2158,8 +2254,9 @@
     { id: "x-zout", label: "Zoom out", group: "Scene view", enabled: sceneRoute, run: () => zoomBy(-1) },
     { id: "x-zfit", label: "Fit to view", group: "Scene view", enabled: sceneRoute, run: fit },
     { id: "x-help", label: "Keyboard shortcuts", group: "Help", enabled: isScene, run: () => Shell.showShortcuts() },
-    { id: "x-ledge-rot", label: "Rotate ledge direction", group: "Scene tools",
-      enabled: () => isScene() && state.tool === "paint" && $("paintClass").value === LEDGE_CLASS, run: rotateLedgeDir },
+    { id: "x-ledge-rot", label: "Rotate ledge or fence", group: "Scene tools",
+      enabled: () => isScene() && state.tool === "paint" && (state.brush === LEDGE_BRUSH || is_rotatable_object_selected()),
+      run: () => (state.brush === LEDGE_BRUSH ? rotateLedgeDir() : rotate_selected_object()) },
   ];
 
   // ------------------------------------------------------------ wiring
@@ -2179,7 +2276,7 @@
     $("tbZoomOut").onclick = zoomOutView;
     $("tbFit").onclick = fitView;
     $("tbTiler").onchange = () => setTiler($("tbTiler").value);
-    $("paintClass").addEventListener("change", () => { choose_terrain_brush($("paintClass").value); });
+    $("paintClass").addEventListener("change", () => { choose_brush($("paintClass").value); });
     document.querySelectorAll("[data-left-tab]").forEach((tab_button) => { tab_button.onclick = () => show_left_tab(tab_button.dataset.leftTab); });
     $("tbMarkings").onclick = () => toggleOv("markings");
     sync_markings_button();
@@ -2190,11 +2287,9 @@
     $("areaAdd").onclick = addSpecial;
     $("areaInput").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); addSpecial(); } });
     $("exitAdd").onclick = () => { if (state.exits.length < 4) { state.exits.push({ side: "west", at: 0.5, width: 3 }); renderExits(); edited("exits"); } };
-    const pc = $("paintClass");
-    for (const k of PAINT_CLASSES) pc.append(Object.assign(el("option", "", k === LEDGE_CLASS ? "ledge" : (PR.CLASS_NAMES[k] || k)), { value: k }));
-    for (const [k, t] of Object.entries(TREES)) pc.append(Object.assign(el("option", "", t.label), { value: k }));
-    pc.value = "g";
-    $("ledgeRot").querySelectorAll(".ledge-dir-btn").forEach((b) => { b.onclick = () => { state.ledgeDir = b.dataset.dir; updateLedgeUI(); if (!$("leftTiles").hidden) render_terrain_brushes(); }; });
+    fill_brush_select();
+    $("exactTiles").onclick = pick_exact_tile_from_palette;
+    $("ledgeRot").querySelectorAll(".ledge-dir-btn").forEach((b) => { b.onclick = () => { choose_ledge(b.dataset.dir); }; });
     const sk = $("stampKind");
     for (const [k, s] of Object.entries(SL.STAMPS)) sk.append(Object.assign(el("option", "", s.label), { value: k }));
     setTool("select");
@@ -2214,7 +2309,7 @@
       if (saved.seed != null) $("seed").value = saved.seed;
     }
     state.specials = saved && Array.isArray(saved.special_areas) ? saved.special_areas.slice(0, 6) : DEFAULT_SPECIALS.slice();
-    state.exits = saved && Array.isArray(saved.exits) && saved.exits.length >= 2 ? saved.exits.map((e) => ({ ...e })) : DEFAULT_EXITS.map((e) => ({ ...e }));
+    state.exits = saved && Array.isArray(saved.exits) && saved.exits.length >= 1 ? saved.exits.map((e) => ({ ...e })) : DEFAULT_EXITS.map((e) => ({ ...e }));
     renderChips();
     renderExits();
     lastParams = params();
@@ -2235,38 +2330,133 @@
     generate({ keepPaint: true });
   }
 
+  const EMPTY_PALETTE = { tiler: "", tileset: "", terrain: [], unavailable: [], objects: [], tiles: {} };
+  const PALETTE_GROUPS = [["ground", "Ground"], ["water", "Water"], ["trees", "Trees"], ["rock", "Rock"], ["ledges", "Ledges"]];
+  const terrain_preview_size_in_pixels = 40;
+  const exact_tile_size_in_pixels = 24;
+  const exact_tile_columns = 8;
+
+  async function load_paint_palette(route_result) {
+    const palette_key = `${route_result.tiler}|${route_result.tileset}`;
+    if (!state.palettes[palette_key]) state.palettes[palette_key] = await fetch_paint_palette(route_result);
+    state.palette = state.palettes[palette_key];
+    if (!is_brush_available(state.brush)) state.brush = "g";
+    fill_brush_select();
+    updateLedgeUI();
+    if (!$("leftTiles").hidden) render_paint_palette();
+  }
+
+  async function fetch_paint_palette(route_result) {
+    try {
+      return await fetchJSON(`/api/paint-palette?id=${encodeURIComponent(route_result.id)}`);
+    } catch (e) {
+      log("warn", "No paint palette from the server (" + e.message + "); only plain grass can be painted.");
+      return EMPTY_PALETTE;
+    }
+  }
+
+  function is_brush_available(brush) {
+    const palette = state.palette, { kind, key } = SL.brush_kind(brush);
+    if (kind === "ledge") return SL.palette_ledge_codes(palette).length > 0;
+    if (kind === "object") return !!SL.palette_object_entry(palette, key);
+    if (kind === "stamp") return !!SL.STAMPS[key] && !!palette && palette.tiler === "learned";
+    if (kind === "tile") return !!palette && palette.tiles[key] != null;
+    const entry = SL.palette_terrain_entry(palette, key);
+    return key === "g" || (!!entry && entry.group !== "ledges");
+  }
+
+  function brush_cells_at(cell_x, cell_y) {
+    const r = state.result, { kind, key } = SL.brush_kind(state.brush);
+    if (kind === "object") {
+      const object_entry = SL.palette_object_entry(state.palette, key);
+      return object_entry ? SL.object_stamp_cells(object_entry, cell_x, cell_y, r.width, r.height) : [];
+    }
+    if (kind === "stamp") return SL.stampCells(key, cell_x, cell_y, r.width, r.height);
+    if (kind === "tile") return [[cell_x, cell_y, SL.exact_tile_value(state.palette, key)]];
+    return terrain_brush_cells_at(cell_x, cell_y, kind === "ledge" ? state.ledgeDir : key);
+  }
+
+  function terrain_brush_cells_at(cell_x, cell_y, class_code) {
+    const r = state.result, entry = SL.palette_terrain_entry(state.palette, class_code);
+    const is_two_wide = entry ? entry.two_wide : SL.TWO_WIDE.includes(class_code);
+    const chosen_size = +$("brushSize").value;
+    const brush_cells = SL.brushCells(cell_x, cell_y, is_two_wide ? Math.max(2, chosen_size) : chosen_size, class_code, r.width, r.height);
+    if (!entry || !entry.snap_blocks) return brush_cells;
+    return SL.snap_cells_to_blocks(brush_cells, r.width, r.height);
+  }
+
+  function add_brush_cells_to_stroke(brush_cells) {
+    const places_whole_objects = SL.brush_kind(state.brush).kind === "object";
+    if (places_whole_objects && brush_cells.some(([x, y]) => state.paint.cells.has(`${x},${y}`))) return;
+    for (const [x, y, value] of brush_cells) state.paint.cells.set(`${x},${y}`, value);
+  }
+
+  function draw_paint_value(graphics_context, cell_x, cell_y, value, screen_x, screen_y, cell_size_on_screen) {
+    if (value.includes("#")) { draw_metatile(graphics_context, +value.split("#")[1], screen_x, screen_y, cell_size_on_screen); return; }
+    const entry = SL.palette_terrain_entry(state.palette, value);
+    if (entry && state.atlas) { draw_metatile(graphics_context, entry.sample[(cell_x % 2) + (cell_y % 2) * 2], screen_x, screen_y, cell_size_on_screen); return; }
+    graphics_context.fillStyle = PR.CLASS_COLORS[value] || "#888";
+    graphics_context.fillRect(screen_x, screen_y, cell_size_on_screen, cell_size_on_screen);
+  }
+
+  function draw_brush_preview_under_cursor(graphics_context, origin_x, origin_y, cell_size_on_screen) {
+    if (state.tool !== "paint" || !state.result) return;
+    graphics_context.globalAlpha = 0.75;
+    for (const [x, y, value] of brush_cells_at(state.hover.x, state.hover.y)) {
+      draw_paint_value(graphics_context, x, y, value, origin_x + x * cell_size_on_screen, origin_y + y * cell_size_on_screen, cell_size_on_screen);
+    }
+    graphics_context.globalAlpha = 1;
+  }
+
   function draw_metatile(graphics_context, metatile_id, screen_x, screen_y, cell_size_on_screen) {
     if (!state.atlas) return;
     const { meta, img } = state.atlas;
     const atlas_position = meta.index[metatile_id];
-    if (atlas_position == null) { graphics_context.fillStyle = "#ff00ff"; graphics_context.fillRect(screen_x, screen_y, cell_size_on_screen, cell_size_on_screen); return; }
+    if (atlas_position == null) return;
     graphics_context.imageSmoothingEnabled = false;
     graphics_context.drawImage(img, (atlas_position % meta.columns) * CELL, Math.floor(atlas_position / meta.columns) * CELL, CELL, CELL,
       screen_x, screen_y, cell_size_on_screen, cell_size_on_screen);
   }
 
-  // [x, y, "f#metatile"] cells of one whole tree with its top-left at (x, y); none if it
-  // would stick out of the map. Where a tree's art does not exist (Ark tiles, another
-  // secondary tileset) it falls back to plain tree class.
-  function treeCells(kind, x, y, r) {
-    const t = TREES[kind], h = t.ids.length / t.w;
-    if (x + t.w > r.width || y + h > r.height) return [];
-    const exact = treeFits(kind, r);
-    return t.ids.map((id, i) => [x + (i % t.w), y + Math.floor(i / t.w), exact ? "f#" + id : "f"]);
+  function brush_label(brush) {
+    const { kind, key } = SL.brush_kind(brush);
+    if (kind === "ledge") return "ledge";
+    if (kind === "object") return (SL.palette_object_entry(state.palette, key) || { name: key }).name;
+    if (kind === "stamp") return (SL.STAMPS[key] || { label: key }).label;
+    if (kind === "tile") return `tile #${key}`;
+    const entry = SL.palette_terrain_entry(state.palette, key);
+    return entry ? entry.name : (PR.CLASS_NAMES[key] || key);
   }
 
-  function draw_tree_preview(preview_canvas, tree) {
-    const preview_context = preview_canvas.getContext("2d");
-    const h = tree.ids.length / tree.w, size = terrain_preview_size_in_pixels / Math.max(tree.w, h);
-    const left = (terrain_preview_size_in_pixels - tree.w * size) / 2;
-    tree.ids.forEach((id, i) => draw_metatile(preview_context, id, left + (i % tree.w) * size, Math.floor(i / tree.w) * size, size));
+  function palette_brushes() {
+    const palette = state.palette || EMPTY_PALETTE;
+    const terrain_brushes = palette.terrain.filter((entry) => entry.group !== "ledges").map((entry) => entry.code);
+    const ledge_brushes = SL.palette_ledge_codes(palette).length ? [LEDGE_BRUSH] : [];
+    const object_brushes = palette.objects.map((entry) => "object:" + entry.id);
+    const stamp_brushes = palette.tiler === "learned" ? Object.keys(SL.STAMPS).map((name) => "stamp:" + name) : [];
+    return terrain_brushes.concat(ledge_brushes, object_brushes, stamp_brushes);
   }
 
-  // tree brushes whose art this route's tileset lacks are hidden; fall back to grass if one was chosen
-  function syncTreeOptions() {
-    for (const o of $("paintClass").options) if (TREES[o.value]) o.hidden = !treeFits(o.value, state.result);
-    const chosen = $("paintClass").value;
-    if (TREES[chosen] && !treeFits(chosen, state.result)) { $("paintClass").value = "g"; updateLedgeUI(); }
+  function fill_brush_select() {
+    const brush_select = $("paintClass");
+    brush_select.innerHTML = "";
+    const brushes = palette_brushes();
+    if (!brushes.includes(state.brush)) brushes.push(state.brush);
+    for (const brush of brushes) brush_select.append(Object.assign(el("option", "", brush_label(brush)), { value: brush }));
+    brush_select.value = state.brush;
+  }
+
+  function choose_brush(brush) {
+    state.brush = brush;
+    fill_brush_select();
+    if (state.tool !== "paint") setTool("paint");
+    updateLedgeUI();
+    render_paint_palette();
+  }
+
+  function choose_ledge(ledge_code) {
+    state.ledgeDir = ledge_code;
+    choose_brush(LEDGE_BRUSH);
   }
 
   function show_left_tab(left_tab_name) {
@@ -2277,7 +2467,7 @@
     $("leftBiomes").hidden = left_tab_name !== "tiles" || !is_geography_view;
     if (left_tab_name !== "tiles") return;
     if (is_geography_view) { render_biome_brushes(); return; }
-    render_terrain_brushes();
+    render_paint_palette();
   }
 
   function render_biome_brushes() {
@@ -2299,62 +2489,175 @@
     }
   }
 
-  const terrain_preview_size_in_pixels = 40;
-
-  function sample_block_of_class(class_code) {
-    const route_result = state.result;
-    if (!route_result) return null;
-    const final_stage = route_result.stages[route_result.stages.length - 1];
-    const is_class_at = (cell_x, cell_y) => cell_y >= 0 && cell_x >= 0 && cell_y < route_result.height && cell_x < route_result.width && final_stage.cls[cell_y][cell_x] === class_code;
-    let fallback_block = null;
-    for (let cell_y = 0; cell_y < route_result.height - 1; cell_y++) {
-      for (let cell_x = 0; cell_x < route_result.width - 1; cell_x++) {
-        if (!(is_class_at(cell_x, cell_y) && is_class_at(cell_x + 1, cell_y) && is_class_at(cell_x, cell_y + 1) && is_class_at(cell_x + 1, cell_y + 1))) continue;
-        const block_tiles = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([offset_x, offset_y]) => final_stage.tiles[(cell_y + offset_y) * route_result.width + cell_x + offset_x]);
-        const is_surrounded = [-1, 2].every((offset) => is_class_at(cell_x + offset, cell_y) && is_class_at(cell_x, cell_y + offset));
-        if (is_surrounded) return block_tiles;
-        fallback_block = fallback_block || block_tiles;
-      }
-    }
-    return fallback_block;
-  }
-
-  function draw_terrain_preview(preview_canvas, class_code) {
+  function preview_canvas_of(cell_rows) {
+    const preview_canvas = Object.assign(el("canvas"), { width: terrain_preview_size_in_pixels, height: terrain_preview_size_in_pixels });
     const preview_context = preview_canvas.getContext("2d");
-    const half_size = terrain_preview_size_in_pixels / 2;
-    const block_tiles = state.atlas ? sample_block_of_class(class_code) : null;
-    if (!block_tiles) {
-      preview_context.fillStyle = PR.CLASS_COLORS[class_code] || "#f0f";
-      preview_context.fillRect(0, 0, terrain_preview_size_in_pixels, terrain_preview_size_in_pixels);
-      return;
-    }
-    block_tiles.forEach((metatile_id, block_position) => draw_metatile(preview_context, metatile_id, (block_position % 2) * half_size, Math.floor(block_position / 2) * half_size, half_size));
+    const row_count = cell_rows.length, column_count = Math.max(...cell_rows.map((row) => row.length));
+    const cell_size = terrain_preview_size_in_pixels / Math.max(2, row_count, column_count);
+    const left = (terrain_preview_size_in_pixels - column_count * cell_size) / 2, top = (terrain_preview_size_in_pixels - row_count * cell_size) / 2;
+    cell_rows.forEach((row, row_index) => row.forEach((metatile_id, column_index) => {
+      if (metatile_id != null) draw_metatile(preview_context, metatile_id, left + column_index * cell_size, top + row_index * cell_size, cell_size);
+    }));
+    return preview_canvas;
   }
 
-  function choose_terrain_brush(class_code) {
-    $("paintClass").value = class_code;
-    if (state.tool !== "paint") setTool("paint");
-    updateLedgeUI();
-    render_terrain_brushes();
+  function sample_rows(entry) {
+    return [entry.sample.slice(0, 2), entry.sample.slice(2, 4)];
   }
 
-  function render_terrain_brushes() {
-    const terrain_grid = $("terrainGrid");
-    terrain_grid.innerHTML = "";
-    const brushes = [...PAINT_CLASSES, ...Object.keys(TREES).filter((k) => treeFits(k, state.result))];
-    for (const class_code of brushes) {
-      const sample_code = class_code === LEDGE_CLASS ? state.ledgeDir : class_code;
-      const label = TREES[class_code] ? TREES[class_code].label : class_code === LEDGE_CLASS ? "ledge" : (PR.CLASS_NAMES[class_code] || class_code);
-      const terrain_button = el("button", "terrain-brush" + (state.tool === "paint" && $("paintClass").value === class_code ? " on" : ""));
-      terrain_button.type = "button";
-      terrain_button.title = class_code === LEDGE_CLASS ? `Paint ${label} — R or the direction buttons rotate it` : `Paint ${label}`;
-      const preview_canvas = Object.assign(el("canvas"), { width: terrain_preview_size_in_pixels, height: terrain_preview_size_in_pixels });
-      if (TREES[class_code]) draw_tree_preview(preview_canvas, TREES[class_code]);
-      else draw_terrain_preview(preview_canvas, sample_code);
-      terrain_button.append(preview_canvas, el("span", "", label));
-      terrain_button.onclick = () => choose_terrain_brush(class_code);
-      terrain_grid.append(terrain_button);
+  function stamp_rows(stamp_name) {
+    const stamp_cells = SL.STAMPS[stamp_name].cells;
+    const min_x = Math.min(...stamp_cells.map((cell) => cell[0])), min_y = Math.min(...stamp_cells.map((cell) => cell[1]));
+    const rows = [];
+    for (const [offset_x, offset_y, class_code] of stamp_cells) {
+      const entry = SL.palette_terrain_entry(state.palette, class_code);
+      const row = rows[offset_y - min_y] || (rows[offset_y - min_y] = []);
+      row[offset_x - min_x] = entry ? entry.sample[0] : null;
     }
+    return rows;
+  }
+
+  function palette_button(brush, label, title, cell_rows, is_on, on_choose) {
+    const brush_button = el("button", "terrain-brush" + (is_on ? " on" : ""));
+    brush_button.type = "button";
+    brush_button.title = title;
+    brush_button.dataset.brush = brush;
+    brush_button.append(preview_canvas_of(cell_rows), el("span", "", label));
+    brush_button.onclick = on_choose;
+    return brush_button;
+  }
+
+  function palette_section(heading, buttons) {
+    const section = el("section", "palette-section");
+    const button_grid = el("div", "terrain-grid");
+    button_grid.append(...buttons);
+    section.append(el("h4", "palette-heading", heading), button_grid);
+    return section;
+  }
+
+  function terrain_buttons(group_name) {
+    const painting = state.tool === "paint";
+    const entries_in_group = state.palette.terrain.filter((entry) => entry.group === group_name);
+    if (group_name === "ledges") return single_ledge_button(entries_in_group, painting);
+    return entries_in_group.map((entry) => palette_button(entry.code, entry.name, `Paint ${entry.name}`, sample_rows(entry), painting && state.brush === entry.code, () => choose_brush(entry.code)));
+  }
+
+  function single_ledge_button(ledge_entries, painting) {
+    if (!ledge_entries.length) return [];
+    const current_ledge = ledge_entries.find((entry) => entry.code === state.ledgeDir) || ledge_entries[0];
+    const ledge_is_selected = painting && state.brush === LEDGE_BRUSH;
+    const ledge_button = palette_button(LEDGE_BRUSH, current_ledge.name, `Paint ${current_ledge.name}; click again or press R to turn it`, sample_rows(current_ledge), ledge_is_selected,
+      () => (ledge_is_selected ? rotateLedgeDir() : choose_ledge(current_ledge.code)));
+    return [ledge_button];
+  }
+
+  const rotatable_object_suffixes = ["_h", "_v"];
+
+  function rotatable_object_base(object_id) {
+    const suffix = rotatable_object_suffixes.find((candidate_suffix) => object_id.endsWith(candidate_suffix));
+    const object_base = suffix ? object_id.slice(0, -suffix.length) : null;
+    return object_base;
+  }
+
+  function is_rotatable_object_group(object_base) {
+    const ids = state.palette.objects.map((entry) => entry.id);
+    const group_has_both_orientations = rotatable_object_suffixes.every((suffix) => ids.includes(object_base + suffix));
+    return group_has_both_orientations;
+  }
+
+  function rotate_selected_object() {
+    const object_id = state.brush.startsWith("object:") ? state.brush.slice("object:".length) : "";
+    const object_base = rotatable_object_base(object_id);
+    if (!object_base || !is_rotatable_object_group(object_base)) return;
+    const next_suffix = object_id.endsWith("_h") ? "_v" : "_h";
+    choose_brush("object:" + object_base + next_suffix);
+  }
+
+  function is_rotatable_object_selected() {
+    const object_id = state.brush.startsWith("object:") ? state.brush.slice("object:".length) : "";
+    const object_base = rotatable_object_base(object_id);
+    return !!object_base && is_rotatable_object_group(object_base);
+  }
+
+  function object_button(entry, painting) {
+    const brush = "object:" + entry.id, size = `${entry.cells[0].length}×${entry.cells.length}`;
+    const object_base = rotatable_object_base(entry.id);
+    const is_rotatable = !!object_base && is_rotatable_object_group(object_base);
+    if (!is_rotatable) return palette_button(brush, entry.name, `Place ${entry.name} (${size}, exact tiles with their own collision)`, entry.cells, painting && state.brush === brush, () => choose_brush(brush));
+    const selected_variant = state.brush.startsWith("object:" + object_base + "_") ? state.brush.slice("object:".length) : object_base + "_h";
+    const shown_entry = state.palette.objects.find((candidate) => candidate.id === selected_variant) || entry;
+    const group_is_selected = painting && state.brush === "object:" + shown_entry.id;
+    const group_name = object_base.replace(/_/g, " ");
+    const direction_name = shown_entry.id.endsWith("_v") ? "down" : "across";
+    return palette_button("object:" + shown_entry.id, `${group_name} (${direction_name})`, `Place ${group_name}; click again or press R to switch across/down`, shown_entry.cells, group_is_selected,
+      () => (group_is_selected ? rotate_selected_object() : choose_brush("object:" + shown_entry.id)));
+  }
+
+  function object_buttons() {
+    const painting = state.tool === "paint";
+    const shown_object_entries = state.palette.objects.filter((entry) => !(entry.id.endsWith("_v") && is_rotatable_object_group(rotatable_object_base(entry.id))));
+    const objects = shown_object_entries.map((entry) => object_button(entry, painting));
+    if (state.palette.tiler !== "learned") return objects;
+    const stamps = Object.entries(SL.STAMPS).map(([stamp_name, stamp]) => {
+      const brush = "stamp:" + stamp_name;
+      return palette_button(brush, stamp.label, `Stamp ${stamp.label}`, stamp_rows(stamp_name), painting && state.brush === brush, () => choose_brush(brush));
+    });
+    return objects.concat(stamps);
+  }
+
+  function render_paint_palette() {
+    const sections = $("paletteSections");
+    sections.innerHTML = "";
+    if (!state.palette) return;
+    for (const [group_name, heading] of PALETTE_GROUPS) {
+      const buttons = terrain_buttons(group_name);
+      if (buttons.length) sections.append(palette_section(heading, buttons));
+    }
+    if (state.palette.objects.length) sections.append(palette_section("Objects", object_buttons()));
+    if (state.palette.unavailable.length) sections.append(unavailable_note(state.palette.unavailable));
+    render_exact_tiles();
+  }
+
+  function unavailable_note(unavailable_entries) {
+    const note = el("p", "tiles-note tiles-missing", "Not in this tileset: " + unavailable_entries.map((entry) => entry.name).join(", ") + ".");
+    note.title = unavailable_entries.map((entry) => `${entry.name}: ${entry.reason}`).join("\n");
+    return note;
+  }
+
+  function exact_tile_ids() {
+    if (!state.palette || !state.atlas) return [];
+    const atlas_index = state.atlas.meta.index;
+    return Object.keys(state.palette.tiles).map(Number).filter((metatile_id) => atlas_index[metatile_id] != null).sort((a, b) => a - b);
+  }
+
+  function render_exact_tiles() {
+    const tiles_canvas = $("exactTiles");
+    const metatile_ids = exact_tile_ids();
+    tiles_canvas.width = exact_tile_columns * exact_tile_size_in_pixels;
+    tiles_canvas.height = Math.max(1, Math.ceil(metatile_ids.length / exact_tile_columns)) * exact_tile_size_in_pixels;
+    tiles_canvas.dataset.ids = metatile_ids.join(",");
+    const tiles_context = tiles_canvas.getContext("2d");
+    const { kind, key } = SL.brush_kind(state.brush);
+    metatile_ids.forEach((metatile_id, position) => {
+      const cell_left = (position % exact_tile_columns) * exact_tile_size_in_pixels, cell_top = Math.floor(position / exact_tile_columns) * exact_tile_size_in_pixels;
+      draw_metatile(tiles_context, metatile_id, cell_left, cell_top, exact_tile_size_in_pixels);
+      if (kind !== "tile" || +key !== metatile_id) return;
+      tiles_context.strokeStyle = "#ffde59";
+      tiles_context.lineWidth = 2;
+      tiles_context.strokeRect(cell_left + 1, cell_top + 1, exact_tile_size_in_pixels - 2, exact_tile_size_in_pixels - 2);
+    });
+  }
+
+  function pick_exact_tile_from_palette(click_event) {
+    const tiles_canvas = $("exactTiles");
+    const bounds = tiles_canvas.getBoundingClientRect();
+    const scale = tiles_canvas.width / bounds.width;
+    const column = Math.floor(((click_event.clientX - bounds.left) * scale) / exact_tile_size_in_pixels);
+    const row = Math.floor(((click_event.clientY - bounds.top) * scale) / exact_tile_size_in_pixels);
+    const metatile_ids = (tiles_canvas.dataset.ids || "").split(",").filter(Boolean);
+    const metatile_id = metatile_ids[row * exact_tile_columns + column];
+    if (metatile_id == null) return;
+    choose_brush("tile:" + metatile_id);
   }
 
   function is_improve_tab_shown() {

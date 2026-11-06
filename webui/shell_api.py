@@ -9,6 +9,7 @@ API
     GET  /api/atlas?tiler=ark    metatile atlas for the Arklarna tilesets (learned atlas: no query)
     GET  /api/atlas.png?tiler=ark
     GET  /api/tilers             which tilers this server can use
+    GET  /api/paint-palette?id=ID   what the Tiles tab can paint on that route (paint_palette.py)
     GET  /api/scene?id=ID        scene.json of a generated route (attachment)
     GET  /api/region-specs.zip?seed=N   region.json + routes/*.yaml of a region
     POST /api/spec-parse {text}  parse a spec file (YAML or JSON) into an object
@@ -130,6 +131,10 @@ def handle(h, method: str, u, srv) -> bool:
             if u.path == "/api/atlas.png":
                 return h._send(200, png, "image/png") or True
             return h._json(meta) or True
+        if u.path == "/api/paint-palette":
+            import paint_palette
+
+            return paint_palette.handle_get(h, q, srv)
         if u.path == "/api/tilers":
             ok, err = ark_available()
             return h._json({"tilers": [

@@ -209,7 +209,7 @@ def stage_clearings(route: Route) -> None:
         cells = n.cells()
         carve(route, cells)
         route.zones.append(Zone("clearing", cells, f"{n.kind} {n.id}", {"center": (n.y, n.x), "node": n.kind}))
-    from .purpose import lane_purposes, record
+    from .purpose import goal_purpose, lane_purposes, record
 
     for n in p.nodes:
         if n.hy or n.hx:
@@ -221,6 +221,7 @@ def stage_clearings(route: Route) -> None:
             if kind == "rest_stop":
                 route.props.append({"kind": "bench", "y": n.y + n.oy + n.hy - 1, "x": n.x + n.ox + n.hx - 2, "why": kind})
     lane_purposes(route, p, carve, ground_class(route), grass_class(route), _item)
+    goal_purpose(route, ground_class(route), grass_class(route), _item)
     for k, end in enumerate(p.endings):
         kind = "secret_exit" if end["kind"] == "secret" else "road"
         record(route, kind, end["path"][0], to=end["exit"].to or end["exit"].side)
