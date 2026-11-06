@@ -16,18 +16,23 @@ Use this instead of exploring with grep/sed. Jump straight to the file and funct
    - The stage functions live in `pokeroutes/stages.py` unless noted. In order:
      - `stage_base`
      - `stage_skeleton`
-     - `stage_branches`
+     - `stage_branches` (forest/meadow also get cross paths between braided lanes: `pokeroutes/weave.py`)
      - `stage_clearings`
      - `stage_specials` (generate.py → `places.place_specials`)
-     - `stage_lakes`: bend ponds, `_rivers`, `_streams`, `_sea`, `_desert`, `_open_desert`, `_terraces`, `_ponds`
+     - `stage_lakes`: bend ponds, riverland rivers (`rivers.paint_own_rivers`), `_sea`, `_desert` (+ `desert_bands.py`), region water (`region_water.py`), `_ponds`
      - `stage_road`
      - `stage_tall_grass`: `_fields` for meadow/plains, `_lane_patches`
      - `stage_ledges`: `_tiers`, `_elevation`
      - `stage_hidden` (generate.py)
-     - `stage_dressing`: signposts, HM obstacles, NPCs, items, `_furniture`
+     - `stage_dressing`: signposts, HM obstacles, special-area keepers (no other people: placed by hand), items, `_furniture`
      - `stage_cleanup` (generate.py): `_thin_water`
      - `stage_connect` (generate.py): reachability, `_untrap`
+     - `stage_terraces` (`pokeroutes/terraces.py`, mountain / snow / volcanic): contour bands with 2-tall cliff faces, shelves beside the lanes, stairs or one-way ledges where lanes cross a face, boulders, tufts, snowy pines + frozen pond, volcanic crater; then `verticality.py` (rock faces on height steps over open ground, wooded biomes)
      - `stage_open_plains` (`pokeroutes/plains.py`, plains only): opens the hill mass, ledge-faced edge rim, groves, terrace steps
+     - `stage_tree_blocks` (`pokeroutes/tree_blocks.py`): settles half-tree 2x2 blocks (fill, clear or flood) so no bush rows
+     - `stage_obstacles` (`pokeroutes/obstacles.py`): every Cut tree / smash rock / Strength boulder sits in a one-wide gap on ground, or is removed
+     - `stage_rivers_restored` (`pokeroutes/rivers.py`): rivers (smooth, >= 2 wide, painted in stage_lakes) are put back whole; walkable cells in them become bridges
+     - `stage_surf_crossings` (`pokeroutes/surf_crossing.py`): where the region path crosses sea/lake, the main path there turns to water + a built Surf gate; `mode: sea` routes become open sea with islets, sandbars, rocks
      - `stage_plateaus` (generate.py): plains only
      - `stage_route_gate` (generate.py → `gates.build_route_gates`): route design B gate (`spec.gate` or `spec.region.gate`) at the gated entrance. The region side picks the entrance in `region/gates.py`.
    - Per-biome palette: `stages.BIOME_CODES`, a tuple of (wall, ground, lane surface, road, encounter grass).
