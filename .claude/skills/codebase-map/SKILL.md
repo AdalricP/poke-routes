@@ -68,12 +68,12 @@ Walkable: `gptdhyvzqn`. Surfable: `wb`. Blocked: `frkul`.
 
 ## Region generator (`pokeroutes/region/`)
 
-- **Pipeline**: `pipeline.build(seed)`. Stages run terrain → erosion and rivers → climate and biomes → legendary carving (`legends.py`) → towns (`settle.py`) → routes (`network.py`, `build_network`, `classify`, `name_routes`).
+- **Pipeline**: `pipeline.build(seed, preset="generic", geography_kind=None)`. Generic: land and sea (`geography.py`, `land_and_sea` picks an archetype, `heightmap`) → erosion and rivers → climate and biomes → routes between hand-placed towns (`network.py`, `town_links`); no landmarks, no towns. Preset `arklarna`: `terrain.arklarna_coastline` / `arklarna_heightmap` → same terrain stages → legendary carving (`legends.py`) → towns (`settle.py`) → `arklarna_links`. `w.landmass` labels land components (was `w.half`); `w.strait` is None outside the preset.
 - **Specs**:
   - `export.route_spec` turns each region route into a RouteSpec dict.
   - `export.write_all` writes `region_out/<seed>/routes/*.yaml`.
-- **Hand editing**: `edit.py`, used by the editor's recompute and add-route actions (`recompute`, `add_route`, `generate_doc`, `save`, `load`).
-- **CLI**: `python3 -m pokeroutes.region generate --seed N` (`region/cli.py`, `generate`) writes `region_out/N/`.
+- **Hand editing**: `edit.py`, used by the editor's recompute, add-route and town actions (`recompute`, `add_route`, `add_town`, `delete_town`, `generate_doc`, `save`, `load`).
+- **CLI**: `python3 -m pokeroutes.region generate --seed N [--preset arklarna] [--geography KIND]` (`region/cli.py`, `generate`) writes `region_out/N/`.
 
 ## Web UI (`webui/`)
 

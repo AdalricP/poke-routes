@@ -49,10 +49,12 @@ The generator only produces terrain classes. Two tilers turn them into metatiles
 
 ### Regions
 
-`pokeroutes.region` generates a whole region and then a spec for every route in it. It builds terrain with erosion, rivers and lakes, works out climate and biomes, carves the legendary landmarks, places the cities, and lays out a route graph. Each route in the graph gets a role (straight, turn, crossroads, loop, dead end, mountain pass, river crossing, coastal, sea), and that role shapes how the route generator builds it.
+`pokeroutes.region` generates a whole region and then a spec for every route in it. It builds terrain with erosion, rivers and lakes, works out climate and biomes, and lays out a route graph between towns. Each route in the graph gets a role (straight, turn, crossroads, loop, dead end, mountain pass, river crossing, coastal, sea), and that role shapes how the route generator builds it.
+
+Until now every seed drew the same map (the owner's Arklarna: a mainland, a strait, a sand spit and a lagoon) with only the proportions changing. The owner asked for any geography, for any hack, so the default is now generic: the seed picks a kind of land (continent, coast, peninsula, two to four islands, archipelago, inland lakes, crescent bay) and then its size, ragged coast, bays, headlands and islets. `--geography KIND` forces one. The generic map has no legendary landmarks and no towns; those are the owner's to place, so a fresh region has no routes until towns are added in the editor (routes are then laid along the shortest tree between them). Arklarna is still there as an opt-in preset, unchanged: `python3 -m pokeroutes.region generate --seed N --preset arklarna`. The kinds still lean on a handful of hand-tuned shapes, so whether they feel different enough over many seeds is still open.
 
 <p align="center">
-  <img src="docs/img/region-stages.png" alt="Region generation in six steps: terrain, erosion, climate, legendaries, cities, routes">
+  <img src="docs/img/region-stages.png" alt="Region generation with the Arklarna preset in six steps: terrain, erosion, climate, legendaries, cities, routes">
 </p>
 
 ## Quickstart

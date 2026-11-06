@@ -1,6 +1,6 @@
 """Region page backend for the web UI (kept out of server.py on purpose).
 
-GET /api/region?seed=N        region.json for that seed (generated on first use, then cached)
+GET /api/region?seed=N[&preset=arklarna]   region.json for that seed (generated on first use, then cached)
 GET /api/region.png?seed=N    the bare map image the page draws route boxes over
 GET /api/region-spec?seed=N&id=ROUTE   one route's full YAML spec as JSON
 (The region view itself lives in the editor shell: static/shell.html + bench.js.)
@@ -26,28 +26,40 @@ def _seed(q) -> int:
         return 1
 
 
-def _ensure(seed: int) -> Path:
-    d = OUT / str(seed)
+def _preset(q) -> str:
+    return "arklarna" if q.get("preset", [""])[0] == "arklarna" else "generic"
+
+
+def cached_preset(region_file: Path) -> str:
+    try:
+        return json.loads(region_file.read_text()).get("preset", "arklarna")
+    except (OSError, ValueError):
+        return ""
+
+
+def _ensure(seed: int, preset: str = "generic") -> Path:
+    d = OUT / (str(seed) if preset == "generic" else f"{preset}-{seed}")
     with _lock:
-        if not (d / "region.json").exists() or not (d / "region_map.png").exists():
+        cached = (d / "region.json").exists() and (d / "region_map.png").exists()
+        if not cached or cached_preset(d / "region.json") != preset:
             from pokeroutes.region.cli import generate
 
-            generate(seed, d, strip=False, verbose=False)
+            generate(seed, d, strip=False, verbose=False, preset=preset)
     return d
 
 
 def handle(h, u, static: Path) -> None:
     q = parse_qs(u.query)
     if u.path == "/api/region":
-        d = _ensure(_seed(q))
+        d = _ensure(_seed(q), _preset(q))
         return h._send(200, (d / "region.json").read_bytes(), "application/json")
     if u.path == "/api/region.png":
-        d = _ensure(_seed(q))
+        d = _ensure(_seed(q), _preset(q))
         return h._send(200, (d / "region_map.png").read_bytes(), "image/png")
     if u.path == "/api/region-spec":
         import yaml
 
-        d = _ensure(_seed(q))
+        d = _ensure(_seed(q), _preset(q))
         rid = "".join(ch for ch in q.get("id", [""])[0] if ch.isalnum())
         p = d / "routes" / f"{rid}.yaml"
         if not rid or not p.exists():
