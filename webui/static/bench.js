@@ -893,8 +893,24 @@
     const value_in_range = range_of_values[0] + Math.random() * (range_of_values[1] - range_of_values[0]);
     return value_in_range;
   }
+  const leaf_colours_by_tree_class = {
+    f: ["#5f9e45", "#7fb85a", "#467f34", "#9ccc6e"],
+    F: ["#e9a63a", "#d8692c", "#c4822b", "#f0c05a"],
+    R: ["#b9381f", "#9c2f1c", "#d0503a", "#e06a4a"],
+  };
+  function leaf_colours_from_route_trees() {
+    const route_result = state.result;
+    if (!route_result) return null;
+    const final_classes = route_result.stages[route_result.stages.length - 1].cls;
+    const tree_cell_counts = { f: 0, F: 0, R: 0 };
+    for (const class_row of final_classes) for (const class_code of class_row) if (class_code in tree_cell_counts) tree_cell_counts[class_code]++;
+    const weighted_colours = Object.entries(tree_cell_counts).flatMap(([tree_class, cell_count]) =>
+      Array.from({ length: Math.ceil(cell_count / 40) }, () => leaf_colours_by_tree_class[tree_class]).flat());
+    return weighted_colours.length ? weighted_colours : null;
+  }
   function random_colour_of(preset) {
-    const colour = preset.colours[Math.floor(Math.random() * preset.colours.length)];
+    const colour_choices = (preset.shape === "leaf" && leaf_colours_from_route_trees()) || preset.colours;
+    const colour = colour_choices[Math.floor(Math.random() * colour_choices.length)];
     return colour;
   }
   function new_particle_for(preset, should_start_anywhere) {
