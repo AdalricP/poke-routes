@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.ndimage import binary_opening, distance_transform_cdt, label
 
-from .noise import fbm
+from .noise import fbm, stretched_fbm
 
 SAND_CLASS = "d"
 GRASS_CLASS = "g"
@@ -33,9 +33,7 @@ def distance_from(mask: np.ndarray) -> np.ndarray:
 
 
 def band_depth_per_cell(route, shallowest_in_cells: int, deepest_in_cells: int) -> np.ndarray:
-    raw_noise = fbm(route.h, route.w, 6.0, route.rng, octaves=2)
-    noise_range = max(1e-6, float(raw_noise.max() - raw_noise.min()))
-    normalised = (raw_noise - raw_noise.min()) / noise_range
+    normalised = stretched_fbm(route.h, route.w, 6.0, route.rng)
     depth = shallowest_in_cells + normalised * (deepest_in_cells - shallowest_in_cells)
     return depth
 

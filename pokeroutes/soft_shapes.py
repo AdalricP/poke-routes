@@ -8,7 +8,7 @@ from scipy.ndimage import binary_dilation
 
 from .generate import WALKABLE
 from .rivers import RIVER_CELLS_KEY
-from .noise import fbm
+from .noise import stretched_fbm
 
 TALL_GRASS_CLASS = "t"
 GRASS_CLASS = "g"
@@ -31,9 +31,7 @@ def soften_shapes(route) -> None:
 
 
 def normalised_noise(route, scale_in_cells: float) -> np.ndarray:
-    raw_noise = fbm(route.h, route.w, scale_in_cells, route.rng, octaves=2)
-    noise_range = max(1e-6, float(raw_noise.max() - raw_noise.min()))
-    normalised = (raw_noise - raw_noise.min()) / noise_range
+    normalised = stretched_fbm(route.h, route.w, scale_in_cells, route.rng, octaves=2)
     return normalised
 
 

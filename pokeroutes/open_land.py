@@ -5,7 +5,7 @@ from typing import List, Tuple
 import numpy as np
 from scipy.ndimage import binary_dilation, label
 
-from .noise import fbm
+from .noise import stretched_fbm
 from .scenery_layer import RAISED_GROUND_CLASS
 from .woodland_closeness import woodland_closeness
 
@@ -45,9 +45,7 @@ def open_land_by_woodland(route) -> None:
 
 
 def normalised_noise(route, scale_in_cells: float) -> np.ndarray:
-    raw_noise = fbm(route.h, route.w, scale_in_cells, route.rng, octaves=3)
-    noise_range = max(1e-6, float(raw_noise.max() - raw_noise.min()))
-    normalised = (raw_noise - raw_noise.min()) / noise_range
+    normalised = stretched_fbm(route.h, route.w, scale_in_cells, route.rng, octaves=3)
     return normalised
 
 
