@@ -1447,21 +1447,7 @@
       add('<p class="hint">Alt inverts. Pushing ground through sea level makes new coast.</p>');
     }
     if (st.tool === "flatten") add('<p class="hint">Levels toward the height where the stroke started.</p>');
-    if (st.tool === "biome") {
-      const d = add('<div class="pal"></div>');
-      const pal = d.firstChild;
-      for (const code of ED.PAINT_BIOMES.split("").concat([""])) {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.className = st.biome === code ? "on" : "";
-        b.innerHTML = code ? `<i style="background:rgb(${ED.BIOME_RGB[code].join(",")})"></i>` : "<i></i>";
-        b.append(code ? ED.BIOME_NAMES[code] : "clear paint");
-        b.title = code ? "" : "remove hand-painted biome (the next biome pass decides)";
-        b.onclick = () => { st.biome = code; refreshTool(); };
-        pal.appendChild(b);
-      }
-      add('<p class="hint">Painted cells keep their biome through every recompute.</p>');
-    }
+    if (st.tool === "biome") add('<p class="hint">Pick the biome in the Biomes tab on the left. Painted cells keep their biome through every recompute.</p>');
     if (st.tool === "water") {
       const d = add('<div class="segrow"></div>');
       for (const m of ["land", "sea", "lake"]) {

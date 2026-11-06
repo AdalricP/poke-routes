@@ -2603,14 +2603,14 @@
     biome_grid.innerHTML = "";
     if (!editor_actions || !window.ED) return;
     const current_paint_biome = editor_actions.paint_biome ? editor_actions.paint_biome() : null;
-    for (const biome_code of window.ED.PAINT_BIOMES) {
-      const biome_rgb = window.ED.BIOME_RGB[biome_code] || [255, 0, 255];
+    for (const biome_code of window.ED.PAINT_BIOMES.split("").concat([""])) {
+      const biome_rgb = window.ED.BIOME_RGB[biome_code] || [58, 58, 58];
       const biome_button = el("button", "terrain-brush" + (biome_code === current_paint_biome ? " on" : ""));
       biome_button.type = "button";
-      biome_button.title = `Paint ${window.ED.BIOME_NAMES[biome_code] || biome_code}`;
+      biome_button.title = biome_code ? `Paint ${window.ED.BIOME_NAMES[biome_code]}` : "Clear paint: remove hand-painted biome (the next biome pass decides)";
       const biome_swatch = el("span", "biome-swatch");
       biome_swatch.style.background = `rgb(${biome_rgb.join(",")})`;
-      biome_button.append(biome_swatch, el("span", "", window.ED.BIOME_NAMES[biome_code] || biome_code));
+      biome_button.append(biome_swatch, el("span", "", biome_code ? window.ED.BIOME_NAMES[biome_code] : "clear paint"));
       biome_button.onclick = () => { editor_actions.set_paint_biome(biome_code); render_biome_brushes(); };
       biome_grid.append(biome_button);
     }
