@@ -4,7 +4,7 @@ import copy
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import numpy as np
-from scipy.ndimage import distance_transform_edt, gaussian_filter
+from scipy.ndimage import distance_transform_edt, gaussian_filter, label
 
 from .ruletile_terrain import DIAGONAL_SIDES, NEIGHBOUR_OFFSETS, components_of
 
@@ -138,10 +138,27 @@ def band_edge_wobble_in_metatiles(shape) -> np.ndarray:
     return wobble
 
 
+def broad_land_mask(is_not_depth_water: np.ndarray) -> np.ndarray:
+    """Islets, rock clusters and ridges sitting in open sea are small, isolated
+    patches of "not depth water" placed well clear of the map edge; they should
+    not read as their own shoreline for the depth bands, only real land does.
+    Real land is a coastline, so it reaches the edge of the map; keep only the
+    components that touch an edge and drop the rest so distance-to-land is
+    measured from real land alone."""
+    labelled, count = label(is_not_depth_water)
+    if count == 0:
+        return is_not_depth_water
+    touches_edge = set(labelled[0, :]) | set(labelled[-1, :]) | set(labelled[:, 0]) | set(labelled[:, -1])
+    touches_edge.discard(0)
+    broad = is_not_depth_water & np.isin(labelled, list(touches_edge))
+    return broad
+
+
 def sea_band_grid(grid: List[str], sea_class: dict) -> np.ndarray:
     depth_water_letters = set(sea_class.get("depth_water", SEA_LETTER))
     is_depth_water = np.array([[letter in depth_water_letters for letter in grid_row] for grid_row in grid])
-    distance_to_land = distance_transform_edt(np.pad(is_depth_water, 1, constant_values=True))[1:-1, 1:-1]
+    is_real_land = broad_land_mask(~is_depth_water)
+    distance_to_land = distance_transform_edt(np.pad(~is_real_land, 1, constant_values=True))[1:-1, 1:-1]
     distance_to_land = gaussian_filter(distance_to_land, BAND_EDGE_SMOOTHING_IN_METATILES) + band_edge_wobble_in_metatiles(is_depth_water.shape)
     band_starts = sea_class["band_starts_in_metatiles"]
     bands = np.zeros(is_depth_water.shape, np.int32)

@@ -863,7 +863,7 @@
     route_fill: "#f7cd8c", route_rim: "#b06e36", sea_fill: "#d3f0fc", sea_rim: "#4a8ccc",
     town_fill: "#e0473a", town_rim: "#721a16", town_glint: "#f58d78", selected: "#ffd65c", hovered: "#fff1c2",
   };
-  const GAP_BETWEEN_PLACES_SHARE = 0.07, JOINT_WIDTH_SHARE = 0.4, TOWN_GLINT_INSET_SHARE = 0.27;
+  const GAP_BETWEEN_PLACES_SHARE = 0.07, TOWN_GLINT_INSET_SHARE = 0.27;
   function label_band(z) { return Math.max(3, Math.min(40, z * 1.5)); }
   function place_gap(grid) { return grid.cell * GAP_BETWEEN_PLACES_SHARE; }
   function trace_region_rects(rects, X, Y, z, grow, corner_share) {
@@ -882,7 +882,7 @@
   function rim_width(grid, z) { return Math.max(1.5, grid.cell * z * 0.05); }
   function route_shapes(grid, route) {
     const gap = place_gap(grid);
-    const shapes = { pieces: MAP_GRID.pieces_of_cells(grid, route.grid_cells, gap), joints: MAP_GRID.joints_of_route(grid, route, gap, JOINT_WIDTH_SHARE) };
+    const shapes = { pieces: MAP_GRID.pieces_of_cells(grid, route.grid_cells, gap), joints: MAP_GRID.joints_of_route(grid, route, gap, 1 - 2 * gap / grid.cell) };
     return shapes;
   }
   function route_rim_colour(route, selected_name, hovered_name) {

@@ -332,6 +332,7 @@ HINTS = {
     "max_lanes": {"group": "shape", "label": "paths to the exit", "min": 1, "max": 3},
     "dead_ends": {"group": "shape", "label": "side areas", "min": 0, "max": 6},
     "lakes": {"group": "shape", "label": "water", "min": 0, "max": 4},
+    "sea_clutter": {"group": "shape", "label": "Islands", "min": 0, "max": 1, "step": 0.05},
     "tall_grass": {"group": "shape", "min": 0, "max": 0.9, "step": 0.05},
     "ledge_chance": {"group": "shape", "label": "ledges", "min": 0, "max": 1, "step": 0.05},
     "road": {"group": "shape", "label": "dirt road"},

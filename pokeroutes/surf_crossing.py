@@ -53,6 +53,7 @@ def open_surf_crossings(route: Route) -> int:
     is_open_sea = route_lies_on_open_sea(route)
     if is_open_sea:
         opened_count += flood_exit_mouths_with_sea(route)
+        opened_count += flood_stray_land(route)
         dress_open_sea(route)
     if not opened_count:
         return 0
@@ -94,6 +95,36 @@ def mouth_cells_inward(route: Route, exit_object, cell: Cell) -> List[Cell]:
     return cells
 
 
+def flood_stray_land(route: Route) -> int:
+    """Patches of ground, grass or trees that the earlier water painting left dry
+    (exit mouth margins, special-area pockets) read as islands floating in the
+    open sea once the route is all Surf. Nothing but the surf line itself, the
+    special areas and the exit mouths stays dry; everything else becomes sea
+    before islets, rocks and sandbars are scattered over it on purpose."""
+    sea = sea_class()
+    kept_dry = surf_line_mask(route) | special_area_mask(route) | exit_mouth_mask(route)
+    stray_land = (route.cls != sea) & ~kept_dry
+    route.cls[stray_land] = sea
+    route.protect[stray_land] = False
+    return int(stray_land.sum())
+
+
+def special_area_mask(route: Route) -> np.ndarray:
+    mask = np.zeros(route.cls.shape, dtype=bool)
+    for cell in route.zone_cells("special"):
+        mask[cell] = True
+    return mask
+
+
+def exit_mouth_mask(route: Route) -> np.ndarray:
+    mouths = np.zeros(route.cls.shape, dtype=bool)
+    for _exit, cells in route.exits:
+        for cell in cells:
+            mouths[cell] = True
+    mouths = binary_dilation(mouths, iterations=3)
+    return mouths
+
+
 def drop_things_left_standing_in_water(route: Route) -> None:
     def stands_on_ground(event) -> bool:
         return event.kind not in EVENT_KINDS_THAT_STAND_ON_GROUND or str(route.cls[event.y, event.x]) in WALKABLE
@@ -133,23 +164,30 @@ def open_sea_mask(route: Route) -> np.ndarray:
     return open_sea
 
 
+def sea_clutter_of(route: Route) -> float:
+    clutter = float(getattr(route.spec, "sea_clutter", 1.0))
+    return max(0.0, min(1.0, clutter))
+
+
 def dress_open_sea(route: Route) -> None:
+    clutter = sea_clutter_of(route)
     keep_clear = surf_line_mask(route)
-    islet_count = place_islets(route, keep_clear)
-    sandbar_count = place_sandbars(route, keep_clear)
-    ridge_count = place_sea_ridges(route, keep_clear)
-    cluster_count = place_sea_rock_clusters(route, keep_clear)
-    rock_count = place_sea_rocks(route, keep_clear)
-    dive_cell_count = place_dive_water(route)
-    route.log.append(f"open sea: {islet_count} islets, {sandbar_count} sandbars, {ridge_count} rock ridges, "
-                     f"{cluster_count} rock clusters, {rock_count} sea rocks, {dive_cell_count} Dive water cells")
+    islet_count = place_islets(route, keep_clear, clutter) if clutter > 0 else 0
+    sandbar_count = place_sandbars(route, keep_clear, clutter) if clutter > 0 else 0
+    ridge_count = place_sea_ridges(route, keep_clear, clutter) if clutter > 0 else 0
+    cluster_count = place_sea_rock_clusters(route, keep_clear, clutter) if clutter > 0 else 0
+    rock_count = place_sea_rocks(route, keep_clear, clutter) if clutter > 0 else 0
+    dive_cell_count = place_dive_water(route, clutter)
+    route.log.append(f"open sea: clutter {clutter:.2f}, {islet_count} islets, {sandbar_count} sandbars, "
+                     f"{ridge_count} rock ridges, {cluster_count} rock clusters, {rock_count} sea rocks, "
+                     f"{dive_cell_count} Dive water cells")
 
 
-def place_islets(route: Route, keep_clear: np.ndarray) -> int:
+def place_islets(route: Route, keep_clear: np.ndarray, clutter: float = 1.0) -> int:
     from .stages import code
 
     rng = route.rng
-    wanted_count = int(round(route.h * route.w / 1000 * ISLET_COUNT_PER_THOUSAND_CELLS))
+    wanted_count = int(round(route.h * route.w / 1000 * ISLET_COUNT_PER_THOUSAND_CELLS * clutter))
     sand = code("SAND", "p")
     yy, xx = np.mgrid[:route.h, :route.w]
     wobble = fbm(route.h, route.w, 4.0, rng)
@@ -184,11 +222,11 @@ def plant_tree_on_islet(route: Route, centre_y: int, centre_x: int) -> None:
     route.cls[top:top + 2, left:left + 2] = "f"
 
 
-def place_sandbars(route: Route, keep_clear: np.ndarray) -> int:
+def place_sandbars(route: Route, keep_clear: np.ndarray, clutter: float = 1.0) -> int:
     from .stages import code
 
     rng = route.rng
-    wanted_count = int(round(route.h * route.w / 1000 * SANDBAR_COUNT_PER_THOUSAND_CELLS))
+    wanted_count = int(round(route.h * route.w / 1000 * SANDBAR_COUNT_PER_THOUSAND_CELLS * clutter))
     shallow = code("SHALLOW", "w")
     placed_count = 0
     for _attempt in range(wanted_count * 8):
@@ -209,14 +247,14 @@ def place_sandbars(route: Route, keep_clear: np.ndarray) -> int:
     return placed_count
 
 
-def place_sea_rocks(route: Route, keep_clear: np.ndarray) -> int:
+def place_sea_rocks(route: Route, keep_clear: np.ndarray, clutter: float = 1.0) -> int:
     from .stages import code
 
     rng = route.rng
     rock = code("BOULDER", "r")
     candidates = open_sea_mask(route) & ~keep_clear
     candidate_cells = list(zip(*np.nonzero(candidates)))
-    wanted_count = int(len(candidate_cells) * SEA_ROCK_SHARE_OF_OPEN_SEA * (1 - SEA_ROCK_CLUSTER_SHARE_OF_ROCKS))
+    wanted_count = int(len(candidate_cells) * SEA_ROCK_SHARE_OF_OPEN_SEA * clutter * (1 - SEA_ROCK_CLUSTER_SHARE_OF_ROCKS))
     placed_count = 0
     for cell_index in rng.permutation(len(candidate_cells))[:wanted_count * 3]:
         if placed_count >= wanted_count:
@@ -258,9 +296,9 @@ def random_ridge_origin(route: Route, length: int) -> Tuple[int, int]:
     return top, left
 
 
-def place_sea_ridges(route: Route, keep_clear: np.ndarray) -> int:
+def place_sea_ridges(route: Route, keep_clear: np.ndarray, clutter: float = 1.0) -> int:
     rng = route.rng
-    wanted_count = int(round(route.h * route.w / 1000 * SEA_RIDGE_COUNT_PER_THOUSAND_CELLS))
+    wanted_count = int(round(route.h * route.w / 1000 * SEA_RIDGE_COUNT_PER_THOUSAND_CELLS * clutter))
     placed_count = 0
     for _attempt in range(wanted_count * 10):
         if placed_count >= wanted_count:
@@ -276,13 +314,13 @@ def place_sea_ridges(route: Route, keep_clear: np.ndarray) -> int:
     return placed_count
 
 
-def place_sea_rock_clusters(route: Route, keep_clear: np.ndarray) -> int:
+def place_sea_rock_clusters(route: Route, keep_clear: np.ndarray, clutter: float = 1.0) -> int:
     from .stages import code
 
     rng = route.rng
     rock = code("BOULDER", "r")
     candidate_cells = list(zip(*np.nonzero(open_sea_mask(route) & ~keep_clear)))
-    wanted_count = int(len(candidate_cells) * SEA_ROCK_SHARE_OF_OPEN_SEA * SEA_ROCK_CLUSTER_SHARE_OF_ROCKS / 4)
+    wanted_count = int(len(candidate_cells) * SEA_ROCK_SHARE_OF_OPEN_SEA * clutter * SEA_ROCK_CLUSTER_SHARE_OF_ROCKS / 4)
     placed_count = 0
     for cell_index in rng.permutation(len(candidate_cells))[:wanted_count * 4]:
         if placed_count >= wanted_count:
@@ -297,14 +335,17 @@ def place_sea_rock_clusters(route: Route, keep_clear: np.ndarray) -> int:
     return placed_count
 
 
-def place_dive_water(route: Route) -> int:
+def place_dive_water(route: Route, clutter: float = 1.0) -> int:
     from .classify import DIVE
 
+    if clutter <= 0:
+        return 0
     is_sea = route.cls == sea_class()
     distance_to_land = distance_transform_edt(np.pad(is_sea, 1, constant_values=True))[1:-1, 1:-1]
     patch_noise = fbm(route.h, route.w, DIVE_PATCH_NOISE_SCALE, route.rng)
+    noise_threshold = 1.0 - (1.0 - DIVE_PATCH_NOISE_THRESHOLD) * clutter
     is_deep_enough = distance_to_land >= DIVE_DISTANCE_FROM_LAND_IN_METATILES
-    dive = is_sea & is_deep_enough & (patch_noise >= DIVE_PATCH_NOISE_THRESHOLD)
+    dive = is_sea & is_deep_enough & (patch_noise >= noise_threshold)
     dive = binary_erosion(binary_dilation(dive, iterations=1), iterations=1) & is_sea & is_deep_enough
     route.cls[dive] = DIVE
     dive_cell_count = int(dive.sum())

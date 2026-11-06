@@ -112,17 +112,6 @@ def lane_purposes(route: Route, p, carve, ground, tall, item) -> None:
             cl = l.center()
             mid = cl[len(cl) // 2]
             l.meta["purpose"] = record(route, kind, mid, lane=l.id)
-            if kind == "berry_track":
-                f = l.frame
-                for c in (cl[len(cl) // 3], cl[2 * len(cl) // 3]):
-                    u, v = f.uv(*c)
-                    for dv in (l.width // 2 + 1, -((l.width - 1) // 2) - 1):
-                        yy, xx = f.yx(u, v + dv)
-                        if route.inside(yy, xx, 3) and route.cls[yy, xx] == "f" and not route.protect[yy, xx]:
-                            route.cls[yy, xx] = ground
-                            route.protect[yy, xx] = True
-                            route.events.append(Event("berry_tree", int(yy), int(xx), {"why": "berry track"}))
-                            break
             continue
         tip = l.center()[-1]
         if l.meta.get("back_road") and "ruin" not in used:
@@ -166,10 +155,6 @@ def _dress(route: Route, kind: str, c: Cell, tip: Cell, pocket: List[Cell], grou
     if kind == "woodcutter_camp":
         route.props += [{"kind": "stump", "y": spot(0)[0], "x": spot(0)[1], "why": kind},
                         {"kind": "log_pile", "y": spot(5)[0], "x": spot(5)[1], "why": kind}]
-    elif kind == "berry_thicket":
-        for i in (1, 4, 9):
-            q = spot(i)
-            route.events.append(Event("berry_tree", q[0], q[1], {"why": kind}))
     elif kind == "shrine":
         route.props.append({"kind": "shrine", "y": cy, "x": cx, "why": kind})
         route.events.append(Event("sign", cy + 1, cx, {"type": "shrine", "text": "", "why": kind}))
