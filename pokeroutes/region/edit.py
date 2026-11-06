@@ -287,6 +287,22 @@ def regrid_map(doc: dict, region_cells_per_grid_cell: int) -> dict:
     return out
 
 
+def resize_region(doc: dict, width_in_squares: int, height_in_squares: int) -> dict:
+    """Grow or crop the region to a number of Map squares (see region_resize.py)."""
+    from .region_resize import RegionResizeProblem, resize_region as resize_world_region
+
+    w = doc_to_world(doc)
+    try:
+        merged_away = resize_world_region(w, int(width_in_squares), int(height_in_squares))
+    except RegionResizeProblem as problem:
+        raise RegionEditRefused(str(problem)) from problem
+    w.log.append(f"editor: region resized to {width_in_squares} x {height_in_squares} squares ({w.W} x {w.H} cells)")
+    out = finish(w, doc, [stage for stage in doc.get("stale", []) if stage != "routes"])
+    if "story" in out:
+        out["story"] = story_without_lost_places(story_with_town_names_followed(out["story"], merged_away), place_names_of(w))
+    return out
+
+
 def generate_map(doc: dict) -> dict:
     """The whole map on the current geography, on the Map grid: towns placed where the
     land suits them, then metro-style routes between them. Pinned towns and pinned
