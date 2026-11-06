@@ -10,6 +10,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from .classify import CLASS_COLORS
+from . import route_people
 from .route_effects import effect_summary_for_route, emerald_weather_for_route
 from .gates import class_grid_with_route_gates_open
 from .generate import WALKABLE, Route, reachable
@@ -185,13 +186,17 @@ def edge_class(route: Route) -> str:
 
 
 def write_emerald(route: Route, layout, out: Path, primary: str, secondary: str,
-                  offsets: Optional[dict] = None, borders: Optional[dict] = None) -> None:
+                  offsets: Optional[dict] = None, borders: Optional[dict] = None,
+                  ark_people: Optional[bool] = None) -> None:
     """Files for pokeemerald-expansion (Porymap format):
     data/layouts/<Id>/{map.bin,border.bin,layouts_entry.json}, data/maps/<Id>/{map.json,scripts.inc},
     plus region_map_section.json, flags.json and exits.json for an installer to merge.
 
     ``offsets`` maps exit index -> connection offset (from :func:`region_offsets`) for exits
-    into other routes generated in the same run; the rest are left at 0 for the installer."""
+    into other routes generated in the same run; the rest are left at 0 for the installer.
+
+    ``ark_people`` picks the Arklarna route-people sprites (OBJ_EVENT_GFX_ARK_ROUTE_*) for npcs;
+    by default they are used on Ark-tiled maps when the Arklarna ROM defines them."""
     s = route.spec
     check_size(route.w, route.h)
     out = Path(out)
@@ -230,7 +235,9 @@ def write_emerald(route: Route, layout, out: Path, primary: str, secondary: str,
                 return c
         return y, x
 
-    objs, bgs, coords, warps, flags, scripts = build_events(route, elev, settle, taken, cname)
+    if ark_people is None:
+        ark_people = route_people.use_ark_people(primary)
+    objs, bgs, coords, warps, flags, scripts = build_events(route, elev, settle, taken, cname, ark_people)
     conns = []
     for i, (e, _) in enumerate(route.exits):
         if not e.to:
@@ -257,9 +264,6 @@ def write_emerald(route: Route, layout, out: Path, primary: str, secondary: str,
 
 # --------------------------------------------------------------- events + scripts
 
-NPC_GFX = {"researcher": "OBJ_EVENT_GFX_SCIENTIST_1", "old_man": "OBJ_EVENT_GFX_OLD_MAN",
-           "villager": "OBJ_EVENT_GFX_WOMAN_2", "hiker": "OBJ_EVENT_GFX_HIKER",
-           "bug_catcher": "OBJ_EVENT_GFX_BUG_CATCHER", "blocker": "OBJ_EVENT_GFX_MAN_3"}
 NPC_TEXT = {
     "old_man": "These woods were here long before the road. Stay on it after dark and you'll be fine.",
     "villager": "We come up here for firewood. The wild POKéMON keep to the long grass, mostly.",
@@ -353,12 +357,12 @@ HM_TEMP_FLAGS = [f"FLAG_TEMP_{i:X}" for i in range(0x1, 0x11)]
 STORY_GATE_BLOCKER_TEXT = "Sorry, you can't go through here yet. Come back later."
 
 
-def story_gate_export(route_id: str, map_constant_name: str, story_blocker_event) -> tuple:
+def story_gate_export(route_id: str, map_constant_name: str, story_blocker_event, ark_people: bool = False) -> tuple:
     from .areas.rom import text_block
 
     story_gate_flag = f"FLAG_ARK_{map_constant_name}_STORY_GATE_OPEN"
     story_gate_script_id = f"{route_id}_EventScript_StoryGate"
-    story_gate_object = _obj("OBJ_EVENT_GFX_MAN_3", story_blocker_event.x, story_blocker_event.y, story_gate_script_id,
+    story_gate_object = _obj(route_people.npc_gfx("story_blocker", ark_people), story_blocker_event.x, story_blocker_event.y, story_gate_script_id,
                              story_gate_flag, move="MOVEMENT_TYPE_FACE_DOWN", rng=0)
     story_gate_script = (f"@ story gate: {story_blocker_event.data.get('script_note', 'moves after a story beat')}. "
                          f"Set {story_gate_flag} at that beat and this person is gone.\n"
@@ -367,7 +371,7 @@ def story_gate_export(route_id: str, map_constant_name: str, story_blocker_event
     return story_gate_object, story_gate_flag, story_gate_script
 
 
-def build_events(route: Route, elev, settle, taken: set, cname: str):
+def build_events(route: Route, elev, settle, taken: set, cname: str, ark_people: bool = False):
     """Every event of the route and its special areas, plus the scripts.inc body.
     Returns (object_events, bg_events, coord_events, warp_events, permanent flags, scripts)."""
     from .areas.rom import text_block
@@ -407,7 +411,7 @@ def build_events(route: Route, elev, settle, taken: set, cname: str):
                                                   "There must be a way to move it somewhere.", width=30))
             used.add((e.y, e.x))
         elif k == "story_blocker" and free(e.y, e.x):
-            story_gate_object, story_gate_flag, story_gate_script = story_gate_export(s.id, cname, e)
+            story_gate_object, story_gate_flag, story_gate_script = story_gate_export(s.id, cname, e, ark_people)
             flags.append(story_gate_flag)
             objs.append(story_gate_object)
             sc.append(story_gate_script)
@@ -441,7 +445,7 @@ def build_events(route: Route, elev, settle, taken: set, cname: str):
         elif k == "npc" and free(e.y, e.x):
             n["npc"] += 1
             sid = f"{s.id}_EventScript_Npc{n['npc']}"
-            gfx = NPC_GFX.get(e.data.get("role"), "OBJ_EVENT_GFX_MAN_3")
+            gfx = route_people.npc_gfx(e.data.get("role"), ark_people)
             objs.append(_obj(gfx, e.x, e.y, sid, move="MOVEMENT_TYPE_FACE_DOWN", rng=0))
             sc.append(f"{sid}::\n\tmsgbox {s.id}_Text_Npc{n['npc']}, MSGBOX_NPC\n\tend\n\n"
                       + text_block(f"{s.id}_Text_Npc{n['npc']}", _npc_text(route, e), width=30))
