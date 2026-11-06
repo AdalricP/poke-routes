@@ -669,11 +669,7 @@ def place_hidden(route: Route) -> None:
         route.__dict__.setdefault("purposes", []).append(prec)
         route.zones.append(Zone("clearing", spot, kind.replace("_", " "), {"center": (y, x), "lore": lore, "secret": True,
                                                                            "purpose": prec}))
-        if kind == "berry_patch":
-            for (yy, xx) in [(y, x - 1), (y, x + 1)]:
-                route.events.append(Event("berry_tree", yy, xx, {"lore": lore}))
-        else:
-            route.events.append(Event("sign", y - hy, x, {"lore": lore, "type": kind, "text": ""}))
+        route.events.append(Event("sign", y - hy, x, {"lore": lore, "type": kind, "text": ""}))
         route.props.append({"kind": kind, "y": y, "x": x, "lore": lore})
     # hidden items: lane tips first, then quiet corners
     walk = np.isin(route.cls, list(WALKABLE))
