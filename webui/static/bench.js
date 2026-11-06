@@ -1257,6 +1257,7 @@
       const d = drawStage(last, last ? state.tileCanvases[last - 1] : null, last ? r.stages[last - 1].tiles : null);
       state.tileCanvases[last] = d.tiles;
       state.classCanvases[last] = d.classes;
+      state.animCells[last] = d.anim;
       if (!quiet) log("info", `Painted ${res.painted} cells; re-tiled ${res.retiled}`);
       return true;
     } catch (e) {
