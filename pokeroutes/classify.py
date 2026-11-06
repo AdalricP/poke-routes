@@ -118,6 +118,7 @@ FALLBACK = {
     SEA: WATER, WATER: SEA, SHALLOW: WATER, BRIDGE: PATH, STAIRS: PATH,
     CLIFF: ROCK, ROCK: CLIFF, BOULDER: ROCK, LAVA: ROCK, CAVE_ENTRANCE: CLIFF,
     GRASS: ASH, WATERFALL: WATER, TREE: CLIFF,
+    LEDGE_N: GRASS,  # Emerald has no north-ledge art: the lip just reads as grass (a plains verge's south edge)
 }
 
 

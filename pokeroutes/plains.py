@@ -1,4 +1,9 @@
-"""Plains: an open field held in by a raised rim at the map's edge, faced with ledges."""
+"""Plains: an open field held in by a raised grassy verge at the map's edge.
+
+The verge is gentle elevation, not a cliff: a tree line at the very edge, a strip
+of raised grass (class ``o``: drawn as grass, never walked on) dotted with bushes
+and the odd small tree, and a low ledge lip facing the field, so you can only see
+it from below. Only a side the region puts against mountains rises as rock."""
 from __future__ import annotations
 
 from typing import List, Sequence
@@ -7,13 +12,23 @@ import numpy as np
 from scipy.ndimage import binary_dilation, distance_transform_cdt, label
 
 from .generate import WALKABLE, Cell, Route, Zone, astar, can_leave, inward, reachable
+from .plains_grass import grow_tall_grass
 
 SEAL_DEPTH = 2
 RIM_DEPTHS = (3, 4, 4, 5, 5, 6)
-RIM_RUN = (7, 15)
+VERGE_TOP = "o"
+SEAL_TREE = "f"
+BUSH_CHANCE = 0.07
+SMALL_TREE_CHANCE = 0.25
+MOUNTAIN_CODES = "MS"
+ROCKY_SIDE_SHARE = 0.3
+SIDES = ("north", "south", "west", "east")
+STEPS_AT_MOST = 2
+RIM_RUN = (10, 22)
 GROVE_SPACING = 18
-MIN_STEP = 5
-CELLS_PER_STEP = 700
+MIN_STEP = 6
+LONGEST_STEP = 12
+MIN_RUN = 4
 CLIFF = "k"
 NOTCH_MARGIN = 1
 GROVE_SHAPES = ((2, 3), (3, 2), (2, 2), (1, 3), (1, 2), (1, 1))
@@ -21,8 +36,9 @@ GROVE_SHAPES = ((2, 3), (3, 2), (2, 2), (1, 3), (1, 2), (1, 1))
 
 def stage_open_plains(route: Route) -> None:
     """Open the plains: the hill mass between lanes becomes open grass with a few
-    groves, the map's edge rises into a plateau whose rim is a ledge line, and the
-    height map's steps run on as terrace ledges you can always walk round."""
+    groves, the map's edge rises into a grassy verge with a low ledge lip (rock only
+    on a side that faces mountains), at most a couple of gentle steps follow the
+    height map, and tall grass grows in soft patches and strips along the road."""
     if route.spec.biome != "plains":
         return
     built = route.cls.copy()
@@ -31,10 +47,11 @@ def stage_open_plains(route: Route) -> None:
     hedge_secrets(route, built)
     open_hill_mass(route, built)
     drop_stray_ledges(route, rim)
-    raise_rim(route, rim)
+    raise_rim(route, rim, rocky_sides(route))
     plant_groves(route, built, rim)
     reconnect_orphans(route, rim)
     terrace_steps(route, rim)
+    grow_tall_grass(route, rim)
     route.snap("open plains")
 
 
@@ -79,7 +96,33 @@ def rim_mask(route: Route, keep: np.ndarray) -> np.ndarray:
 def clipped_depths(route: Route, keep: np.ndarray, length: int, kept) -> List[int]:
     profile = depth_profile(route, length)
     clipped = [first_kept(kept, i, profile[i]) for i in range(length)]
-    return without_slivers(widened_notches(clipped))
+    return without_stubs(without_slivers(widened_notches(clipped)))
+
+
+def without_stubs(depths: List[int]) -> List[int]:
+    """Flatten a bump in the verge only a few cells long: it would stick out of the
+    lip line as a two-sided ledge tongue."""
+    out = list(depths)
+    changed = True
+    while changed:
+        changed = False
+        runs = depth_runs(out)
+        for i, (start, end, depth) in enumerate(runs):
+            sides = [runs[j][2] for j in (i - 1, i + 1) if 0 <= j < len(runs)]
+            if end - start < MIN_RUN and sides and depth > max(sides):
+                out[start:end] = [max(sides)] * (end - start)
+                changed = True
+                break
+    return out
+
+
+def depth_runs(depths: List[int]) -> List[tuple]:
+    runs, start = [], 0
+    for i in range(1, len(depths) + 1):
+        if i == len(depths) or depths[i] != depths[start]:
+            runs.append((start, i, depths[start]))
+            start = i
+    return runs
 
 
 def widened_notches(depths: List[int]) -> List[int]:
@@ -109,7 +152,7 @@ def depth_profile(route: Route, length: int) -> List[int]:
 
 
 def next_depth(rng, depth: int) -> int:
-    step = int(rng.choice((-2, -1, 1, 2)))
+    step = int(rng.choice((-1, 1)))
     return int(np.clip(depth + step, min(RIM_DEPTHS), max(RIM_DEPTHS)))
 
 
@@ -137,7 +180,7 @@ def is_block(blob: np.ndarray) -> bool:
 
 
 def drop_stray_ledges(route: Route, rim: np.ndarray) -> None:
-    for y, x in np.argwhere(np.isin(route.cls, ["s", "e", "x"]) & ~rim):
+    for y, x in np.argwhere(np.isin(route.cls, ["s", "e", "x", "j"]) & ~rim):
         route.cls[y, x] = ground_below(route, int(y), int(x))
     route.zones = [z for z in route.zones if "ledge" not in z.meta]
 
@@ -147,16 +190,48 @@ def ground_below(route: Route, y: int, x: int) -> str:
     return below if below in "gtp" else "g"
 
 
-def raise_rim(route: Route, rim: np.ndarray) -> None:
+def rocky_sides(route: Route) -> List[str]:
+    """Sides of the map the region puts against mountains: their verge may rise as rock."""
+    region = route.spec.region if isinstance(getattr(route.spec, "region", None), dict) else {}
+    rows = (region.get("biome") or {}).get("grid") or []
+    if not rows:
+        return []
+    grid = np.array([list(row) for row in rows if row])
+    band_y, band_x = max(1, grid.shape[0] // 3), max(1, grid.shape[1] // 3)
+    bands = {"north": grid[:band_y], "south": grid[-band_y:], "west": grid[:, :band_x], "east": grid[:, -band_x:]}
+    return [side for side in SIDES if np.isin(bands[side], list(MOUNTAIN_CODES)).mean() >= ROCKY_SIDE_SHARE]
+
+
+def nearest_side(h: int, w: int, y: int, x: int) -> str:
+    gaps = {"north": y, "south": h - 1 - y, "west": x, "east": w - 1 - x}
+    return min(SIDES, key=lambda side: gaps[side])
+
+
+def raise_rim(route: Route, rim: np.ndarray, rocky: Sequence[str] = ()) -> None:
+    """The map's edge rises into a verge: trees on the outermost ring, raised grass
+    behind them, a ledge lip wherever the verge meets the field. On a mountain side
+    the whole verge is rock (its face shows where it meets the field)."""
     h, w = rim.shape
     cls = route.cls
-    seal = edge_ring(h, w) & rim
-    cls[seal] = CLIFF
+    seal = edge_ring(h, w) & (rim | ~exit_mouths(route))
+    for y, x in zip(*np.nonzero(seal)):
+        cls[y, x] = SEAL_TREE
     for y, x in zip(*np.nonzero(rim & ~seal)):
         cls[y, x] = rim_piece(rim, y, x)
-    south_band = np.zeros_like(rim)
-    south_band[h - max(RIM_DEPTHS):, :] = True
-    cls[rim & south_band & ~np.isin(cls, ["e", "x"])] = CLIFF
+    for y, x in zip(*np.nonzero(rim | seal)):
+        if nearest_side(h, w, y, x) in rocky:
+            cls[y, x] = CLIFF
+    dress_verge(route, cls == VERGE_TOP)
+
+
+def exit_mouths(route: Route) -> np.ndarray:
+    """The exits' cells through the outer ring (what ``export.seal_edges`` leaves open)."""
+    mouth = np.zeros(route.cls.shape, dtype=bool)
+    for exit_, cells in route.exits:
+        for cell in cells:
+            for depth in range(SEAL_DEPTH):
+                mouth[inward(route, exit_, cell, depth)] = True
+    return mouth
 
 
 def edge_ring(h: int, w: int) -> np.ndarray:
@@ -166,23 +241,40 @@ def edge_ring(h: int, w: int) -> np.ndarray:
 
 
 def rim_piece(rim: np.ndarray, y: int, x: int) -> str:
+    """A verge cell next to the field is the ledge lip facing it; the rest is raised grass."""
     h, w = rim.shape
 
     def low(dy: int, dx: int) -> bool:
         ny, nx = y + dy, x + dx
         return 0 <= ny < h and 0 <= nx < w and not rim[ny, nx]
 
-    if low(-1, 0) and not low(1, 0):
-        return CLIFF
     if low(1, 0):
         return "s"
+    if low(-1, 0):
+        return "j"
     if low(0, 1):
         return "e"
     if low(0, -1):
         return "x"
     if low(1, -1) or low(1, 1):
         return "s"
-    return CLIFF
+    if low(-1, -1) or low(-1, 1):
+        return "j"
+    return VERGE_TOP
+
+
+def dress_verge(route: Route, top: np.ndarray) -> None:
+    """A few small trees and bushes on the raised grass, never a wall of them."""
+    rng = route.rng
+    h, w = top.shape
+    for by in range(0, h - 1, 2):
+        for bx in range(0, w - 1, 2):
+            if top[by:by + 2, bx:bx + 2].all() and rng.random() < SMALL_TREE_CHANCE:
+                route.cls[by:by + 2, bx:bx + 2] = "f"
+                top[max(0, by - 2):by + 4, max(0, bx - 2):bx + 4] = False
+    for y, x in zip(*np.nonzero(top)):
+        if rng.random() < BUSH_CHANCE:
+            route.cls[y, x] = "f"
 
 
 def plant_groves(route: Route, built: np.ndarray, rim: np.ndarray) -> None:
@@ -243,7 +335,7 @@ def terrace_steps(route: Route, rim: np.ndarray) -> None:
     drop[:-1] = elevation[:-1] > elevation[1:]
     clear = ~binary_dilation(rim, np.ones((7, 7), bool))
     runs = [(y, run) for y in range(1, route.h - 1) for run in step_runs(route, drop[y] & clear[y], y)]
-    budget = max(2, route.cls.size // CELLS_PER_STEP)
+    budget = int(route.rng.integers(0, STEPS_AT_MOST + 1))
     for i in route.rng.permutation(len(runs)):
         if budget == 0:
             return
@@ -261,12 +353,16 @@ def step_runs(route: Route, row: np.ndarray, y: int) -> List[List[int]]:
 
 
 def steppable(route: Route, y: int, x: int) -> bool:
-    if route.cls[y, x] not in "gtp":
+    if route.cls[y, x] not in "gt":
         return False
     return route.cls[y - 1, x] in WALKABLE and route.cls[y + 1, x] in WALKABLE
 
 
 def place_step(route: Route, y: int, run: List[int]) -> bool:
+    """A short grassy step (at most LONGEST_STEP wide) somewhere along the drop."""
+    if len(run) > LONGEST_STEP:
+        start = int(route.rng.integers(0, len(run) - LONGEST_STEP + 1))
+        run = run[start:start + LONGEST_STEP]
     for part in (run, run[:-1], run[1:]):
         if len(part) >= MIN_STEP and try_step(route, y, part):
             route.zones.append(Zone("loop", [(y, x) for x in part], "height step",

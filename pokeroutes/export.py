@@ -162,7 +162,8 @@ def seal_edges(route: Route) -> int:
                 xx = x + k if e.side == "west" else x - k if e.side == "east" else x
                 keep[yy, xx] = True
     before = route.cls.copy()
-    route.cls[~keep & ~np.isin(route.cls, [wall, "r"])] = wall  # rock-mass tops are wall already
+    # rock-mass tops and trees (a plains verge's tree line) are wall already
+    route.cls[~keep & ~np.isin(route.cls, [wall, "r", "f"])] = wall
     seen = reachable(class_grid_with_route_gates_open(route), route.exits[0][1])
     orphan = np.isin(route.cls, list("gpt")) & ~seen
     route.cls[orphan] = wall
