@@ -34,7 +34,9 @@ sys.path.insert(0, str(HERE))
 import route_extras  # noqa: E402
 from fasttile import FastTiler  # noqa: E402
 from pokeroutes.autotile import Autotiler  # noqa: E402
-from pokeroutes.spec import BIOMES  # noqa: E402
+from pokeroutes.breeze import (BreezePlan, animation_sequence_for_swaying_metatile,  # noqa: E402
+                               breeze_frames_for_tileset_pair, breeze_plan_for_learned_model)
+from pokeroutes.spec import BIOMES, ROUTE_EFFECTS  # noqa: E402
 from pokeroutes.tileset import NUM_PRIMARY_METATILES, load_pair  # noqa: E402
 
 # The generator (spec / generate / places / export) is still being worked on, so it
@@ -86,39 +88,61 @@ def atlas(ts: str = TILESET):
     """(png bytes, metadata) for every metatile of the pair, rendered once."""
     if ts not in _atlases:
         a, b = ts.split("_", 1)
-        _atlases[ts] = build_atlas(pair(ts), f"gTileset_{a.title()}", f"gTileset_{b.title()}", atlas_url(ts, png=True))
+        _atlases[ts] = build_atlas(pair(ts), f"gTileset_{a.title()}", f"gTileset_{b.title()}", atlas_url(ts, png=True),
+                                   breeze_plan_for_learned_tileset(ts))
     return _atlases[ts]
 
 
-def build_atlas(p, primary_sym: str, secondary_sym: str, png_url: str):
+def breeze_plan_for_learned_tileset(tileset_name: str) -> BreezePlan:
+    learned_model_path = MODELS / f"{tileset_name}.json"
+    if not learned_model_path.is_file():
+        return BreezePlan()
+    learned_model_breeze_plan = breeze_plan_for_learned_model(json.loads(learned_model_path.read_text()))
+    return learned_model_breeze_plan
+
+
+def build_atlas(p, primary_sym: str, secondary_sym: str, png_url: str, breeze_plan: BreezePlan = BreezePlan()):
     """(png bytes, metadata) for every metatile of a tileset pair, plus extra cells for the
     other frames of any metatile that animates (water, flowers, waterfalls...) so the browser
-    can play them instead of showing a dead scene."""
+    can play them instead of showing a dead scene, and preview-only breeze frames (tree
+    crowns, tall grass, flowers swaying a pixel) listed under "breeze"."""
     from PIL import Image
 
     n_pri, n_sec = p.metatile_count()
     ids = list(range(n_pri)) + [NUM_PRIMARY_METATILES + i for i in range(n_sec)]
     anim = p.animated_metatiles()  # metatile id -> frame count, for the ones that animate
-    extra = [(mid, f) for mid, nf in anim.items() for f in range(1, nf)]
-    rows = (len(ids) + len(extra) + ATLAS_COLS - 1) // ATLAS_COLS
+    breeze_frames = breeze_frames_for_tileset_pair(p, breeze_plan, set(anim))
+    extra = [(mid, p.render_metatile(mid, frame=f)) for mid, nf in anim.items() for f in range(1, nf)]
+    extra_breeze = [(mid, offset, pixels) for mid, frames in breeze_frames.items() for offset, pixels in frames.items()]
+    rows = (len(ids) + len(extra) + len(extra_breeze) + ATLAS_COLS - 1) // ATLAS_COLS
     img = np.zeros((rows * 16, ATLAS_COLS * 16, 4), dtype=np.uint8)
+
+    def put(n, pixels):
+        y, x = (n // ATLAS_COLS) * 16, (n % ATLAS_COLS) * 16
+        img[y:y + 16, x:x + 16, :3] = pixels
+        img[y:y + 16, x:x + 16, 3] = 255
+
     index = {}
     for n, mid in enumerate(ids):
-        y, x = (n // ATLAS_COLS) * 16, (n % ATLAS_COLS) * 16
-        img[y:y + 16, x:x + 16, :3] = p.render_metatile(mid)
-        img[y:y + 16, x:x + 16, 3] = 255
+        put(n, p.render_metatile(mid))
         index[str(mid)] = n
     anim_index: dict = {}
-    for k, (mid, f) in enumerate(extra):
+    for k, (mid, pixels) in enumerate(extra):
         n = len(ids) + k
-        y, x = (n // ATLAS_COLS) * 16, (n % ATLAS_COLS) * 16
-        img[y:y + 16, x:x + 16, :3] = p.render_metatile(mid, frame=f)
-        img[y:y + 16, x:x + 16, 3] = 255
+        put(n, pixels)
         anim_index.setdefault(str(mid), []).append(n)
+    breeze_cells: dict = {}
+    for k, (mid, offset, pixels) in enumerate(extra_breeze):
+        n = len(ids) + len(extra) + k
+        put(n, pixels)
+        breeze_cells.setdefault(mid, {})[offset] = n
+    for mid, cells in breeze_cells.items():
+        anim_index[str(mid)] = animation_sequence_for_swaying_metatile(index[str(mid)], cells)
     buf = io.BytesIO()
     Image.fromarray(img).save(buf, "PNG", optimize=True)
     meta = {"png": png_url, "cell": 16, "columns": ATLAS_COLS, "count": len(ids),
-            "index": index, "primary": primary_sym, "secondary": secondary_sym, "anim": anim_index}
+            "index": index, "primary": primary_sym, "secondary": secondary_sym, "anim": anim_index,
+            "breeze": sorted(breeze_cells)}
     return buf.getvalue(), meta
 
 
@@ -224,6 +248,7 @@ HINTS = {
     "width": {"group": "route", "min": 24, "max": 96, "step": 2},
     "height": {"group": "route", "min": 24, "max": 112, "step": 2},
     "biome": {"group": "route", "choices": list(BIOMES)},
+    "effect": {"group": "route", "choices": list(ROUTE_EFFECTS)},
     "meander": {"group": "shape", "min": 0, "max": 1, "step": 0.05},
     "branches": {"group": "shape", "min": 0, "max": 8},
     "loops": {"group": "shape", "min": 0, "max": 4},
