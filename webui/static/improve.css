@@ -80,9 +80,10 @@
 .imp-hist .st.done { color: var(--accent, #3e6b47); }
 .imp-hist .st.failed, .imp-hist .st.timeout, .imp-hist .st.conflict, .imp-hist .st.cancelled { color: var(--warn, #9a4b16); }
 .imp-hist code { font: 11.5px ui-monospace, "SF Mono", Menlo, monospace; }
-.imp-hist .undo, .imp-slots .undo { margin-left: auto; height: 24px; padding: 0 8px; font-size: 12px; border-radius: 4px;
-  background: var(--field, #fff); border: 1px solid var(--line, #d9d4c7); color: inherit; cursor: pointer; font-family: inherit; }
-.imp-hist .undo:hover, .imp-slots .undo:hover { border-color: var(--ink-3, #8b867a); }
+.imp-hist .undo, .imp-slots .undo, .imp-steer-form .undo { margin-left: auto; height: 24px; padding: 0 8px; font-size: 12px; border-radius: 4px;
+  background: var(--field, #fff); border: 1px solid var(--ink-3, #8b867a); color: var(--ink, #26241f);
+  font-weight: 600; cursor: pointer; font-family: inherit; }
+.imp-hist .undo:hover, .imp-slots .undo:hover, .imp-steer-form .undo:hover { border-color: var(--ink, #26241f); }
 .imp-hist .undo.imp-shift { transform: translate(14px, -2px); transition: transform 0.15s ease; }
 .imp-hist .sum { margin: 4px 0 0; font-size: 12.5px; color: var(--ink-2, #5c584e); }
 .imp-added { margin: 6px 0 0; }
@@ -110,9 +111,12 @@
 .imp-slots .req { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   text-align: left; border: 0; background: none; padding: 0; color: inherit; font: inherit; cursor: pointer; }
 .imp-slots .idle { color: var(--ink-3, #8b867a); }
-.imp-slots li.imp-steer-form { display: block; max-height: 0; overflow: hidden; opacity: 0; padding: 0;
-  transition: max-height 0.2s ease, opacity 0.2s ease; }
-.imp-slots li.imp-steer-form.open { max-height: 90px; opacity: 1; padding: 4px 0 6px; }
+.imp-steer-form { margin-top: 8px; padding: 8px; border: 1px solid var(--line, #d9d4c7); border-radius: 6px;
+  background: var(--panel, #f8f6f0); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  max-height: 0; overflow: hidden; opacity: 0; transition: max-height 0.2s ease, opacity 0.2s ease; }
+.imp-steer-form.open { max-height: 140px; opacity: 1; }
+.imp-steer-who { margin: 0 0 6px; font-size: 12px; color: var(--ink-2, #5c584e); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
 .imp-steer-form textarea { width: 100%; min-height: 44px; resize: vertical; padding: 6px; font: inherit;
   color: inherit; background: var(--field, #fff); border: 1px solid var(--line, #d9d4c7); border-radius: 4px; }
 .imp-steer-form .imp-row { margin-top: 6px; justify-content: flex-end; }
