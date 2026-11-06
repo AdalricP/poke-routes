@@ -209,6 +209,21 @@ def set_status(job, status, note=None, **fields):
     return job
 
 
+# kill_reason -> reasons it may move to; only set while the job is "running" and cleared (popped)
+# once that run ends, so it is really a sub-state of "running" rather than an orthogonal flag.
+KILL_REASON_TRANSITIONS = {None: {"timeout", "cancelled"}, "timeout": set(), "cancelled": set()}
+
+
+def set_kill_reason(job, reason):
+    """Record why a running job is being stopped (_run_agent/_do_poke check this before starting
+    or merging); a job already marked timeout/cancelled keeps that first reason."""
+    cur = job.get("kill_reason")
+    if reason != cur and reason not in KILL_REASON_TRANSITIONS.get(cur, set()):
+        raise TransitionError(f"job {job.get('id')}: kill_reason {cur} -> {reason} is not allowed")
+    job["kill_reason"] = reason
+    return job
+
+
 # ------------------------------------------------------------------ persistence
 
 def _read_disk():
@@ -878,7 +893,7 @@ def _send_stdin(proc, lock, text) -> bool:
 
 def _run_agent(job, cwd, wt=None, port=None):
     jid, target = job["id"], job["target"]
-    if job.get("killed"):   # cancelled before the agent process existed to kill (finding 15)
+    if job.get("kill_reason"):   # cancelled before the agent process existed to kill (finding 15)
         return -1, ""
     prompt = build_prompt(job, wt=wt, port=port)
     LOGDIR.mkdir(parents=True, exist_ok=True)
@@ -887,7 +902,7 @@ def _run_agent(job, cwd, wt=None, port=None):
         job["model"], job["model_reason"] = route_model(job)
         _save()
     _log(jid, f"[router] {job['model']} ({job.get('model_reason', '')})")
-    if job.get("killed"):   # cancelled while routing the model, still before any process exists
+    if job.get("kill_reason"):   # cancelled while routing the model, still before any process exists
         return -1, ""
     cmd = claude_cmd(target, wt, model=job["model"], port=port, jid=jid)
     _log(jid, f"[run] {Path(cmd[0]).name} " + " ".join(cmd[1:]) + f"  (cwd {cwd})")
@@ -955,7 +970,7 @@ def steer(jid: str, text: str) -> dict:
         job = _jobs.get(jid)
         if not job:
             raise KeyError(jid)
-        if job.get("status") != "running" or job.get("killed"):
+        if job.get("status") != "running" or job.get("kill_reason"):
             raise ValueError(f"job isn't running (status {job.get('status')})")
         proc, lock = _procs.get(jid), _stdin_locks.get(jid)
     if not proc or not lock or not _send_stdin(proc, lock, text):
@@ -968,7 +983,7 @@ def _kill(proc, jid, why):
     if proc.poll() is None:
         _log(jid, f"[{why}] stopping the agent")
         with _lock:
-            _jobs[jid]["killed"] = why
+            set_kill_reason(_jobs[jid], why)
         try:
             os.killpg(proc.pid, signal.SIGTERM)
             time.sleep(5)
@@ -1047,10 +1062,10 @@ def _do_poke(job, slot):
                 job["summary"] = final[-600:]
             commits = _git(wt, "rev-list", "--reverse", "--no-merges", f"{base}..HEAD").split()
             keep_branch = bool(commits)        # until merged, the work is only on this branch
-            if job.get("killed"):
+            if job.get("kill_reason"):
                 keep_branch = False
                 with _lock:
-                    set_status(job, "timeout" if job["killed"] == "timeout" else "cancelled")
+                    set_status(job, job["kill_reason"])
                 return
             if not commits:
                 with _lock:
@@ -1121,8 +1136,8 @@ def _do_improve_rom(job):
         job["subject"] = _git(repo, "log", "-1", "--format=%s", commits[-1])
         _note_changes(job, repo, commits)
     with _lock:
-        if job.get("killed"):
-            set_status(job, "timeout" if job["killed"] == "timeout" else "cancelled")
+        if job.get("kill_reason"):
+            set_status(job, job["kill_reason"])
         elif not commits:
             set_status(job, "no-change" if code == 0 else "failed")
         else:
@@ -1278,7 +1293,7 @@ def _worker_loop(slot):
             if job is None:
                 continue
             set_status(job, "running", slot=slot, started=time.time())
-            job.pop("killed", None)
+            job.pop("kill_reason", None)
             _slots[slot] = job["id"]
             _st["last_start"] = time.time()
         _save()
@@ -1396,7 +1411,7 @@ def recover_interrupted(job, why="the server stopped while it was running"):
         set_status(job, "failed", error=f"interrupted twice ({why}); not requeued again")
         return job
     job["requeued"] = job.get("requeued", 0) + 1
-    for k in ("slot", "started", "killed"):
+    for k in ("slot", "started", "kill_reason"):
         job.pop(k, None)
     set_status(job, "queued", note=f"requeued: {why}")
     _log(job["id"], f"[recover] requeued: {why}")
@@ -1414,7 +1429,7 @@ def migrate_lost(jobs, me=None):
             continue
         j["owner"] = me
         j["old_error"] = j.pop("error")
-        for k in ("started", "finished", "slot", "killed"):
+        for k in ("started", "finished", "slot", "kill_reason"):
             j.pop(k, None)
         set_status(j, "queued", note="requeued: an old server had wrongly marked it failed on restart")
         changed.append(j["id"])
@@ -1792,7 +1807,7 @@ def cancel(jid: str) -> dict:
         elif job["status"] == "running":
             # set the flag even with no agent process yet (worktree setup, model routing, an undo's
             # revert/build): _run_agent and _do_poke check it before starting or merging (finding 15)
-            job["killed"] = "cancelled"
+            set_kill_reason(job, "cancelled")
             if _procs.get(jid):
                 threading.Thread(target=_kill, args=(_procs[jid], jid, "cancelled"), daemon=True).start()
         elif job["status"] == "merging":

@@ -188,4 +188,11 @@ test("entering through a seam keeps walking or swimming from just outside the ma
   assert.strictEqual(PlaytestLogic.seam_entry_placement(small_world(), { x: 9, y: 0 }, "down", false, {}), null);
 });
 
+test("a transition only times out once it has been stuck past the timeout", () => {
+  assert.strictEqual(PlaytestLogic.transition_timed_out({ kind: "none", started_at: 0 }, 100000, 30000), false);
+  assert.strictEqual(PlaytestLogic.transition_timed_out({ kind: "leaving_route", started_at: 0 }, 20000, 30000), false);
+  assert.strictEqual(PlaytestLogic.transition_timed_out({ kind: "leaving_route", started_at: 0 }, 40000, 30000), true);
+  assert.strictEqual(PlaytestLogic.transition_timed_out({ kind: "crossing_seam", started_at: 1000 }, 40000, 30000), true);
+});
+
 console.log(`playtest-logic: ${passed_test_count} tests passed`);

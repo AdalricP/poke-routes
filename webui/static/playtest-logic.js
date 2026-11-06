@@ -446,8 +446,12 @@
     return placement;
   }
 
+  function transition_timed_out(transition, now, timeout_in_milliseconds) {
+    return transition.kind !== "none" && now - transition.started_at > timeout_in_milliseconds;
+  }
+
   const api = {
-    cell_across_chain_seam, seam_entry_placement,
+    cell_across_chain_seam, seam_entry_placement, transition_timed_out,
     viewport_width_in_tiles, viewport_height_in_tiles, tile_size_in_pixels, turn_in_place_duration_in_milliseconds,
     direction_vectors, cell_key, cell_in_direction, build_play_world, resolve_step, resolve_interaction,
     world_after_interaction, world_with_boulder_pushed, is_encounter_cell, roll_wild_encounter, wild_encounter_text,
