@@ -299,6 +299,6 @@
     key_event.stopPropagation();
     if (key_event.key === "Enter" && !key_event.shiftKey && !key_event.isComposing) { key_event.preventDefault(); submit_agent_task(); }
   });
-  if (window.Shell && window.Shell.onBottom) window.Shell.onBottom((bottom_tab) => { if (bottom_tab === "agent") refresh_agent_tab(); });
+  if (window.Shell && window.Shell.on_panel_shown) window.Shell.on_panel_shown((panel_id) => { if (panel_id === "agent") refresh_agent_tab(); });
   load_server_features().then(refresh_agent_tab);
 })();

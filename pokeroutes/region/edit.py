@@ -393,6 +393,29 @@ def full_spec(doc: dict, rid: str) -> Optional[dict]:
     return None
 
 
+def route_name_holding_map(w: World, route_or_map_id: str) -> Optional[str]:
+    from .route_chain import chain_maps_of_world
+
+    route_named = next((route for route in w.routes if route_or_map_id in (route["id"], route["name"])), None)
+    if route_named is not None:
+        return route_named["name"]
+    chain_map_named = next((chain_map for chain_map in chain_maps_of_world(w) if route_or_map_id in (chain_map["id"], chain_map["name"])), None)
+    route_name = chain_map_named["chain"]["route"] if chain_map_named is not None else None
+    return route_name
+
+
+def route_chain_specs(doc: dict, route_or_map_id: str) -> Optional[dict]:
+    from .export import chain_map_specs
+
+    w = doc_to_world(doc)
+    route_name = route_name_holding_map(w, route_or_map_id)
+    if route_name is None:
+        return None
+    specs_of_route = [spec for spec in chain_map_specs(w) if spec["region"].get("chain", {}).get("route", spec["name"]) == route_name]
+    chain_of_route = {"route": route_name, "maps": [{"name": spec["name"], "rect": list(spec["region"]["rect"]), "spec": spec} for spec in specs_of_route]}
+    return chain_of_route
+
+
 # ------------------------------------------------------------------ files
 
 def generate_doc(seed: int, preset: str = "generic", geography_kind: Optional[str] = None) -> dict:

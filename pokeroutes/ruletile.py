@@ -402,12 +402,16 @@ def tile_route(tiler: ArkTiler, route) -> Layout:
             col = getattr(res, "collision", {}).get(c)
             coll[c] = int(col) if col is not None else (1 if str(route.cls[c]) in "ofr" else 0)
     from .ground import tile_with_false_walls
+    from .scenery_layer import block_raised_ground, class_grid_as_drawn, stamp_placed_props
 
-    layout = tile_with_false_walls(route, tiler.tile, cls)
+    layout = tile_with_false_walls(route, tiler.tile, class_grid_as_drawn(route, cls))
+    block_raised_ground(cls, layout)
+    stamped_prop_metatiles = stamp_placed_props(route, route.cls, layout, tiler.c.get("props", {}))
     for (y, x), mid in fixed.items():
         layout.metatile[y, x] = mid
         layout.collision[y, x] = coll[(y, x)]
         layout.elevation[y, x] = 0 if coll[(y, x)] else 3
+    fixed.update({cell: metatile_id for cell, metatile_id in stamped_prop_metatiles.items() if cell not in fixed})
     # route signs get a signpost metatile where that can't cut a lane: lane-end tips
     # (one open neighbour) or open ground (all four neighbours open)
     sign = tiler.c.get("props", {}).get("sign", {}).get("cells", [[None]])[0][0]

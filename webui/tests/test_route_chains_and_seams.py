@@ -173,3 +173,18 @@ def test_the_largest_square_fits_the_gba_map_buffer():
     side_in_metatiles = max(map_grid.GRID_CELL_SIZES_IN_REGION_CELLS) * CELL
 
     assert (side_in_metatiles + 15) * (side_in_metatiles + 14) <= MAX_MAP_DATA_SIZE
+
+
+def test_the_whole_route_opens_with_every_chain_map_spec_in_chain_order(region_with_drawn_staircase):
+    route_name = region_with_drawn_staircase["added"][0]
+    route = next(route for route in region_with_drawn_staircase["routes"] if route["name"] == route_name)
+    chain_map_names = [chain_map["name"] for chain_map in route["chain"]]
+
+    opened_by_route = edit.route_chain_specs(region_with_drawn_staircase, route_name)
+    opened_by_second_map = edit.route_chain_specs(region_with_drawn_staircase, route["chain"][1]["id"])
+
+    assert opened_by_route["route"] == route_name == opened_by_second_map["route"]
+    assert [opened_map["name"] for opened_map in opened_by_route["maps"]] == chain_map_names
+    assert [opened_map["rect"] for opened_map in opened_by_route["maps"]] == [chain_map["rect"] for chain_map in route["chain"]]
+    assert all(opened_map["spec"]["name"] == opened_map["name"] for opened_map in opened_by_route["maps"])
+    assert edit.route_chain_specs(region_with_drawn_staircase, "no such route") is None

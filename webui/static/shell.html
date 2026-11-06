@@ -118,165 +118,141 @@
     </div>
   </div>
 
-  <!-- left: hierarchy -->
-  <section class="dock" id="dockLeft" data-dock="left" aria-label="Hierarchy">
-    <header class="dock-head">
-      <button type="button" class="dock-tab on" data-left-tab="hierarchy">Hierarchy</button>
-      <button type="button" class="dock-tab" data-left-tab="tiles">Tiles</button>
-      <button type="button" class="dock-collapse" data-collapse="left" aria-label="Collapse Hierarchy" title="Collapse"></button>
-    </header>
-    <div class="dock-strip" data-expand="left" title="Show Hierarchy"><span>Hierarchy</span></div>
-    <div class="dock-body">
-      <div id="leftHierarchy">
+  <main class="dock-area" id="dockArea" aria-label="Panels"></main>
+
+  <div class="dock-parking" id="dockParking" hidden>
+    <div id="dockTabs">
+      <button type="button" class="dock-tab" data-panel-tab="scene">Routes</button>
+      <button type="button" class="dock-tab" data-panel-tab="geography">Geography</button>
+      <button type="button" class="dock-tab" data-panel-tab="region">Map</button>
+      <button type="button" class="dock-tab" data-panel-tab="hierarchy">Hierarchy</button>
+      <button type="button" class="dock-tab" data-panel-tab="tiles">Tiles</button>
+      <button type="button" class="dock-tab" data-panel-tab="inspector">Inspector</button>
+      <button type="button" class="dock-tab" data-panel-tab="console">Console <span class="count" id="consoleCount" hidden></span></button>
+      <button type="button" class="dock-tab" data-panel-tab="events">Events</button>
+      <button type="button" class="dock-tab" data-panel-tab="improve">Improve <span class="dot" id="improveDot" hidden></span></button>
+      <button type="button" class="dock-tab" data-panel-tab="agent">Agent</button>
+    </div>
+
+    <section class="dock-panel stacked" data-panel="hierarchy" aria-label="Hierarchy">
+      <div class="panel-scroll" id="leftHierarchy">
         <div class="search"><input id="hierFilter" type="search" placeholder="Search" aria-label="Filter hierarchy"></div>
         <ul class="tree" id="tree" role="tree" aria-label="Route parts"></ul>
         <ul class="tree" id="mapTree" role="tree" aria-label="Places and layers" hidden></ul>
       </div>
+      <div class="dock-extra imp-docked" id="dockLeftExtra" hidden></div>
+    </section>
+
+    <section class="dock-panel" data-panel="tiles" aria-label="Tiles">
       <div id="leftBiomes" class="tiles-pane" hidden>
         <div class="terrain-grid" id="biomeGrid"></div>
       </div>
-      <div id="leftTiles" class="tiles-pane" hidden>
+      <div id="leftTiles" class="tiles-pane">
         <div class="brush-size" id="brushSizeRow" role="group" aria-label="Brush size"></div>
         <div id="paletteSections"></div>
       </div>
-    </div>
-    <div class="dock-extra imp-docked" id="dockLeftExtra" hidden></div>
-  </section>
+    </section>
 
-  <!-- centre: routes (scene) / geography / map; a tab dragged to a side splits the centre -->
-  <section class="dock center" id="dockCenter" aria-label="Views">
-    <header class="dock-head">
-      <div class="tabs" role="tablist">
-        <button type="button" class="dock-tab" data-center="scene" role="tab">Routes</button>
-        <button type="button" class="dock-tab" data-center="geography" role="tab">Geography</button>
-        <button type="button" class="dock-tab" data-center="region" role="tab">Map</button>
-      </div>
-    </header>
-    <div class="dock-body views">
-      <div class="view scene" id="viewScene" data-center-view="scene">
-        <canvas id="map"></canvas>
-        <div class="scene-msg" id="sceneMsg">No route yet</div>
-        <button type="button" class="scene-back" id="sceneBack" hidden></button>
-        <div class="busy" id="busy" hidden><span class="spin"></span><span id="busyText">generating</span></div>
-        <div class="tip" id="tip" hidden></div>
-      </div>
-      <div class="center-splitter" id="centerSplitter" role="separator" aria-orientation="vertical" aria-label="Resize split views" hidden></div>
-      <div class="view map-editor" id="viewMap" data-center-view="geography region" hidden></div>
-      <div class="view map-editor" id="viewMapBeside" data-center-view="region geography" hidden></div>
-      <div class="dock-drop center-drop" id="centerDrop" hidden></div>
+    <div class="view scene dock-panel" id="viewScene" data-panel="scene">
+      <canvas id="map"></canvas>
+      <div class="scene-msg" id="sceneMsg">No route yet</div>
+      <button type="button" class="scene-back" id="sceneBack" hidden></button>
+      <div class="busy" id="busy" hidden><span class="spin"></span><span id="busyText">generating</span></div>
+      <div class="tip" id="tip" hidden></div>
     </div>
-  </section>
+    <div class="view map-editor dock-panel" id="viewMap" data-panel="geography"></div>
+    <div class="view map-editor dock-panel" id="viewMapBeside" data-panel="region"></div>
 
-  <!-- right: inspector -->
-  <section class="dock" id="dockRight" data-dock="right" aria-label="Inspector">
-    <header class="dock-head">
-      <span class="dock-tab on">Inspector</span>
-      <button type="button" class="dock-collapse" data-collapse="right" aria-label="Collapse Inspector" title="Collapse"></button>
-    </header>
-    <div class="dock-strip" data-expand="right" title="Show Inspector"><span>Inspector</span></div>
-    <div class="dock-body" id="inspector">
-      <form id="form" autocomplete="off" onsubmit="return false">
-        <details class="fold" data-fold="selection" id="foldSel" open hidden>
-          <summary id="selSummary">Selection</summary>
-          <div class="fold-body" id="selBody"></div>
-        </details>
-        <details class="fold" data-fold="route" open>
-          <summary>Route</summary>
-          <div class="fold-body">
-            <div class="prop"><label for="name">Name</label><input id="name" type="text" value="Testweg" maxlength="40"></div>
-            <div class="prop">
-              <label for="seed">Seed</label>
-              <input id="seed" type="number" min="0" step="1" value="7">
+    <section class="dock-panel stacked" data-panel="inspector" aria-label="Inspector">
+      <div class="panel-scroll" id="inspector">
+        <form id="form" autocomplete="off" onsubmit="return false">
+          <details class="fold" data-fold="selection" id="foldSel" open hidden>
+            <summary id="selSummary">Selection</summary>
+            <div class="fold-body" id="selBody"></div>
+          </details>
+          <details class="fold" data-fold="route" open>
+            <summary>Route</summary>
+            <div class="fold-body">
+              <div class="prop"><label for="name">Name</label><input id="name" type="text" value="Testweg" maxlength="40"></div>
+              <div class="prop">
+                <label for="seed">Seed</label>
+                <input id="seed" type="number" min="0" step="1" value="7">
+              </div>
+              <div id="g-route"></div>
+              <p class="warn" id="sizewarn" hidden title="Bigger than the GBA map buffer">Too big to export</p>
             </div>
-            <div id="g-route"></div>
-            <p class="warn" id="sizewarn" hidden title="Bigger than the GBA map buffer">Too big to export</p>
-          </div>
-        </details>
-        <details class="fold" data-fold="shape" open><summary>Shape</summary><div class="fold-body" id="g-shape"></div></details>
-        <details class="fold" data-fold="secrets" open><summary>Secrets</summary><div class="fold-body" id="g-secrets"></div></details>
-        <details class="fold" data-fold="advanced" id="sec-advanced"><summary>Advanced</summary><div class="fold-body" id="g-advanced"></div></details>
-        <details class="fold" data-fold="specials" open>
-          <summary>Special areas</summary>
-          <div class="fold-body">
-            <ul class="chips" id="chips"></ul>
-            <div class="prop"><label for="areaInput">Add</label>
-              <span class="inline"><input id="areaInput" list="areaList" class="grow"><button type="button" id="areaAdd" class="btn">Add</button></span></div>
-            <datalist id="areaList"></datalist>
-          </div>
-        </details>
-        <details class="fold" data-fold="exits" open>
-          <summary>Exits</summary>
-          <div class="fold-body">
-            <ol class="exits" id="exits"></ol>
-            <button type="button" id="exitAdd" class="btn">Add exit</button>
-          </div>
-        </details>
-        <details class="fold" data-fold="region" id="foldRegion" hidden>
-          <summary>Region link</summary>
-          <div class="fold-body" id="regionLink"></div>
-        </details>
-        <details class="fold" data-fold="stats">
-          <summary>Route report</summary>
-          <div class="fold-body"><dl class="stats" id="stats"><dt>status</dt><dd>nothing generated</dd></dl></div>
-        </details>
-        <details class="fold" data-fold="encounters" open>
-          <summary>Wild encounters</summary>
-          <div class="fold-body">
-            <div id="g-encounters"></div>
-            <div class="seg small" role="tablist">
-              <button type="button" class="seg-btn on" data-enc="dex" role="tab">By rarity</button>
-              <button type="button" class="seg-btn" data-enc="slots" role="tab">Emerald slots</button>
+          </details>
+          <details class="fold" data-fold="shape" open><summary>Shape</summary><div class="fold-body" id="g-shape"></div></details>
+          <details class="fold" data-fold="secrets" open><summary>Secrets</summary><div class="fold-body" id="g-secrets"></div></details>
+          <details class="fold" data-fold="advanced" id="sec-advanced"><summary>Advanced</summary><div class="fold-body" id="g-advanced"></div></details>
+          <details class="fold" data-fold="specials" open>
+            <summary>Special areas</summary>
+            <div class="fold-body">
+              <ul class="chips" id="chips"></ul>
+              <div class="prop"><label for="areaInput">Add</label>
+                <span class="inline"><input id="areaInput" list="areaList" class="grow"><button type="button" id="areaAdd" class="btn">Add</button></span></div>
+              <datalist id="areaList"></datalist>
             </div>
-            <div id="enc"><p class="muted">none yet</p></div>
-          </div>
-        </details>
-      </form>
-      <div id="mapInspector" hidden></div>
-    </div>
-    <div class="dock-extra imp-docked" id="dockRightExtra" hidden></div>
-  </section>
+          </details>
+          <details class="fold" data-fold="exits" open>
+            <summary>Exits</summary>
+            <div class="fold-body">
+              <ol class="exits" id="exits"></ol>
+              <button type="button" id="exitAdd" class="btn">Add exit</button>
+            </div>
+          </details>
+          <details class="fold" data-fold="region" id="foldRegion" hidden>
+            <summary>Region link</summary>
+            <div class="fold-body" id="regionLink"></div>
+          </details>
+          <details class="fold" data-fold="stats">
+            <summary>Route report</summary>
+            <div class="fold-body"><dl class="stats" id="stats"><dt>status</dt><dd>nothing generated</dd></dl></div>
+          </details>
+          <details class="fold" data-fold="encounters" open>
+            <summary>Wild encounters</summary>
+            <div class="fold-body">
+              <div id="g-encounters"></div>
+              <div class="seg small" role="tablist">
+                <button type="button" class="seg-btn on" data-enc="dex" role="tab">By rarity</button>
+                <button type="button" class="seg-btn" data-enc="slots" role="tab">Emerald slots</button>
+              </div>
+              <div id="enc"><p class="muted">none yet</p></div>
+            </div>
+          </details>
+        </form>
+        <div id="mapInspector" hidden></div>
+      </div>
+      <div class="dock-extra imp-docked" id="dockRightExtra" hidden></div>
+    </section>
 
-  <!-- bottom: console / improve (queue + session graph) / agent -->
-  <section class="dock" id="dockBottom" data-dock="bottom" aria-label="Console, Improve, Agent">
-    <header class="dock-head">
-      <div class="tabs" role="tablist">
-        <button type="button" class="dock-tab" data-bottom="console" role="tab">Console <span class="count" id="consoleCount" hidden></span></button>
-        <button type="button" class="dock-tab" data-bottom="improve" role="tab" hidden>Improve <span class="dot" id="improveDot" hidden></span></button>
-        <button type="button" class="dock-tab" data-bottom="events" role="tab">Events</button>
-        <button type="button" class="dock-tab" data-bottom="agent" role="tab">Agent</button>
+    <div class="pane console dock-panel" id="paneConsole" data-panel="console">
+      <div class="pane-bar">
+        <button type="button" class="btn" id="conClear">Clear</button>
+        <span class="tb-sep"></span>
+        <button type="button" class="seg-btn on" data-level="info" title="Show log messages">Log <b id="nInfo">0</b></button>
+        <button type="button" class="seg-btn on" data-level="warn" title="Show warnings">Warnings <b id="nWarn">0</b></button>
+        <button type="button" class="seg-btn on" data-level="error" title="Show errors">Errors <b id="nError">0</b></button>
       </div>
-      <button type="button" class="dock-collapse" data-collapse="bottom" aria-label="Collapse bottom panel" title="Collapse"></button>
-    </header>
-    <div class="dock-body">
-      <div class="pane console" id="paneConsole">
-        <div class="pane-bar">
-          <button type="button" class="btn" id="conClear">Clear</button>
-          <span class="tb-sep"></span>
-          <button type="button" class="seg-btn on" data-level="info" title="Show log messages">Log <b id="nInfo">0</b></button>
-          <button type="button" class="seg-btn on" data-level="warn" title="Show warnings">Warnings <b id="nWarn">0</b></button>
-          <button type="button" class="seg-btn on" data-level="error" title="Show errors">Errors <b id="nError">0</b></button>
-        </div>
-        <div class="con-split">
-          <ol class="con-list" id="conList" tabindex="0" aria-label="Console messages"></ol>
-          <pre class="con-detail" id="conDetail" aria-label="Message detail"></pre>
-        </div>
+      <div class="con-split">
+        <ol class="con-list" id="conList" tabindex="0" aria-label="Console messages"></ol>
+        <pre class="con-detail" id="conDetail" aria-label="Message detail"></pre>
       </div>
-      <div class="pane improve" id="paneImprove" hidden>
-        <div class="improve-views" role="tablist" aria-label="Improve views">
-          <button type="button" class="seg-btn on" data-improve-view="queue">Queue</button>
-          <button type="button" class="seg-btn" data-improve-view="graph">Session graph</button>
-        </div>
-        <div id="improveDock"></div>
-        <div id="sessionGraphDock" hidden></div>
-      </div>
-      <div class="pane agent" id="paneAgent" hidden><div id="agentDock"></div></div>
-      <div class="pane events" id="paneEvents" hidden><div id="eventsDock"></div></div>
     </div>
-  </section>
+    <div class="pane improve dock-panel" id="paneImprove" data-panel="improve">
+      <div class="improve-views" role="tablist" aria-label="Improve views">
+        <button type="button" class="seg-btn on" data-improve-view="queue">Queue</button>
+        <button type="button" class="seg-btn" data-improve-view="graph">Session graph</button>
+      </div>
+      <div id="improveDock"></div>
+      <div id="sessionGraphDock" hidden></div>
+    </div>
+    <div class="pane agent dock-panel" id="paneAgent" data-panel="agent"><div id="agentDock"></div></div>
+    <div class="pane events dock-panel" id="paneEvents" data-panel="events"><div id="eventsDock"></div></div>
+  </div>
 
-  <div class="splitter v" id="splitLeft" data-split="left" role="separator" aria-orientation="vertical" aria-label="Resize Hierarchy" tabindex="0"></div>
-  <div class="splitter v" id="splitRight" data-split="right" role="separator" aria-orientation="vertical" aria-label="Resize Inspector" tabindex="0"></div>
-  <div class="splitter h" id="splitBottom" data-split="bottom" role="separator" aria-orientation="horizontal" aria-label="Resize bottom panel" tabindex="0"></div>
+  <div class="dock-drop-highlight" id="dockDropHighlight" hidden></div>
+  <div class="dock-tab-ghost" id="dockTabGhost" hidden></div>
 
   <footer class="statusbar" id="statusbar">
     <span class="st-msg" id="stMsg">Ready</span>
@@ -321,6 +297,7 @@
 
 <script src="logic.js"></script>
 <script src="shell-logic.js"></script>
+<script src="dock-layout-logic.js"></script>
 <script src="shell.js"></script>
 <script src="editor/logic.js"></script>
 <script src="editor/map-grid-logic.js"></script>

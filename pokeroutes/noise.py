@@ -30,3 +30,10 @@ def fbm(h: int, w: int, scale: float, rng: np.random.Generator, octaves: int = 4
         total += amp
         amp *= gain
     return out / total
+
+
+def stretched_fbm(h: int, w: int, scale: float, rng: np.random.Generator, octaves: int = 2) -> np.ndarray:
+    raw_noise = fbm(h, w, scale, rng, octaves=octaves)
+    noise_range = max(1e-6, float(raw_noise.max() - raw_noise.min()))
+    stretched_to_zero_to_one = (raw_noise - raw_noise.min()) / noise_range
+    return stretched_to_zero_to_one

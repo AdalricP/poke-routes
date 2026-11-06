@@ -128,3 +128,15 @@ def test_ark_routes_get_ark_sprites_and_learned_routes_get_emerald_ones(tmp_path
     assert emerald_rom in route_items.sprite_file("cut_tree", "learned")[0].parents
     assert route_items.query_tiler({"tiler": ["learned"]}) == "learned"
     assert route_items.query_tiler({"tiler": ["../etc"]}) == ""
+
+
+def test_signs_use_the_firered_route_sign_kept_in_the_ark_rom_tools(tmp_path, monkeypatch):
+    ark_rom = tmp_path / "ark"
+    firered_sign_path = ark_rom / "tools/arklarna_tiles/firered/route_sign.png"
+    firered_sign_path.parent.mkdir(parents=True)
+    Image.new("RGBA", (16, 16)).save(firered_sign_path)
+    monkeypatch.setattr(route_items, "ark_roots", lambda: [ark_rom])
+    monkeypatch.setattr(route_items, "emerald_roots", lambda: [])
+    assert route_items.sprite_file("sign", "ark")[0] == firered_sign_path
+    assert route_items.sprite_file("sign", "learned")[0] == firered_sign_path
+    assert route_items.available_sprites("ark")["sign"] is True
