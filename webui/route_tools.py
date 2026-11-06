@@ -199,6 +199,7 @@ def route_grid(a):
 
 def paint_route(a):
     from pokeroutes.classify import LEDGE_CLASSES, defuse_ledge_corners
+    from pokeroutes.ruletile import ark_joins_ledge_corners
 
     rid, (spec, route, tiler) = _get(a)
     h, w = route.cls.shape
@@ -216,7 +217,7 @@ def paint_route(a):
             route.cls[max(0, y0):min(h, y1 + 1), max(0, x0):min(w, x1 + 1)] = k
             painted_ledges = painted_ledges or k in LEDGE_CLASSES
             n += max(0, min(w, x1 + 1) - max(0, x0)) * max(0, min(h, y1 + 1) - max(0, y0))
-    if painted_ledges:
+    if painted_ledges and not (tiler == "ark" and ark_joins_ledge_corners()):
         route.cls = defuse_ledge_corners(route.cls)
     res = _write(rid, spec, route, tiler)
     res["painted"] = n

@@ -88,7 +88,8 @@ def defuse_ledge_corners(cls):
     metatile only has art for a straight run over plain ground, so a corner
     between two directions has no matching tile and looks broken. Where a hand
     edit put different-facing ledges side by side, drop the touching cell back
-    to its ground so they don't try to join."""
+    to its ground so they don't try to join. Only for tilesets without corner
+    pieces: the Ark rule tiler joins them (``ruletile.ArkTiler.joins_ledge_corners``)."""
     from collections import Counter
 
     out = cls.copy()
