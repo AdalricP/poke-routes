@@ -5,7 +5,9 @@ hidden-item glitter, the item constant list, and items placed by hand.
                                           (404 when no ROM tree has it); tiler picks Ark or Emerald art first.
                                           People: kind=npc_<role> (npc_hiker ...), trainer, trainer_f,
                                           story_blocker; Ark routes get the Arklarna route people
-                                          (pokeroutes/route_people.py), learned routes the stock sprites
+                                          (pokeroutes/route_people.py), learned routes the stock sprites.
+                                          kind=sign is FireRed's route sign from the Arklarna ROM's
+                                          tools/arklarna_tiles/firered/route_sign.png
     GET  /api/sprites[?tiler=ark|learned] which event kinds have a sprite
     GET  /api/glitter.png                 the hidden-item glitter frames (glitter.py)
     GET  /api/item-constants              ITEM_* names, from the ROM's include/constants/items.h when there is one
@@ -34,6 +36,7 @@ SPRITE_SOURCES = {
     "strength_boulder": [("misc/pushable_boulder.png", 0)],
     "berry_tree": [("berry_trees/oran.png", 4)],
     "npc": [("people/man_3.png", 0)],
+    "sign": [("rom:tools/arklarna_tiles/firered/route_sign.png", 0)],
 }
 
 
@@ -47,6 +50,7 @@ SPRITE_SOURCES["story_blocker"] = person_sources(route_people.ROLE_SHEET["story_
 SPRITE_SOURCES["trainer"] = person_sources(route_people.TRAINER_SHEETS[0])
 SPRITE_SOURCES["trainer_f"] = person_sources(route_people.TRAINER_SHEETS[1])
 ARK_ONLY_PREFIX = "people/arklarna/"
+ROM_TREE_PATH_PREFIX = "rom:"
 FRAME_WIDTH = 16
 SPRITE_TILERS = ("ark", "learned")
 PLACEABLE_KINDS = ("item_ball", "hidden_item")
@@ -95,10 +99,17 @@ def sprite_file(kind: str, tiler: str = ""):
         for relative_path, frame_index in SPRITE_SOURCES.get(kind, []):
             if tiler == "learned" and relative_path.startswith(ARK_ONLY_PREFIX):
                 continue  # Emerald-tiled routes keep the stock people
-            candidate = root / PICS / relative_path
+            candidate = root / path_in_rom_tree(relative_path)
             if candidate.is_file():
                 return candidate, frame_index
     return None, 0
+
+
+def path_in_rom_tree(relative_path: str) -> Path:
+    if relative_path.startswith(ROM_TREE_PATH_PREFIX):
+        return Path(relative_path[len(ROM_TREE_PATH_PREFIX):])
+    path_under_object_event_pics = PICS / relative_path
+    return path_under_object_event_pics
 
 
 def first_frame(path: Path, frame_index: int) -> Image.Image:

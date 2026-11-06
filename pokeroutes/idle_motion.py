@@ -23,8 +23,7 @@ OBJECT_MOTIONS = ("bop", "dance", "roll", "wobble")
 MOTION_CHOICES = ("off", "game") + BREEZE_MOTIONS + OBJECT_MOTIONS
 SPEED_CHOICES = (0.5, 1.0, 2.0)
 BREEZE_MOTION_BY_KIND = {"crown": "sway", "grass_tips": "tips", "flower": "nod"}
-PROP_MOTION_BY_NAME_PREFIX = (("mushroom", "bop"), ("pebbles", "wobble"), ("boulder", "wobble"), ("log", "roll"),
-                              ("fallen_log", "roll"))
+PROP_MOTION_BY_NAME_PREFIX = (("mushroom", "bop"),)
 GROUND_COLOUR_TOLERANCE = 40
 
 
