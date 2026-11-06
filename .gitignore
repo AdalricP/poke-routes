@@ -3,6 +3,9 @@ vendor
 
 # generated output
 out/
+
+# the tile editor's edits to the user's tilesets (webui/README.md, Tile editor)
+tilesets/overrides/
 region_out/
 *.zip
 
