@@ -1,5 +1,5 @@
 // node webui/tests/shell-logic.test.js
-// Pure parts of the editor shell: shortcuts + menu lookup, dock layout + persistence,
+// Pure parts of the editor shell: shortcuts + menu lookup,
 // undo history, recent list, spec-file conversion, paint brushes.
 "use strict";
 const assert = require("assert");
@@ -104,9 +104,9 @@ function skeleton() {
     { label: "File", items: ids(["new", "open"]).concat([{ id: "recent", label: "Open recent", items: () => [] }, { sep: true }],
       ids(["save", "saveas"]), [{ id: "export", label: "Export", items: ids(["exp-zip", "exp-scene", "exp-png"]) }]) },
     { label: "Edit", items: ids(["undo", "redo", "copy-spec", "paste-spec", "deselect", "prefs"]) },
-    { label: "View", items: ids(["zin", "zout", "zfit", "z100", "frame", "v-split", "v-back"]) },
+    { label: "View", items: ids(["zin", "zout", "zfit", "z100", "frame", "v-back"]) },
     { label: "Generate", items: ids(["gen", "regen"]) },
-    { label: "Window", items: ids(["v-left", "v-right", "v-bottom", "w-reset"]) },
+    { label: "Window", items: ids(["w-panel-scene", "w-panel-inspector", "w-reset"]) },
     { label: "Help", items: ids(["keys", "about"]) },
   ];
   const extra = ids(["tool-select", "tool-pan", "tool-paint", "tool-item", "tool-people", "x-item-delete", "x-rotate", "x-brush-smaller", "x-brush-bigger",
@@ -169,167 +169,6 @@ test("dynamic submenus are skipped when flattening", () => {
   assert.ok(ids.includes("exp-zip"));
   const zip = SL.flattenMenus(menus).find((i) => i.id === "exp-zip");
   assert.deepStrictEqual(zip.path, ["File", "Export", "exp-zip"]);
-});
-
-// ------------------------------------------------------------ layout
-function memStore(init) {
-  const m = new Map(Object.entries(init || {}));
-  return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), m };
-}
-const throwing = { getItem() { throw new Error("SecurityError"); }, setItem() { throw new Error("QuotaExceeded"); } };
-
-test("layout persistence round trip", () => {
-  const st = memStore();
-  const L = SL.defaultLayout();
-  L.left.size = 300; L.right.open = false; L.bottom.tab = "improve"; L.center = "region"; L.inspector.shape = true;
-  assert.strictEqual(SL.saveLayout(st, L), true);
-  const back = SL.loadLayout(st);
-  assert.strictEqual(back.left.size, 300);
-  assert.strictEqual(back.right.open, false);
-  assert.strictEqual(back.bottom.tab, "improve");
-  assert.strictEqual(back.center, "region");
-  assert.strictEqual(back.inspector.shape, true);
-});
-
-test("layout survives blocked storage and junk", () => {
-  assert.deepStrictEqual(SL.loadLayout(throwing), SL.defaultLayout());
-  assert.strictEqual(SL.saveLayout(throwing, SL.defaultLayout()), false);
-  assert.deepStrictEqual(SL.loadLayout(null), SL.defaultLayout());
-  assert.deepStrictEqual(SL.loadLayout(memStore({ [SL.LAYOUT_KEY]: "{not json" })), SL.defaultLayout());
-  assert.deepStrictEqual(SL.loadLayout(memStore({ [SL.LAYOUT_KEY]: JSON.stringify({ v: 99, left: { size: 5 } }) })), SL.defaultLayout());
-  const bad = SL.sanitizeLayout({ v: 1, left: { size: -40, open: "yes" }, bottom: { tab: "nope", size: 1e9 }, center: "x", inspector: { "a b<": true, ok: 1, fine: false } });
-  assert.strictEqual(bad.left.size, 120);
-  assert.strictEqual(bad.left.open, true);
-  assert.strictEqual(bad.bottom.tab, "console");
-  assert.strictEqual(bad.bottom.size, 2000);
-  assert.strictEqual(bad.center, "scene");
-  assert.deepStrictEqual(bad.inspector, { fine: false });
-});
-
-test("a saved layout on the old Routes B or Story tab opens the Map tab, keeping its tab order", () => {
-  const old = SL.sanitizeLayout({ v: 1, center: "gates", centerOrder: ["story", "gates", "region", "geography", "scene"] });
-  assert.strictEqual(old.center, "region");
-  assert.deepStrictEqual(old.centerOrder, ["region", "geography", "scene"]);
-  assert.strictEqual(SL.sanitizeLayout({ v: 1, center: "story" }).center, "region");
-  assert.ok(!SL.defaultLayout().centerOrder.includes("gates"));
-  assert.ok(!SL.CENTER_TABS.includes("story"));
-});
-
-test("split centre: Routes beside a region view, dropped left or right, kept through activation", () => {
-  const layout = SL.defaultLayout();
-  assert.deepStrictEqual(SL.center_tabs_shown(layout), ["scene"]);
-  const map_on_left = SL.split_after_center_tab_drop(layout, "region", "left");
-  assert.deepStrictEqual(map_on_left, { left: "region", right: "scene", ratio: 0.5 });
-  const routes_on_right = SL.split_after_center_tab_drop(Object.assign({}, layout, { center: "geography" }), "scene", "right");
-  assert.deepStrictEqual(routes_on_right, { left: "geography", right: "scene", ratio: 0.5 });
-  assert.strictEqual(SL.split_after_center_tab_drop(layout, "scene", "middle"), null);
-  assert.deepStrictEqual(SL.split_after_activating_tab(map_on_left, "geography"), { left: "geography", right: "scene", ratio: 0.5 });
-  assert.strictEqual(SL.split_after_activating_tab(map_on_left, "scene"), map_on_left);
-  assert.deepStrictEqual(SL.sanitize_center_split({ left: "region", right: "geography" }), { left: "region", right: "geography", ratio: 0.5 });
-  assert.strictEqual(SL.sanitize_center_split({ left: "region", right: "region" }), null, "one view cannot sit beside itself");
-  assert.strictEqual(SL.sanitize_center_split({ left: "region", right: "nowhere" }), null);
-  assert.deepStrictEqual(SL.sanitize_center_split({ left: "scene", right: "story", ratio: 2 }), { left: "scene", right: "region", ratio: 0.8 });
-  const restored = SL.sanitizeLayout({ v: 1, center: "geography", split: { left: "scene", right: "region", ratio: 0.4 } });
-  assert.strictEqual(restored.center, "scene", "the active tab is one of the shown ones");
-  assert.deepStrictEqual(SL.center_tabs_shown(restored), ["scene", "region"]);
-  assert.strictEqual(SL.center_drop_side(10, 0, 300), "left");
-  assert.strictEqual(SL.center_drop_side(150, 0, 300), "middle");
-  assert.strictEqual(SL.center_drop_side(290, 0, 300), "right");
-});
-
-test("split centre: Map beside Geography, dropped from either single view or an existing split", () => {
-  const geography_alone = Object.assign(SL.defaultLayout(), { center: "geography" });
-  const map_on_right_of_geography = SL.split_after_center_tab_drop(geography_alone, "region", "right");
-  assert.deepStrictEqual(map_on_right_of_geography, { left: "geography", right: "region", ratio: 0.5 });
-  const geography_on_left_of_map = SL.split_after_center_tab_drop(Object.assign(SL.defaultLayout(), { center: "region" }), "geography", "left");
-  assert.deepStrictEqual(geography_on_left_of_map, { left: "geography", right: "region", ratio: 0.5 });
-  const routes_beside_map = Object.assign(SL.defaultLayout(), { center: "scene", split: { left: "scene", right: "region", ratio: 0.4 } });
-  assert.deepStrictEqual(SL.split_after_center_tab_drop(routes_beside_map, "geography", "left"), { left: "geography", right: "region", ratio: 0.4 }, "replaces the side it lands on");
-  assert.deepStrictEqual(SL.split_after_center_tab_drop(routes_beside_map, "geography", "right"), { left: "scene", right: "geography", ratio: 0.4 });
-  assert.deepStrictEqual(SL.split_after_center_tab_drop(routes_beside_map, "region", "left"), { left: "region", right: "scene", ratio: 0.4 }, "dropping a shown tab on the other side swaps them");
-  const map_alone = Object.assign(SL.defaultLayout(), { center: "region" });
-  assert.deepStrictEqual(SL.split_after_center_tab_drop(map_alone, "region", "left"), { left: "region", right: "scene", ratio: 0.5 }, "a lone view dragged aside gets Routes beside it");
-});
-
-test("split centre: activating a hidden tab keeps the focused view and Routes where they are", () => {
-  const geography_beside_map = { left: "geography", right: "region", ratio: 0.5 };
-  assert.deepStrictEqual(SL.split_after_activating_tab(geography_beside_map, "scene", "region"), { left: "scene", right: "region", ratio: 0.5 });
-  assert.deepStrictEqual(SL.split_after_activating_tab(geography_beside_map, "scene", "geography"), { left: "geography", right: "scene", ratio: 0.5 });
-  assert.strictEqual(SL.split_after_activating_tab(geography_beside_map, "geography", "region"), geography_beside_map);
-  const routes_beside_map = { left: "scene", right: "region", ratio: 0.5 };
-  assert.deepStrictEqual(SL.split_after_activating_tab(routes_beside_map, "geography", "scene"), { left: "scene", right: "geography", ratio: 0.5 });
-  assert.deepStrictEqual(SL.split_after_activating_tab(routes_beside_map, "geography", "region"), { left: "scene", right: "geography", ratio: 0.5 });
-});
-
-test("split centre: each view element shows one tab, never the same tab twice", () => {
-  const view_tab_lists = [["scene"], ["geography", "region"], ["region", "geography"]];
-  assert.deepStrictEqual(SL.center_tab_of_each_view(view_tab_lists, ["geography", "region"]), [null, "geography", "region"]);
-  assert.deepStrictEqual(SL.center_tab_of_each_view(view_tab_lists, ["region", "geography"]), [null, "geography", "region"]);
-  assert.deepStrictEqual(SL.center_tab_of_each_view(view_tab_lists, ["scene", "region"]), ["scene", "region", null]);
-  assert.deepStrictEqual(SL.center_tab_of_each_view(view_tab_lists, ["geography"]), [null, "geography", null]);
-});
-
-test("rects tile the window without overlap (default, 1440x900)", () => {
-  const r = SL.computeRects(SL.defaultLayout(), 1440, 900);
-  const C = SL.CHROME;
-  assert.deepStrictEqual(r.menu, { x: 0, y: 0, w: 1440, h: C.menu });
-  assert.deepStrictEqual(r.toolbar, { x: 0, y: C.menu, w: 1440, h: C.toolbar });
-  assert.strictEqual(r.status.y + r.status.h, 900);
-  const top = C.menu + C.toolbar;
-  assert.strictEqual(r.left.y, top);
-  assert.strictEqual(r.left.w, 240);
-  assert.strictEqual(r.right.w, 320);
-  assert.strictEqual(r.right.x + r.right.w, 1440);
-  assert.strictEqual(r.right.h, 900 - top - C.status);           // inspector: full body height
-  assert.strictEqual(r.center.x, r.left.w + C.splitter);
-  assert.strictEqual(r.center.x + r.center.w + C.splitter, r.right.x);
-  assert.strictEqual(r.bottom.y + r.bottom.h, r.status.y);         // bottom dock sits on the status bar
-  assert.strictEqual(r.bottom.w, r.right.x - C.splitter);          // spans hierarchy + scene
-  assert.strictEqual(r.bottom.h, 180);
-  assert.strictEqual(r.center.y + r.center.h + C.splitter, r.bottom.y);
-  assert.strictEqual(r.splitLeft.x, r.left.w);
-  assert.strictEqual(r.splitBottom.y, r.center.y + r.center.h);
-});
-
-test("collapsed docks shrink to strips; the scene keeps its minimum size", () => {
-  const L = SL.defaultLayout();
-  L.left.open = false; L.right.open = false; L.bottom.open = false;
-  const r = SL.computeRects(L, 1200, 800);
-  assert.strictEqual(r.left.w, SL.CHROME.collapsed);
-  assert.strictEqual(r.right.w, SL.CHROME.collapsed);
-  assert.strictEqual(r.bottom.h, SL.CHROME.head);
-  assert.deepStrictEqual(r.collapsed, { left: true, right: true, bottom: true });
-  const big = SL.defaultLayout();
-  big.left.size = 900; big.right.size = 900; big.bottom.size = 900;
-  const s = SL.computeRects(big, 1000, 700);
-  assert.ok(s.center.w >= SL.MIN_CENTER, "centre width " + s.center.w);
-  assert.ok(s.left.w >= SL.MIN_SIDE && s.right.w >= SL.MIN_SIDE);
-  assert.ok(s.center.h >= 160, "centre height " + s.center.h);
-});
-
-test("floating docks give their space to the scene and stay on screen", () => {
-  const L = SL.defaultLayout();
-  L.left.float = { x: -500, y: 0, w: 300, h: 250 };
-  L.bottom.float = { x: 400, y: 300, w: 500, h: 200 };
-  const r = SL.computeRects(L, 1200, 800);
-  const top = SL.CHROME.menu + SL.CHROME.toolbar;
-  assert.deepStrictEqual(r.left, { x: 0, y: top, w: 300, h: 250 });
-  assert.deepStrictEqual(r.bottom, { x: 400, y: 300, w: 500, h: 200 });
-  assert.strictEqual(r.center.x, 0);
-  assert.strictEqual(r.center.h, 800 - top - SL.CHROME.status);
-  assert.deepStrictEqual(r.floating, { left: true, right: false, bottom: true });
-  assert.strictEqual(r.collapsed.left, false);
-  assert.strictEqual(SL.sanitizeLayout({ v: 1, left: { float: { x: 1, y: "a", w: 2, h: 3 } } }).left.float, null);
-  assert.ok(SL.nearHomeEdge("left", 10, 400, 1200, 800));
-  assert.ok(SL.nearHomeEdge("right", 1190, 400, 1200, 800));
-  assert.ok(SL.nearHomeEdge("bottom", 500, 770, 1200, 800));
-  assert.ok(!SL.nearHomeEdge("bottom", 500, 400, 1200, 800));
-});
-
-test("splitter drag directions", () => {
-  assert.strictEqual(SL.dragSize("left", 240, 30, 0), 270);
-  assert.strictEqual(SL.dragSize("right", 320, 30, 0), 290);
-  assert.strictEqual(SL.dragSize("bottom", 200, 0, -50), 250);
 });
 
 // ------------------------------------------------------------ undo history

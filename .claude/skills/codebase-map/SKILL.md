@@ -113,12 +113,12 @@ Walkable: `gptdhyvzqn`. Surfable: `wb`. Blocked: `frkul`.
   - `paint_palette.py`: `/api/paint-palette?id=` (what the Tiles tab can paint: classes, samples, objects, exact tiles per tiler); `/api/retile` (in `editor_api.py`) takes those classes.
 - **Agent jobs**: `improve.py` runs the job queue and launches `claude`. `route_tools.py` is the stdio MCP server that provides your `routes` tools.
 - **Front end** (`webui/static/`):
-  - `shell.html`: layout and docks.
-  - `shell.js`: menus, docks, console, keys. Its public surface is `window.Shell`.
+  - `shell.html`: menu bar, toolbar, status bar, and every panel (parked in `#dockParking`) with its tab button (`#dockTabs`, `data-panel-tab`).
+  - **Docking layout (Unity-style)**: every panel is a tab in a group: `scene` (Routes), `geography`, `region` (Map), `hierarchy`, `tiles`, `inspector`, `console`, `events`, `improve`, `agent`. Groups sit in nested rows/columns with draggable dividers. Pure tree logic (insert tab, split, remove, normalise, reopen, drop target under the pointer, highlight rect, load/save in localStorage `pokeroutes-shell-layout-v2`) is `dock-layout-logic.js` (`window.DOCK_LAYOUT`, tests `webui/tests/dock-layout-logic.test.js`). `shell.js` builds the DOM from the tree (`render_dock_layout`), drives tab drags (`start_tab_gesture`, `drop_panel`) and divider drags (`start_divider_drag`), and tracks the focused view `Shell.layout.center` (last clicked of Routes/Geography/Map; toolbar, Hierarchy, Tiles and Inspector follow it). Public: `Shell.setCenter`, `show_panel`, `close_panel`, `is_panel_visible`, `shown_views`, `set_panel_available` (Improve), `set_panel_title`, `on_panel_shown`, `onCenter`, `window_menu_items` (Window menu), `resetLayout`, `focused_view_group_rect` (Tile editor docking).
+  - `shell.js`: menus, docking layout, console, keys. Its public surface is `window.Shell`.
   - `bench.js`: Scene, Inspector, Hierarchy, Timeline, files, paint. Its public surface is `window.Bench`.
-  - `shell-logic.js`: pure functions (shortcuts, layout, undo, `specToParams`).
-  - `editor/app.js` and `editor/logic.js`: the region editor (Geography and Map tabs; route gates are set in the Map inspector). `editor/map-grid-logic.js` (pure, `window.MAP_GRID`): Map-grid strokes, metro line geometry, line colours, station shapes. Any two of Routes, Geography and Map can sit side by side in a split centre (`shell.js`, `split_*` and `center_tab_of_each_view` in `shell-logic.js`). Geography beside Map is one editor with two render targets (`#viewMap`, `#viewMapBeside`; `make_render_target`, `bind_render_target`, `set_view_modes` in `app.js`): one document, selection and undo history, a camera, mode and layers per view, and tools, Hierarchy and Inspector follow the focused view (`Shell.layout.center`).
-  - `editor/app.js` and `editor/logic.js`: the region editor (Geography and Map tabs; route gates are set in the Map inspector). `editor/map-grid-logic.js` (pure, `window.MAP_GRID`): Map-grid strokes, filled-square shapes, joints, outlines (Sinnoh town-map look). The play-test sends `pokeroutes-player-on-map` window events (`playtest.js`) and the editor draws the player's head there. Routes can sit beside either in a split centre (`shell.js`, `split_*` in `shell-logic.js`).
+  - `shell-logic.js`: pure functions (shortcuts, undo, `specToParams`, chain maps, paint).
+  - `editor/app.js` and `editor/logic.js`: the region editor (Geography and Map tabs; route gates are set in the Map inspector). `editor/map-grid-logic.js` (pure, `window.MAP_GRID`): Map-grid strokes, filled-square shapes, joints, outlines (Sinnoh town-map look). The play-test sends `pokeroutes-player-on-map` window events (`playtest.js`) and the editor draws the player's head there. Geography and Map are one editor with one render target per view (`#viewMap` = Geography, `host.extra_views` = `[#viewMapBeside]` = Map; `make_render_target`, `bind_render_target`, `set_view_modes(mode_of_each_view, focused_mode)` in `app.js`): one document, selection, open-route highlight and undo history; a camera, mode, layers and tool per view; the busy/toast overlay moves to the focused view. `bench.js` `show_region_editor_views` passes `Shell.shown_views()` in.
   - `agent.js`: the Agent tab.
   - `tile-editor.js`, `tile-editor-logic.js` (pure), `tile-editor.css`: the Tile editor window.
   - `playtest.js` + `playtest-logic.js` (pure, node-tested): the Play-test window over the Routes view; data from `webui/playtest_api.py` (`/api/playtest/route`, `/api/playtest/sheet.png`), hooks from `Bench.playtest_hooks`.
@@ -132,6 +132,7 @@ Walkable: `gptdhyvzqn`. Surfable: `wb`. Blocked: `frkul`.
 ```sh
 python3 -m pytest -q webui/tests            # job queue (with fake_claude.py) + region network
 node webui/tests/shell-logic.test.js        # shell pure logic
+node webui/tests/dock-layout-logic.test.js  # docking layout tree
 node webui/tests/editor-logic.test.js       # region editor pure logic
 node webui/tests/map-grid-logic.test.js     # Map grid painter pure logic
 node webui/tests/tile-editor-logic.test.js  # tile editor pure logic

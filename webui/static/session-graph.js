@@ -237,6 +237,6 @@
   find_in_panel("sgFinish").onclick = finish_current_session;
   find_in_panel("sgWhich").onchange = () => { graph_state.viewed_session = find_in_panel("sgWhich").value; refresh_graph(); };
   document.querySelectorAll("[data-improve-view]").forEach((view_button) => { view_button.onclick = () => show_improve_view(view_button.dataset.improveView); });
-  if (window.Shell && window.Shell.onBottom) window.Shell.onBottom((bottom_tab) => { if (bottom_tab === "improve") refresh_graph(); });
+  if (window.Shell && window.Shell.on_panel_shown) window.Shell.on_panel_shown((panel_id) => { if (panel_id === "improve") refresh_graph(); });
   refresh_graph();
 })();

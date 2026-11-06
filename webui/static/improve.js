@@ -7,12 +7,8 @@
   if (window.__improveBox) return;
   window.__improveBox = true;
   const dock = document.getElementById("improveDock");
-  if (!(await is_improve_box_enabled_on_server())) {
-    leave_improve_tab_hidden();
-    return;
-  }
-  const improve_tab_button = document.querySelector('[data-bottom="improve"]');
-  if (improve_tab_button) improve_tab_button.hidden = false;
+  if (!(await is_improve_box_enabled_on_server())) return;
+  if (window.Shell && window.Shell.set_panel_available) window.Shell.set_panel_available("improve", true);
 
   if (!dock) {
     const css = document.createElement("link");
@@ -634,7 +630,7 @@
 
   if (dock) {
     // refresh as soon as the tab is shown
-    if (window.Shell && window.Shell.onBottom) window.Shell.onBottom((tab) => { if (tab === "improve") refresh(); });
+    if (window.Shell && window.Shell.on_panel_shown) window.Shell.on_panel_shown((panel_id) => { if (panel_id === "improve") refresh(); });
   } else {
     btn.onclick = () => {
       panel.hidden = !panel.hidden;
@@ -831,10 +827,5 @@
     } catch (feature_check_error) {
       return false;
     }
-  }
-
-  function leave_improve_tab_hidden() {
-    const shell_is_showing_improve_tab = window.Shell && window.Shell.layout && window.Shell.layout.bottom.tab === "improve";
-    if (shell_is_showing_improve_tab) window.Shell.setBottom("agent", false);
   }
 })();

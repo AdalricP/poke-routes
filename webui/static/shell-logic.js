@@ -208,246 +208,13 @@
     return menus;
   }
 
-  // ------------------------------------------------------------ dock layout
-  const LAYOUT_KEY = "pokeroutes-shell-layout-v1";
-  const CHROME = { menu: 26, toolbar: 34, status: 22, collapsed: 24, head: 26, splitter: 4 };
-  const BOTTOM_TABS = ["console", "events", "improve", "agent"];
+  // ------------------------------------------------------------ views
   const CENTER_TABS = ["scene", "geography", "region"];
-  const RETIRED_CENTER_TABS = { gates: "region", story: "region" };
-  const DEFAULT_LAYOUT = {
-    v: 1,
-    left: { size: 240, open: true, float: null },
-    right: { size: 320, open: true, float: null },
-    bottom: { size: 180, open: true, tab: "console", float: null },   // float: {x, y, w, h} when torn off
-    center: "scene",
-    split: null,   // {left, right, ratio}: two centre views side by side (Routes next to Geography or Map)
-    centerOrder: CENTER_TABS.slice(),   // tab buttons can be dragged to reorder; this is what's remembered
-    bottomOrder: BOTTOM_TABS.slice(),
-    inspector: {},   // section id -> collapsed (true)
-    pins: { left: null, right: null },   // a panel (e.g. an Improve section) parked beneath Hierarchy/Inspector
-  };
-
-  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-
-  function defaultLayout() { return JSON.parse(JSON.stringify(DEFAULT_LAYOUT)); }
-
-  // Repair anything a stale or hand-edited localStorage entry might hold.
-  function sanitizeLayout(x) {
-    const d = defaultLayout();
-    if (!x || typeof x !== "object" || x.v !== 1) return d;
-    for (const k of ["left", "right", "bottom"]) {
-      const s = x[k];
-      if (!s || typeof s !== "object") continue;
-      if (Number.isFinite(s.size)) d[k].size = clamp(Math.round(s.size), 120, 2000);
-      if (typeof s.open === "boolean") d[k].open = s.open;
-      d[k].float = sanitizeFloat(s.float);
-    }
-    if (x.bottom && BOTTOM_TABS.includes(x.bottom.tab)) d.bottom.tab = x.bottom.tab;
-    const center = RETIRED_CENTER_TABS[x.center] || x.center;
-    if (CENTER_TABS.includes(center)) d.center = center;
-    d.split = sanitize_center_split(x.split);
-    if (d.split && !center_tabs_of_split(d.split).includes(d.center)) d.center = d.split.left;
-    d.centerOrder = sanitizeOrder(without_retired_tabs(x.centerOrder), CENTER_TABS);
-    d.bottomOrder = sanitizeOrder(x.bottomOrder, BOTTOM_TABS);
-    if (x.inspector && typeof x.inspector === "object") {
-      for (const [k, v] of Object.entries(x.inspector)) if (typeof v === "boolean" && /^[\w-]{1,40}$/.test(k)) d.inspector[k] = v;
-    }
-    if (x.pins && typeof x.pins === "object") {
-      for (const side of ["left", "right"]) {
-        const v = x.pins[side];
-        d.pins[side] = typeof v === "string" && /^[\w-]{1,40}$/.test(v) ? v : null;
-      }
-    }
-    return d;
-  }
-
   const ROUTES_VIEW_TAB = "scene";
-  const SPLIT_RATIO_LIMITS = [0.2, 0.8];
-  const DEFAULT_SPLIT_RATIO = 0.5;
 
   function is_region_editor_tab(center_tab) {
     const is_region_tab = CENTER_TABS.includes(center_tab) && center_tab !== ROUTES_VIEW_TAB;
     return is_region_tab;
-  }
-
-  function sanitize_center_split(candidate_split) {
-    if (!candidate_split || typeof candidate_split !== "object") return null;
-    const left_tab = RETIRED_CENTER_TABS[candidate_split.left] || candidate_split.left;
-    const right_tab = RETIRED_CENTER_TABS[candidate_split.right] || candidate_split.right;
-    const shows_two_different_views = CENTER_TABS.includes(left_tab) && CENTER_TABS.includes(right_tab) && left_tab !== right_tab;
-    if (!shows_two_different_views) return null;
-    const ratio = Number.isFinite(candidate_split.ratio) ? clamp(candidate_split.ratio, SPLIT_RATIO_LIMITS[0], SPLIT_RATIO_LIMITS[1]) : DEFAULT_SPLIT_RATIO;
-    const center_split = { left: left_tab, right: right_tab, ratio };
-    return center_split;
-  }
-
-  function center_tabs_of_split(center_split) {
-    const split_tabs = [center_split.left, center_split.right];
-    return split_tabs;
-  }
-
-  function center_tabs_shown(layout) {
-    const shown_tabs = layout.split ? center_tabs_of_split(layout.split) : [layout.center];
-    return shown_tabs;
-  }
-
-  function opposite_split_side(split_side) {
-    const other_side = split_side === "left" ? "right" : "left";
-    return other_side;
-  }
-
-  function partner_tab_for_drop(layout, dragged_tab, drop_side) {
-    if (layout.split) {
-      const tab_on_opposite_side = layout.split[opposite_split_side(drop_side)];
-      const partner_tab = tab_on_opposite_side === dragged_tab ? layout.split[drop_side] : tab_on_opposite_side;
-      return partner_tab;
-    }
-    if (layout.center !== dragged_tab) return layout.center;
-    const partner_of_lone_tab = dragged_tab === ROUTES_VIEW_TAB ? "region" : ROUTES_VIEW_TAB;
-    return partner_of_lone_tab;
-  }
-
-  function split_after_center_tab_drop(layout, dragged_tab, drop_side) {
-    if (!CENTER_TABS.includes(dragged_tab) || !["left", "right"].includes(drop_side)) return null;
-    const partner_tab = partner_tab_for_drop(layout, dragged_tab, drop_side);
-    const ratio = layout.split ? layout.split.ratio : DEFAULT_SPLIT_RATIO;
-    const new_split = { [drop_side]: dragged_tab, [opposite_split_side(drop_side)]: partner_tab, ratio };
-    return sanitize_center_split(new_split);
-  }
-
-  function split_side_replaced_by_activated_tab(center_split, activated_tab, focused_tab) {
-    const region_sides = ["left", "right"].filter((split_side) => is_region_editor_tab(center_split[split_side]));
-    if (is_region_editor_tab(activated_tab) && region_sides.length === 1) return region_sides[0];
-    const unfocused_side = center_split.left === focused_tab ? "right" : "left";
-    return unfocused_side;
-  }
-
-  function split_after_activating_tab(center_split, activated_tab, focused_tab) {
-    if (!center_split) return null;
-    if (center_tabs_of_split(center_split).includes(activated_tab) || !CENTER_TABS.includes(activated_tab)) return center_split;
-    const replaced_side = split_side_replaced_by_activated_tab(center_split, activated_tab, focused_tab);
-    const updated_split = Object.assign({}, center_split, { [replaced_side]: activated_tab });
-    return updated_split;
-  }
-
-  function center_tab_of_each_view(tabs_each_view_can_show, shown_tabs) {
-    const tab_of_each_view = [];
-    for (const tabs_this_view_can_show of tabs_each_view_can_show) {
-      const is_untaken_shown_tab = (center_tab) => shown_tabs.includes(center_tab) && !tab_of_each_view.includes(center_tab);
-      tab_of_each_view.push(tabs_this_view_can_show.find(is_untaken_shown_tab) || null);
-    }
-    return tab_of_each_view;
-  }
-
-  function center_drop_side(pointer_x, center_left, center_width) {
-    const fraction_across = (pointer_x - center_left) / Math.max(1, center_width);
-    if (fraction_across < 0.33) return "left";
-    if (fraction_across > 0.67) return "right";
-    return "middle";
-  }
-
-  function without_retired_tabs(order) {
-    if (!Array.isArray(order)) return order;
-    return order.filter((tab) => !(tab in RETIRED_CENTER_TABS));
-  }
-
-  // A dragged-and-dropped tab order: keep it only if it's a reordering of the same set.
-  function sanitizeOrder(order, allowed) {
-    if (!Array.isArray(order) || order.length !== allowed.length) return allowed.slice();
-    const set = new Set(order);
-    if (set.size !== allowed.length || !allowed.every((t) => set.has(t))) return allowed.slice();
-    return order.slice();
-  }
-
-  function sanitizeFloat(f) {
-    if (!f || typeof f !== "object") return null;
-    if (![f.x, f.y, f.w, f.h].every(Number.isFinite)) return null;
-    return { x: Math.round(f.x), y: Math.round(f.y), w: clamp(Math.round(f.w), 120, 4000), h: clamp(Math.round(f.h), 60, 4000) };
-  }
-
-  function loadLayout(storage) {
-    try {
-      const raw = storage && storage.getItem(LAYOUT_KEY);
-      return sanitizeLayout(raw ? JSON.parse(raw) : null);
-    } catch (e) {
-      return defaultLayout();
-    }
-  }
-
-  function saveLayout(storage, layout) {
-    try {
-      storage.setItem(LAYOUT_KEY, JSON.stringify(sanitizeLayout(layout)));
-      return true;
-    } catch (e) {
-      return false; // private mode / blocked storage: the layout just isn't remembered
-    }
-  }
-
-  // Pixel rects of every region for a viewport. Inspector runs the full body height on
-  // the right (Unity's default layout); the bottom dock spans hierarchy + scene.
-  // Sizes are clamped so the scene view keeps at least MIN_CENTER x MIN_CENTER_H.
-  // A floating (torn-off) dock gives its space back to the scene and is kept on screen.
-  const MIN_CENTER = 320, MIN_CENTER_H = 160, MIN_SIDE = 160, MIN_BOTTOM = 90;
-  function computeRects(layout, vw, vh, chrome) {
-    const c = Object.assign({}, CHROME, chrome || {});
-    const L = sanitizeLayout(layout);
-    const top = c.menu + c.toolbar;
-    const bodyH = Math.max(0, vh - top - c.status);
-    const fl = { left: !!L.left.float, right: !!L.right.float, bottom: !!L.bottom.float };
-    const spL = fl.left ? 0 : c.splitter, spR = fl.right ? 0 : c.splitter, spB = fl.bottom ? 0 : c.splitter;
-
-    let rw = fl.right ? 0 : L.right.open ? clamp(L.right.size, MIN_SIDE, Math.max(MIN_SIDE, vw * 0.5)) : c.collapsed;
-    let lw = fl.left ? 0 : L.left.open ? clamp(L.left.size, MIN_SIDE, Math.max(MIN_SIDE, vw * 0.4)) : c.collapsed;
-    // keep the centre usable: shrink the side docks (right first) if needed
-    const spare = vw - lw - rw - spL - spR - MIN_CENTER;
-    if (spare < 0) {
-      if (L.right.open && !fl.right) { const cut = Math.min(-spare, rw - MIN_SIDE); rw -= cut; }
-      const spare2 = vw - lw - rw - spL - spR - MIN_CENTER;
-      if (spare2 < 0 && L.left.open && !fl.left) lw -= Math.min(-spare2, lw - MIN_SIDE);
-    }
-    const midX = lw + spL, midW = Math.max(0, vw - lw - rw - spL - spR);
-    const rightX = vw - rw;
-
-    let bh = fl.bottom ? 0 : L.bottom.open ? clamp(L.bottom.size, MIN_BOTTOM, Math.max(MIN_BOTTOM, bodyH - MIN_CENTER_H - spB)) : c.head;
-    bh = Math.min(bh, bodyH);
-    const upperH = Math.max(0, bodyH - bh - spB);
-    const bottomY = top + upperH + spB;
-
-    const r = (x, y, w, h) => ({ x: Math.round(x), y: Math.round(y), w: Math.max(0, Math.round(w)), h: Math.max(0, Math.round(h)) });
-    const floatRect = (f) => {
-      const w = Math.min(f.w, vw), h = Math.min(f.h, bodyH);
-      return r(clamp(f.x, 0, vw - w), clamp(f.y, top, top + bodyH - h), w, h);
-    };
-    return {
-      menu: r(0, 0, vw, c.menu),
-      toolbar: r(0, c.menu, vw, c.toolbar),
-      left: fl.left ? floatRect(L.left.float) : r(0, top, lw, upperH),
-      center: r(midX, top, midW, upperH),
-      right: fl.right ? floatRect(L.right.float) : r(rightX, top, rw, bodyH),
-      bottom: fl.bottom ? floatRect(L.bottom.float) : r(0, bottomY, rightX - spR, bh),
-      status: r(0, vh - c.status, vw, c.status),
-      splitLeft: r(lw, top, spL, upperH),
-      splitRight: r(rightX - spR, top, spR, bodyH),
-      splitBottom: r(0, top + upperH, rightX - spR, spB),
-      collapsed: { left: !L.left.open && !fl.left, right: !L.right.open && !fl.right, bottom: !L.bottom.open && !fl.bottom },
-      floating: fl,
-    };
-  }
-
-  // Dropping a floating dock within DOCK_SNAP px of its home edge docks it again.
-  const DOCK_SNAP = 48;
-  function nearHomeEdge(which, px, py, vw, vh, chrome) {
-    const c = Object.assign({}, CHROME, chrome || {});
-    if (which === "left") return px < DOCK_SNAP;
-    if (which === "right") return px > vw - DOCK_SNAP;
-    return py > vh - c.status - DOCK_SNAP; // bottom
-  }
-
-  // New size of a dock after dragging its splitter by (dx, dy) from `start`.
-  function dragSize(which, start, dx, dy) {
-    if (which === "left") return Math.round(start + dx);
-    if (which === "right") return Math.round(start - dx);
-    return Math.round(start - dy); // bottom
   }
 
   // ------------------------------------------------------------ undo history
@@ -1020,8 +787,7 @@
   const api = {
     isMacPlatform, parseShortcut, formatShortcut, eventKey, matchShortcut, focusKind, allowedIn,
     flattenMenus, findShortcut, shortcutClashes, SHORTCUTS, ALT_SHORTCUTS, NOT_IN_FIELDS, attachShortcuts,
-    LAYOUT_KEY, CHROME, BOTTOM_TABS, CENTER_TABS, defaultLayout, sanitizeLayout, loadLayout, saveLayout,
-    computeRects, dragSize, nearHomeEdge, MIN_CENTER, MIN_SIDE,
+    CENTER_TABS,
     History, RECENT_KEY, pushRecent, recentLabel, specToParams, paramsToSpecFile, safeFileName, exitConnections, region_route_named, chain_of_map, chain_map_with_constant,
     sync_target_for_open_map, open_map_signature, params_after_map_sync, paint_memory_after_chain_change, chain_maps_of_route,
     STAMPS, brushCells, stampCells, lineCells, PAINT_KEY, PAINT_OBJECTS_KEY, paintKey, mergePaint, paintList,
@@ -1032,8 +798,7 @@
     next_ledge_code, LEDGE_CODES_CLOCKWISE, snap_cells_to_blocks, object_stamp_cells, exact_tile_value, expand_paint_cells,
     object_top_left, object_footprint_keys, instance_footprint_keys, object_instance_index_at, apply_paint_stroke,
     tree_block_keys_around, whole_trees_under_stroke,
-    ROUTES_VIEW_TAB, is_region_editor_tab, sanitize_center_split, center_tabs_shown, split_after_center_tab_drop,
-    split_after_activating_tab, center_drop_side, center_tab_of_each_view,
+    ROUTES_VIEW_TAB, is_region_editor_tab,
     event_sprite_key,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;

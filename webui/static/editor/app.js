@@ -213,7 +213,7 @@
   };
   let cv = null, ctx = null, wrap = null, base = null, bctx = null, baseImg = null;
   let shade = null, riverSegs = null, sea_distance = null, town_map_river_segments = null;
-  const BESIDE_VIEW_MARKUP = '<div class="ed docked"><main class="ed-map"><canvas></canvas><div class="status"></div></main></div>';
+  const EXTRA_VIEW_MARKUP = '<div class="ed docked"><main class="ed-map"><canvas></canvas><div class="status"></div></main></div>';
   function make_render_target(map_element, canvas_element, status_element) {
     const base_canvas = document.createElement("canvas");
     const render_target = {
@@ -223,16 +223,17 @@
     };
     return render_target;
   }
-  function make_beside_render_target(beside_view_element) {
-    beside_view_element.innerHTML = BESIDE_VIEW_MARKUP;
-    const beside_map_element = beside_view_element.querySelector(".ed-map");
-    const beside_render_target = make_render_target(beside_map_element, beside_map_element.querySelector("canvas"), beside_map_element.querySelector(".status"));
-    beside_render_target.is_shown = false;
-    return beside_render_target;
+  function make_extra_render_target(extra_view_element) {
+    extra_view_element.innerHTML = EXTRA_VIEW_MARKUP;
+    parts.push(extra_view_element);
+    const extra_map_element = extra_view_element.querySelector(".ed-map");
+    const extra_render_target = make_render_target(extra_map_element, extra_map_element.querySelector("canvas"), extra_map_element.querySelector(".status"));
+    extra_render_target.is_shown = false;
+    return extra_render_target;
   }
   const main_render_target = make_render_target($("wrap"), $("cv"), $("status"));
-  const beside_render_target = host && host.beside_view ? make_beside_render_target(host.beside_view) : null;
-  const render_targets = [main_render_target, beside_render_target].filter(Boolean);
+  const extra_view_elements = host && host.extra_views ? host.extra_views : [];
+  const render_targets = [main_render_target].concat(extra_view_elements.map(make_extra_render_target));
   let bound_render_target = null;
   let focused_render_target = main_render_target;
   let pointer_down_only_moved_focus = false;
@@ -305,7 +306,7 @@
     show_region_size_in_squares();
     if (st.sel && !findSel(st.sel)) st.sel = null;
     rebuildBase();
-    if (resized || !keepView) fit();
+    if (resized || !keepView) fit_every_view();
     refreshAll();
     tell_host_the_document_changed();
   }
@@ -1839,6 +1840,7 @@
     focused_render_target = render_target;
     pointer_down_only_moved_focus = true;
     bind_render_target(render_target);
+    render_target.wrap.append($("busy"), $("toast"));
     st.cursor = null;
     st.drag = null;
   }
@@ -1846,18 +1848,27 @@
     const is_selectable_somewhere = shown_render_targets().some((render_target) => !render_target.mode || place_kinds_selectable_in_each_editor_mode[render_target.mode].includes(place_kind));
     return is_selectable_somewhere;
   }
-  function set_view_modes(main_view_mode, beside_view_mode, focused_view_mode) {
-    with_render_target(main_render_target, () => set_mode_of_bound_view(main_view_mode));
-    if (beside_render_target) {
-      beside_render_target.is_shown = !!editor_mode_named(beside_view_mode);
-      with_render_target(beside_render_target, () => set_mode_of_bound_view(beside_view_mode));
-    }
-    const is_beside_view_focused = !!beside_render_target && beside_render_target.is_shown && editor_mode_named(focused_view_mode) === beside_render_target.mode;
-    focus_render_target(is_beside_view_focused ? beside_render_target : main_render_target);
+  function is_render_target_always_shown(render_target) {
+    const is_standalone_main_view = !host && render_target === main_render_target;
+    return is_standalone_main_view;
+  }
+  function set_mode_of_render_target(render_target, view_mode) {
+    render_target.is_shown = is_render_target_always_shown(render_target) || !!editor_mode_named(view_mode);
+    if (render_target.is_shown) with_render_target(render_target, () => set_mode_of_bound_view(view_mode));
+  }
+  function render_target_to_focus(focused_view_mode) {
+    const shown_targets = shown_render_targets();
+    const target_showing_focused_mode = shown_targets.find((render_target) => render_target.mode === editor_mode_named(focused_view_mode));
+    const target_to_focus = target_showing_focused_mode || shown_targets[0] || main_render_target;
+    return target_to_focus;
+  }
+  function set_view_modes(mode_of_each_view, focused_view_mode) {
+    render_targets.forEach((render_target, view_index) => set_mode_of_render_target(render_target, mode_of_each_view[view_index]));
+    focus_render_target(render_target_to_focus(focused_view_mode));
     show_tools_and_panels_of_focused_view();
   }
   function set_editor_mode(mode_name) {
-    set_view_modes(mode_name, null, mode_name);
+    set_view_modes([mode_name], mode_name);
   }
   function show_tools_and_panels_of_focused_view() {
     for (const rail_element of $$(".rail > *, .ed-tools > *")) rail_element.hidden = !is_rail_element_shown_in_current_mode(rail_element);
@@ -2125,7 +2136,7 @@
       ro.disconnect();
       for (const [t, type, fn, o] of listeners) t.removeEventListener(type, fn, o);
       root.innerHTML = "";
-      if (beside_render_target) host.beside_view.innerHTML = "";
+      for (const extra_view_element of extra_view_elements) extra_view_element.innerHTML = "";
     },
   };
   }

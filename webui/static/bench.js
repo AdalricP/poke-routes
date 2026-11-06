@@ -451,7 +451,10 @@
     region_document: () => open_region_document(), current_people: () => route_people.people(),
     person_at: (x, y) => route_people.person_at(x, y),
   });
-  Shell.onBottom((tab) => { if (tab === "events") route_events.render(); });
+  Shell.on_panel_shown((panel_id) => {
+    if (panel_id === "events") route_events.render();
+    if (panel_id === "tiles") render_tiles_panel();
+  });
 
   window.addEventListener("pokeroutes:tileset-saved", () => { state.atlases = {}; state.palettes = {}; });
 
@@ -1119,7 +1122,7 @@
   }
   function should_show_route_effect(effect) {
     const has_preset = !!route_effect_presets[effect];
-    const is_route_on_screen = !!state.result && state.tileCanvases.length > 0 && SL.center_tabs_shown(Shell.layout).includes("scene") && !wrap.hidden;
+    const is_route_on_screen = !!state.result && state.tileCanvases.length > 0 && Shell.is_panel_visible("scene");
     return has_preset && is_route_on_screen;
   }
   function tick_route_effect(time_in_milliseconds) {
@@ -1517,7 +1520,7 @@
     $("peopleOpts").hidden = t !== "people";
     for (const tool_class of [...wrap.classList].filter((class_name) => class_name.startsWith("tool-"))) wrap.classList.remove(tool_class);
     wrap.classList.add("tool-" + t);
-    if (t === "paint") { canPaint(true); show_left_tab("tiles"); }
+    if (t === "paint") { canPaint(true); Shell.show_panel("tiles"); }
     hideTip();
     draw();
   }
@@ -2066,15 +2069,19 @@
   // its places and layers in the Hierarchy, its panels in the Inspector, its messages in the Console.
   let region_editor_actions = null;
   function region_editor() { return region_editor_actions; }
+  function region_view_modes_shown() {
+    const shown_views = Shell.shown_views();
+    const mode_of_each_region_view = ["geography", "region"].map((view_mode) => (shown_views.includes(view_mode) ? view_mode : null));
+    return mode_of_each_region_view;
+  }
   function show_region_editor_views() {
-    const main_view_mode = Shell.center_tab_shown_in($("viewMap"));
-    const beside_view_mode = Shell.center_tab_shown_in($("viewMapBeside"));
-    if (region_editor_actions) { region_editor_actions.set_view_modes(main_view_mode, beside_view_mode, Shell.layout.center); return; }
+    const mode_of_each_region_view = region_view_modes_shown();
+    if (region_editor_actions) { region_editor_actions.set_view_modes(mode_of_each_region_view, Shell.layout.center); return; }
     const seed_of_last_region = sget("pokeroutes-shell-region-seed") || Math.floor(Math.random() * 100000);
     region_editor_actions = PREditor.init($("viewMap"), {
-      mode: main_view_mode, seed: seed_of_last_region, onOpenRoute: openInBench,
+      mode: "geography", seed: seed_of_last_region, onOpenRoute: openInBench,
       host: {
-        tools: $("tbMapTools"), side: $("mapInspector"), tree: $("mapTree"), beside_view: $("viewMapBeside"),
+        tools: $("tbMapTools"), side: $("mapInspector"), tree: $("mapTree"), extra_views: [$("viewMapBeside")],
         filter: () => $("hierFilter").value, icons: { eye: EYE, eye_off: EYE_OFF },
         log: (text, is_error) => log(is_error ? "error" : "info", text),
         onView: syncNonSceneToolbar,
@@ -2082,7 +2089,7 @@
         on_document_change: follow_map_changes_of_open_route,
       },
     });
-    region_editor_actions.set_view_modes(main_view_mode, beside_view_mode, Shell.layout.center);
+    region_editor_actions.set_view_modes(mode_of_each_region_view, Shell.layout.center);
     show_open_route_on_map();
   }
   function show_open_route_on_map() {
@@ -2355,8 +2362,8 @@
   }
 
   function show_center_tab(tab) {
-    const region_tab_shown = SL.center_tabs_shown(Shell.layout).find(SL.is_region_editor_tab);
-    if (region_tab_shown) show_region_editor_views();
+    const region_tab_shown = Shell.shown_views().find(SL.is_region_editor_tab);
+    if (region_tab_shown || region_editor()) show_region_editor_views();
     // the toolbar, hierarchy and inspector are shared: each shows the active view's contents
     // (Routes or the map editor), while Generate and zoom stay and drive the active view
     $("tbSceneTools").hidden = tab !== "scene";
@@ -2374,14 +2381,9 @@
     syncNonSceneToolbar();
   }
   function show_tiles_tab_only_in_scene(center_tab) {
-    const tiles_tab_button = document.querySelector('[data-left-tab="tiles"]');
-    if (!tiles_tab_button) return;
-    const palette_tab_label = { scene: "Tiles", geography: "Biomes" }[center_tab];
-    tiles_tab_button.hidden = !palette_tab_label;
-    tiles_tab_button.textContent = palette_tab_label || "Tiles";
-    const palette_tab_is_open = !$("leftTiles").hidden || !$("leftBiomes").hidden;
-    if (!palette_tab_label && palette_tab_is_open) { show_left_tab("hierarchy"); return; }
-    if (palette_tab_is_open) show_left_tab("tiles");
+    const palette_tab_label = center_tab === "geography" ? "Biomes" : "Tiles";
+    Shell.set_panel_title("tiles", palette_tab_label);
+    if (Shell.is_panel_visible("tiles")) render_tiles_panel();
   }
   function generate_button_label_for_view(center_tab) {
     switch (center_tab) {
@@ -2417,11 +2419,11 @@
     if (!ea) return;
     ea.generate(Math.floor(Math.random() * 100000));
   }
-  let shown_split_layout = JSON.stringify(Shell.layout.split);
+  let shown_views_signature = Shell.shown_views().join(" ");
   function fit_views_after_split_change() {
-    const split_layout = JSON.stringify(Shell.layout.split);
-    if (split_layout === shown_split_layout) return;
-    shown_split_layout = split_layout;
+    const views_signature = Shell.shown_views().join(" ");
+    if (views_signature === shown_views_signature) return;
+    shown_views_signature = views_signature;
     requestAnimationFrame(() => {
       resize();
       fit();
@@ -2697,7 +2699,6 @@
       { id: "z100", label: "Actual size (100%)", enabled: sceneRoute, run: () => zoomTo(1) },
       { id: "frame", label: "Frame selection", enabled: sceneRoute, run: focusSel },
       { sep: true },
-      { id: "v-split", label: "Routes beside the Map", checked: () => !!Shell.layout.split, run: toggle_routes_beside_map },
       { id: "v-back", label: "Back to the previous route", enabled: () => state.route_trail.length > 0, run: go_back_a_route },
       { sep: true },
       { id: "v-stages", label: "Show stage", items: () => {
@@ -2716,9 +2717,7 @@
       ] },
     ] },
     { label: "Window", items: [
-      { id: "v-left", label: "Hierarchy", checked: () => Shell.layout.left.open, run: () => Shell.toggleDock("left") },
-      { id: "v-right", label: "Inspector", checked: () => Shell.layout.right.open, run: () => Shell.toggleDock("right") },
-      { id: "v-bottom", label: "Bottom panel", checked: () => Shell.layout.bottom.open, run: () => Shell.toggleDock("bottom") },
+      ...Shell.window_menu_items(),
       { sep: true },
       { id: "w-tools", label: "Tools", items: [
         { id: "w-tile-editor", label: "Tile editor", checked: () => !!window.TileEditor && window.TileEditor.is_open(), run: () => window.TileEditor && window.TileEditor.open() },
@@ -2733,11 +2732,6 @@
       { id: "about", label: "About poke-routes", run: () => { $("aboutServer").textContent = location.origin; Shell.openDialog("dlgAbout"); } },
     ] },
   ];
-
-  function toggle_routes_beside_map() {
-    if (Shell.layout.split) { Shell.unsplit_center(Shell.layout.center); return; }
-    Shell.split_center("region", "left");
-  }
 
   // plain-letter keys belong to whichever view is active: the map editor has its own (V R L F S B W D T, ?)
   const toolKey = (t, label) => ({ id: "tool-" + t, label, group: "Scene tools", enabled: isScene, run: () => setTool(t) });
@@ -2789,7 +2783,6 @@
     $("tbZoomOut").onclick = zoomOutView;
     $("tbFit").onclick = fitView;
     $("tbTiler").onchange = () => setTiler($("tbTiler").value);
-    document.querySelectorAll("[data-left-tab]").forEach((tab_button) => { tab_button.onclick = () => show_left_tab(tab_button.dataset.leftTab); });
     $("tbMarkings").onclick = () => toggleOv("markings");
     $("tbUndo").onclick = () => run_menu_item("undo");
     $("tbRedo").onclick = () => run_menu_item("redo");
@@ -2985,15 +2978,13 @@
     }
   }
 
-  function show_left_tab(left_tab_name) {
-    document.querySelectorAll("[data-left-tab]").forEach((tab_button) => tab_button.classList.toggle("on", tab_button.dataset.leftTab === left_tab_name));
+  function render_tiles_panel() {
     const is_geography_view = Shell.layout.center === "geography";
-    $("leftHierarchy").hidden = left_tab_name !== "hierarchy";
-    $("leftTiles").hidden = left_tab_name !== "tiles" || is_geography_view;
-    $("leftBiomes").hidden = left_tab_name !== "tiles" || !is_geography_view;
-    if (left_tab_name !== "tiles") return;
+    const is_map_view = Shell.layout.center === "region";
+    $("leftTiles").hidden = is_geography_view || is_map_view;
+    $("leftBiomes").hidden = !is_geography_view;
     if (is_geography_view) { render_biome_brushes(); return; }
-    render_paint_palette();
+    if (!is_map_view) render_paint_palette();
   }
 
   function render_biome_brushes() {
