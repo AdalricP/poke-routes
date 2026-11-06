@@ -204,13 +204,13 @@ class ArkTiler:
                     # the crown overhangs the row above; water, rock, ledges... have no
                     # crown art, so a tree under them would look chopped -> bushes instead
                     above = {grid[2 * by - 1][x] for x in (2 * bx, 2 * bx + 1) if by > 0 and x < W}
-                    if above <= set(C[cells[0]]["overlays"]) | {cells[0], "f"}:
+                    if above <= set(C[cells[0]]["overlays"]) | set(letters):
                         blk[by][bx] = cells[0]
 
         def pres(bx, by, letter):
             if not (0 <= bx < BW and 0 <= by < BH):
                 return False
-            return blk[by][bx] == letter
+            return blk[by][bx] in letters
 
         orth = sum(1 << i for i, d in enumerate(self.bits) if d in ("N", "E", "S", "W"))
         for letter in letters:
