@@ -274,9 +274,8 @@
     if (!candidate_split || typeof candidate_split !== "object") return null;
     const left_tab = RETIRED_CENTER_TABS[candidate_split.left] || candidate_split.left;
     const right_tab = RETIRED_CENTER_TABS[candidate_split.right] || candidate_split.right;
-    const shows_routes_beside_one_region_view = [left_tab, right_tab].includes(ROUTES_VIEW_TAB) &&
-      [left_tab, right_tab].some(is_region_editor_tab);
-    if (!shows_routes_beside_one_region_view) return null;
+    const shows_two_different_views = CENTER_TABS.includes(left_tab) && CENTER_TABS.includes(right_tab) && left_tab !== right_tab;
+    if (!shows_two_different_views) return null;
     const ratio = Number.isFinite(candidate_split.ratio) ? clamp(candidate_split.ratio, SPLIT_RATIO_LIMITS[0], SPLIT_RATIO_LIMITS[1]) : DEFAULT_SPLIT_RATIO;
     const center_split = { left: left_tab, right: right_tab, ratio };
     return center_split;
@@ -292,26 +291,52 @@
     return shown_tabs;
   }
 
-  function region_tab_beside(dragged_tab, layout) {
-    if (layout.split) return [layout.split.left, layout.split.right].find(is_region_editor_tab);
-    if (is_region_editor_tab(layout.center)) return layout.center;
-    return "region";
+  function opposite_split_side(split_side) {
+    const other_side = split_side === "left" ? "right" : "left";
+    return other_side;
+  }
+
+  function partner_tab_for_drop(layout, dragged_tab, drop_side) {
+    if (layout.split) {
+      const tab_on_opposite_side = layout.split[opposite_split_side(drop_side)];
+      const partner_tab = tab_on_opposite_side === dragged_tab ? layout.split[drop_side] : tab_on_opposite_side;
+      return partner_tab;
+    }
+    if (layout.center !== dragged_tab) return layout.center;
+    const partner_of_lone_tab = dragged_tab === ROUTES_VIEW_TAB ? "region" : ROUTES_VIEW_TAB;
+    return partner_of_lone_tab;
   }
 
   function split_after_center_tab_drop(layout, dragged_tab, drop_side) {
     if (!CENTER_TABS.includes(dragged_tab) || !["left", "right"].includes(drop_side)) return null;
-    const partner_tab = dragged_tab === ROUTES_VIEW_TAB ? region_tab_beside(dragged_tab, layout) : ROUTES_VIEW_TAB;
+    const partner_tab = partner_tab_for_drop(layout, dragged_tab, drop_side);
     const ratio = layout.split ? layout.split.ratio : DEFAULT_SPLIT_RATIO;
-    const new_split = drop_side === "left" ? { left: dragged_tab, right: partner_tab, ratio } : { left: partner_tab, right: dragged_tab, ratio };
+    const new_split = { [drop_side]: dragged_tab, [opposite_split_side(drop_side)]: partner_tab, ratio };
     return sanitize_center_split(new_split);
   }
 
-  function split_after_activating_tab(center_split, activated_tab) {
+  function split_side_replaced_by_activated_tab(center_split, activated_tab, focused_tab) {
+    const region_sides = ["left", "right"].filter((split_side) => is_region_editor_tab(center_split[split_side]));
+    if (is_region_editor_tab(activated_tab) && region_sides.length === 1) return region_sides[0];
+    const unfocused_side = center_split.left === focused_tab ? "right" : "left";
+    return unfocused_side;
+  }
+
+  function split_after_activating_tab(center_split, activated_tab, focused_tab) {
     if (!center_split) return null;
-    if (center_tabs_of_split(center_split).includes(activated_tab) || !is_region_editor_tab(activated_tab)) return center_split;
-    const region_side = is_region_editor_tab(center_split.left) ? "left" : "right";
-    const updated_split = Object.assign({}, center_split, { [region_side]: activated_tab });
+    if (center_tabs_of_split(center_split).includes(activated_tab) || !CENTER_TABS.includes(activated_tab)) return center_split;
+    const replaced_side = split_side_replaced_by_activated_tab(center_split, activated_tab, focused_tab);
+    const updated_split = Object.assign({}, center_split, { [replaced_side]: activated_tab });
     return updated_split;
+  }
+
+  function center_tab_of_each_view(tabs_each_view_can_show, shown_tabs) {
+    const tab_of_each_view = [];
+    for (const tabs_this_view_can_show of tabs_each_view_can_show) {
+      const is_untaken_shown_tab = (center_tab) => shown_tabs.includes(center_tab) && !tab_of_each_view.includes(center_tab);
+      tab_of_each_view.push(tabs_this_view_can_show.find(is_untaken_shown_tab) || null);
+    }
+    return tab_of_each_view;
   }
 
   function center_drop_side(pointer_x, center_left, center_width) {
@@ -910,7 +935,7 @@
     object_top_left, object_footprint_keys, instance_footprint_keys, object_instance_index_at, apply_paint_stroke,
     tree_block_keys_around, whole_trees_under_stroke,
     ROUTES_VIEW_TAB, is_region_editor_tab, sanitize_center_split, center_tabs_shown, split_after_center_tab_drop,
-    split_after_activating_tab, center_drop_side,
+    split_after_activating_tab, center_drop_side, center_tab_of_each_view,
     event_sprite_key,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;

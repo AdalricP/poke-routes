@@ -75,8 +75,8 @@
   function setCenter(tab) {
     if (!SL.CENTER_TABS.includes(tab)) return;
     const changed = layout.center !== tab;
+    layout.split = SL.split_after_activating_tab(layout.split, tab, layout.center);
     layout.center = tab;
-    layout.split = SL.split_after_activating_tab(layout.split, tab);
     applyLayout();
     saveLayout();
     if (changed) centerCbs.forEach((f) => f(tab));
@@ -149,8 +149,8 @@
     });
   }
   // ------------------------------------------------------------ split centre (two views side by side)
-  // Drag a centre tab to the left or right third of the views to show it beside the other kind of
-  // view (Routes beside Geography or Map); drop it in the middle, or double-click a tab, to show one.
+  // Drag a centre tab to the left or right third of the views to show it beside another view
+  // (Routes, Geography and Map pair any two ways); drop it in the middle, or double-click a tab, to show one.
   const center_views = [...document.querySelectorAll("[data-center-view]")];
   const center_splitter = $("centerSplitter");
   const center_drop_hint = $("centerDrop");
@@ -163,7 +163,8 @@
   }
 
   function shown_tab_of_view(view_element) {
-    const shown_tab = SL.center_tabs_shown(layout).find((center_tab) => center_view_tabs(view_element).includes(center_tab)) || null;
+    const tab_of_each_view = SL.center_tab_of_each_view(center_views.map(center_view_tabs), SL.center_tabs_shown(layout));
+    const shown_tab = tab_of_each_view[center_views.indexOf(view_element)] || null;
     return shown_tab;
   }
 
@@ -789,7 +790,7 @@
   window.Shell = {
     mac, store, el,
     get layout() { return layout; },
-    applyLayout, saveLayout, setCenter, setBottom, toggleDock, resetLayout, split_center, unsplit_center,
+    applyLayout, saveLayout, setCenter, center_tab_shown_in: shown_tab_of_view, setBottom, toggleDock, resetLayout, split_center, unsplit_center,
     onResize: (f) => resizeCbs.push(f),
     onCenter: (f) => centerCbs.push(f),
     onBottom: (f) => bottomCbs.push(f),

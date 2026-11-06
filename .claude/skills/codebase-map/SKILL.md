@@ -114,7 +114,7 @@ Walkable: `gptdhyvzqn`. Surfable: `wb`. Blocked: `frkul`.
   - `shell.js`: menus, docks, console, keys. Its public surface is `window.Shell`.
   - `bench.js`: Scene, Inspector, Hierarchy, Timeline, files, paint. Its public surface is `window.Bench`.
   - `shell-logic.js`: pure functions (shortcuts, layout, undo, `specToParams`).
-  - `editor/app.js` and `editor/logic.js`: the region editor (Geography and Map tabs; route gates are set in the Map inspector). `editor/map-grid-logic.js` (pure, `window.MAP_GRID`): Map-grid strokes, metro line geometry, line colours, station shapes. Routes can sit beside either in a split centre (`shell.js`, `split_*` in `shell-logic.js`).
+  - `editor/app.js` and `editor/logic.js`: the region editor (Geography and Map tabs; route gates are set in the Map inspector). `editor/map-grid-logic.js` (pure, `window.MAP_GRID`): Map-grid strokes, metro line geometry, line colours, station shapes. Any two of Routes, Geography and Map can sit side by side in a split centre (`shell.js`, `split_*` and `center_tab_of_each_view` in `shell-logic.js`). Geography beside Map is one editor with two render targets (`#viewMap`, `#viewMapBeside`; `make_render_target`, `bind_render_target`, `set_view_modes` in `app.js`): one document, selection and undo history, a camera, mode and layers per view, and tools, Hierarchy and Inspector follow the focused view (`Shell.layout.center`).
   - `agent.js`: the Agent tab.
   - `tile-editor.js`, `tile-editor-logic.js` (pure), `tile-editor.css`: the Tile editor window.
   - `playtest.js` + `playtest-logic.js` (pure, node-tested): the Play-test window over the Routes view; data from `webui/playtest_api.py` (`/api/playtest/route`, `/api/playtest/sheet.png`), hooks from `Bench.playtest_hooks`.
