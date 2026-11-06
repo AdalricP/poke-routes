@@ -13,7 +13,8 @@ Rivers are never painted: they come from the water stage (rain routed downhill o
 the height, a river wherever enough of it gathers), so reshaping the ground moves them.
 
 Stages (in order): water (lakes, rivers, flow), climate (temperature, moisture),
-biomes (tiers, biomes) and routes (network, roles, names; pinned routes stay).
+biomes (tiers, biomes) and routes (towns and routes derived from the painted Map grid,
+map_grid.py; ``map_grid`` in the document holds the painted cells).
 """
 from __future__ import annotations
 
@@ -25,7 +26,7 @@ from typing import Dict, List, Optional
 import numpy as np
 from scipy import ndimage as ndi
 
-from . import drawn, network, terrain
+from . import map_grid, terrain
 from .world import CELL, LEGACY_BIOME_REPLACEMENT, City, Landmark, World
 
 FORMAT = "pokeroutes-region-edit"
@@ -102,6 +103,7 @@ def world_to_doc(w: World, extra: Optional[dict] = None) -> dict:
         "cities": [c.json() for c in w.cities], "landmarks": [l.json() for l in w.landmarks],
         "links": _plain(w.links), "routes": _plain(w.routes), "stale": [], "log": list(w.log)[-40:],
     }
+    doc["map_grid"] = map_grid.map_grid_of_world(w)
     if extra:
         doc.update(extra)
     return doc
@@ -148,6 +150,7 @@ def doc_to_world(doc: dict) -> World:
     w.links = doc.get("links", [])
     w.routes = doc.get("routes", [])
     w.overrides["story"] = list(doc.get("story") or [])
+    w.overrides["map_grid"] = doc.get("map_grid")
     w.log = list(doc.get("log", []))
     return w
 
@@ -216,25 +219,14 @@ def stage_biomes(w: World) -> None:
 
 
 def stage_routes(w: World) -> None:
-    keep = [r for r in w.routes if r.get("pinned")]
-    network.build_network(w, keep=keep, plan=w.links, variant=int(w.overrides.get("route_variant", 0)))
-    w.overrides.pop("network", None)
+    map_grid.map_from_marks(w, map_grid.marks_of_map_grid(map_grid.map_grid_of_world(w)))
 
 
 RUN = {"water": stage_water, "climate": stage_climate, "biomes": stage_biomes, "routes": stage_routes}
-TOO_FEW_TOWNS_MESSAGE = "place at least two towns first"
 
 
 class RegionEditRefused(ValueError):
     """An edit that cannot run on this document; the message is meant for the owner."""
-
-
-def has_something_to_lay_routes_between(w: World) -> bool:
-    has_two_towns = len(w.cities) >= 2
-    has_hand_links = any(link.get("kind") == "user" for link in w.links)
-    has_pinned_routes = any(route.get("pinned") for route in w.routes)
-    can_lay_routes = has_two_towns or has_hand_links or has_pinned_routes
-    return can_lay_routes
 
 
 def next_route_variant(doc: dict) -> int:
@@ -245,193 +237,64 @@ def next_route_variant(doc: dict) -> int:
 def recompute(doc: dict, stages: List[str]) -> dict:
     w = doc_to_world(doc)
     todo = [s for s in STAGES if s in stages or "all" in stages]
-    too_few_towns = "routes" in todo and not has_something_to_lay_routes_between(w)
-    skipped_routes = too_few_towns and not w.routes
-    if skipped_routes and todo == ["routes"]:
-        raise RegionEditRefused(TOO_FEW_TOWNS_MESSAGE)
-    if skipped_routes:
-        todo.remove("routes")
-    route_variant = next_route_variant(doc) if "routes" in todo else int(doc.get("route_variant", 0) or 0)
-    w.overrides["route_variant"] = route_variant
     for s in todo:
         RUN[s](w)
-        w.log.append(f"editor: recomputed {s}" + (f" (network variant {route_variant})" if s == "routes" else ""))
+        w.log.append(f"editor: recomputed {s}")
     stale = [s for s in doc.get("stale", []) if s not in todo]
     out = finish(w, doc, stale)
-    out["route_variant"] = route_variant
-    if too_few_towns:
-        out["message"] = f"routes not laid: {TOO_FEW_TOWNS_MESSAGE}"
     return out
 
 
-def add_route(doc: dict, src_ref: dict, dst_ref: dict) -> dict:
-    """Lay one new link between two places; every existing route stays where it is,
-    and the new routes come back pinned."""
+def story_with_town_names_followed(story: List[dict], merged_away: Dict[str, str]) -> List[dict]:
+    followed_story = [dict(beat, at=merged_away.get(beat.get("at"), beat.get("at"))) for beat in story]
+    return followed_story
+
+
+def story_without_lost_places(story: List[dict], place_names: set) -> List[dict]:
+    kept_story = [dict(beat, at=beat.get("at") if beat.get("at") in place_names else "") for beat in story]
+    return kept_story
+
+
+def place_names_of(w: World) -> set:
+    place_names = {town.name for town in w.cities} | {route["name"] for route in w.routes}
+    return place_names
+
+
+def paint_map(doc: dict, cells: list, brush: str) -> dict:
+    """Paint Map-grid cells (``[[gx, gy], ...]``) with the route, town or erase brush and
+    derive every town and route from the painted grid (see map_grid.py)."""
     w = doc_to_world(doc)
-    names = {l["name"] for l in w.links}
-    k = 1
-    while f"Hand link {k}" in names:
-        k += 1
-    name = f"Hand link {k}"
-    before = {r["name"] for r in w.routes}
-    plan = list(w.links) + [dict(name=name, kind="user", routes=[], src_ref=src_ref, dst_ref=dst_ref)]
-    network.build_network(w, keep=list(w.routes), plan=plan, variant=int(doc.get("route_variant", 0) or 0))
-    w.overrides.pop("network", None)
-    new = [r for r in w.routes if r["name"] not in before]
-    for r in new:
-        r["pinned"] = True
-    w.log.append(f"editor: {name} laid {len(new)} route(s)" if new else f"editor: {name}: no path")
-    out = finish(w, doc, doc.get("stale", []))
-    out["added"] = [r["name"] for r in new]
+    map_grid_size = map_grid.grid_size_of_world(w)
+    marks = map_grid.with_cells_painted(map_grid.marks_of_map_grid(map_grid.map_grid_of_world(w)), cells, brush, map_grid_size)
+    merged_away = map_grid.map_from_marks(w, marks)
+    w.log.append(f"editor: painted {len(cells)} map cell(s) with the {brush} brush")
+    out = finish(w, doc, [stage for stage in doc.get("stale", []) if stage != "routes"])
+    if "story" in out:
+        out["story"] = story_without_lost_places(story_with_town_names_followed(out["story"], merged_away), place_names_of(w))
     return out
-
-
-def draw_route(doc: dict, waypoints: list, legs: Optional[list] = None, replace: Optional[str] = None) -> dict:
-    """Lay a route painted freehand (the stroke's corners, see drawn.py). ``replace`` names
-    an earlier drawn line to redraw. Every other route stays; the new ones come back pinned."""
-    w = doc_to_world(doc)
-    if len(waypoints) < 2:
-        raise ValueError("drag to paint a route")
-    if replace:
-        drawn.without_drawn_line(w, replace)
-    line = dict(name=replace or drawn.next_line_name(w), waypoints=waypoints, legs=legs or [])
-    added, touches = drawn.add_drawn_line(w, line)
-    pin_drawn_routes_and_what_they_touch(w, added, touches)
-    w.log.append(f"editor: {line['name']} drawn as {', '.join(added)}")
-    out = finish(w, doc, doc.get("stale", []))
-    out["added"] = added
-    out["line"] = line["name"]
-    return out
-
-
-def pin_drawn_routes_and_what_they_touch(w: World, added: List[str], touches: List[dict]) -> None:
-    touched_routes = {ref.get("route") for ref in touches}
-    for route in w.routes:
-        if route["name"] in added:
-            route["pinned"] = True
-            route["drawn"] = True
-        if route["name"] in touched_routes:
-            route["pinned"] = True
-
-
-TOWN_SIZE = (10, 9)
-TOWN_MAP_MARGIN = 2
-
-
-def default_town_name(w: World) -> str:
-    taken = {c.name for c in w.cities}
-    number = 1
-    while f"Town {number}" in taken:
-        number += 1
-    return f"Town {number}"
-
-
-def unique_town_id(w: World, name: str) -> str:
-    base = network.ascii_id(name).lower() or "town"
-    taken = {c.id for c in w.cities}
-    town_id, number = base, 2
-    while town_id in taken:
-        town_id = f"{base}{number}"
-        number += 1
-    return town_id
-
-
-def town_rect(w: World, x: int, y: int) -> List[int]:
-    width, height = TOWN_SIZE
-    x0 = min(max(TOWN_MAP_MARGIN, x - width // 2), w.W - TOWN_MAP_MARGIN - width)
-    y0 = min(max(TOWN_MAP_MARGIN, y - height // 2), w.H - TOWN_MAP_MARGIN - height)
-    return [x0, y0, x0 + width, y0 + height]
-
-
-def rects_overlap(a: List[int], b: List[int]) -> bool:
-    return not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
-
-
-def landmass_name(w: World, x: int, y: int) -> str:
-    if w.landmass is None or not w.landmass[y, x]:
-        return ""
-    return f"landmass {int(w.landmass[y, x])}"
-
-
-def add_town(doc: dict, x: int, y: int, name: Optional[str] = None) -> dict:
-    """Place a town centred on cell (x, y), which has to be dry land. Routes go
-    stale; the next routes pass lays roads to it."""
-    w = doc_to_world(doc)
-    x, y = int(x), int(y)
-    if not (0 <= x < w.W and 0 <= y < w.H):
-        raise ValueError("that cell is off the map")
-    if not w.land[y, x] or w.lake[y, x]:
-        raise ValueError("a town has to stand on dry land")
-    name = (str(name or "").strip() or default_town_name(w))[:40]
-    if any(c.name == name for c in w.cities) or any(r["name"] == name for r in w.routes):
-        raise ValueError(f"the name {name!r} is taken")
-    rect = town_rect(w, x, y)
-    if any(rects_overlap(rect, c.rect) for c in w.cities):
-        raise ValueError("too close to another town")
-    town = City(unique_town_id(w, name), name, rect, gym="", honours="", half=landmass_name(w, x, y), size="town")
-    w.cities.append(town)
-    w.log.append(f"editor: placed {name} at {x}, {y}")
-    out = finish(w, doc, stale_with_routes(doc))
-    out["added_town"] = town.id
-    return out
-
-
-def place_generated_town(w: World, x: int, y: int) -> Optional[City]:
-    rect = town_rect(w, x, y)
-    if any(rects_overlap(rect, c.rect) for c in w.cities):
-        return None
-    name = default_town_name(w)
-    town = City(unique_town_id(w, name), name, rect, gym="", honours="", half=landmass_name(w, x, y), size="town")
-    w.cities.append(town)
-    return town
 
 
 def generate_map(doc: dict) -> dict:
-    """The whole map on the current geography: towns placed where the land suits
-    them, then the route network between them. Pinned towns and pinned routes stay;
-    every other town and route is replaced."""
-    from .town_sites import pick_town_sites
+    """The whole map on the current geography, on the Map grid: towns placed where the
+    land suits them, then metro-style routes between them. Pinned towns and pinned
+    routes stay; every other town and route is replaced."""
+    from .grid_map_generation import generated_marks
 
     w = doc_to_world(doc)
     route_variant = next_route_variant(doc)
-    removed_town_names = {c.name for c in w.cities if not c.pinned}
+    marks = generated_marks(w, route_variant)
     w.cities = [c for c in w.cities if c.pinned]
-    sites = pick_town_sites(w, route_variant, [(c.cx, c.cy) for c in w.cities])
-    placed_towns = [town for town in (place_generated_town(w, x, y) for x, y in sites) if town is not None]
-    if not has_something_to_lay_routes_between(w):
+    w.routes = [r for r in w.routes if r.get("pinned")]
+    map_grid.map_from_marks(w, marks)
+    if len(w.cities) < 2:
         raise RegionEditRefused("this map has no room for two towns: raise or paint more dry land first")
-    w.overrides["route_variant"] = route_variant
-    stage_routes(w)
-    w.log.append(f"editor: generated the map: {len(placed_towns)} towns, {len(w.routes)} routes (network variant {route_variant})")
+    w.log.append(f"editor: generated the map: {len(w.cities)} towns, {len(w.routes)} routes (network variant {route_variant})")
     out = finish(w, doc, [stage for stage in doc.get("stale", []) if stage != "routes"])
     out["route_variant"] = route_variant
-    out["added_towns"] = [town.id for town in placed_towns]
-    out["message"] = f"placed {len(placed_towns)} towns and laid {len(out['routes'])} routes"
-    for beat in out.get("story") or []:
-        if beat.get("at") in removed_town_names:
-            beat["at"] = ""
+    out["message"] = f"placed {len(w.cities)} towns and laid {len(out['routes'])} routes"
+    if "story" in out:
+        out["story"] = story_without_lost_places(out["story"], place_names_of(w))
     return out
-
-
-def delete_town(doc: dict, town_id: str) -> dict:
-    w = doc_to_world(doc)
-    town = w.city(town_id)
-    if town is None:
-        raise ValueError(f"no town {town_id!r}")
-    w.cities = [c for c in w.cities if c.id != town_id]
-    for route in w.routes:
-        route["exits"] = [e for e in route.get("exits", []) if e.get("to") != town.name]
-    w.log.append(f"editor: removed {town.name}")
-    out = finish(w, doc, stale_with_routes(doc))
-    for beat in out.get("story") or []:
-        if beat.get("at") == town.name:
-            beat["at"] = ""
-    return out
-
-
-def stale_with_routes(doc: dict) -> List[str]:
-    stale = set(doc.get("stale", [])) | {"routes"}
-    return [stage for stage in STAGES if stage in stale]
 
 
 def finish(w: World, doc: dict, stale: List[str]) -> dict:
@@ -509,7 +372,10 @@ def load(path: Path) -> dict:
         doc = rj["editor"]
         doc["grids"] = with_landmass_grid(doc["grids"])
         doc["preset"] = "generic"
-        w = doc_to_world(doc)  # validates
+        w = doc_to_world(doc)
+        if not doc.get("map_grid"):
+            map_grid.map_from_marks(w, map_grid.marks_of_places(w))
+            return finish(w, doc, doc.get("stale", []))
         doc["routes"] = with_specs(w)
         return doc
     return generate_doc(int(rj.get("seed", 1)), geography_kind=rj.get("geography") or None)

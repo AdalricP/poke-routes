@@ -88,8 +88,8 @@ Walkable: `gptdhyvzqn`. Surfable: `wb`. Blocked: `frkul`.
 - **Specs**:
   - `export.route_spec` turns each region route into a RouteSpec dict.
   - `export.write_all` writes `region_out/<seed>/routes/*.yaml`.
-- **Hand editing**: `edit.py`, used by the editor's recompute, add-route, draw-route and town actions (`recompute`, `add_route`, `draw_route`, `add_town`, `delete_town`, `generate_doc`, `save`, `load`).
-- **Drawn routes**: `drawn.py` (freehand stroke corners → cells → pieces between the towns/routes it touches → route rects via `Network._grow`; open-ground ends are dead ends; `add_drawn_line`, `without_drawn_line`). `network.build_network` keeps drawn links (`kept_drawn_links`) and skips tree links between towns a drawn line joins (`TownGroups`).
+- **Hand editing**: `edit.py`, used by the editor's recompute, paint-map and generate-map actions (`recompute`, `paint_map`, `generate_map`, `generate_doc`, `save`, `load`). The document's `map_grid` (`{cell, size, rows}`, `.` empty / `r` route / `t` town) is the painted Map grid; the routes stage derives towns and routes from it.
+- **Map grid**: `map_grid.py` (pure): `with_cells_painted` (brushes route/town/erase), `town_groups_of` (neighbouring town cells = one town), `route_chains` (neighbouring route cells walked end to end, straight through junctions), `chain_stretches` (2+ water cells = own sea route), `painted_network` + `route_records_of` (exits where a route touches a town or another route, dead-end goal, `network.classify` roles), `map_from_marks` (sets `w.cities`, `w.routes` with ordered `grid_cells`, `w.links`; keeps names/gates/overrides by cell overlap), `marks_of_places` (snaps documents from before the grid). Generate map: `grid_map_generation.py` (`generated_marks`: town sites snapped to grid cells, metro-style grid search between `network.town_tree` pairs with a turn cost). `network.py` still lays routes for the CLI pipeline.
 - **CLI**: `python3 -m pokeroutes.region generate --seed N [--geography KIND]` (`region/cli.py`, `generate`) writes `region_out/N/`.
 
 ## Web UI (`webui/`)
@@ -100,7 +100,7 @@ Walkable: `gptdhyvzqn`. Surfable: `wb`. Blocked: `frkul`.
   - Read-only endpoints: `/api/options`, `/api/spec-schema`, `/api/atlas`.
 - **Other API modules**:
   - `shell_api.py`: `/api/tilers`, `/api/scene`, `/api/spec-parse`, `/api/region-specs.zip`, `/api/commits`, `/api/retile`, plus the redirects.
-  - `editor_api.py`: `/api/editor/*` (generate, load, recompute, add-route, draw-route, add-town, delete-town, save, spec, render, export, list).
+  - `editor_api.py`: `/api/editor/*` (generate, load, recompute, generate-map, paint-map, save, spec, render, export, list).
   - `region_api.py`: `/api/region`, `/api/region.png`, `/api/region-spec`.
   - `tile_overrides.py`: `/api/tile-editor/*` (tilesets, tileset, edit, save) for Window > Tools > Tile editor; `tile_agent_tools.py`: the `tile_*` route tools.
   - `paint_palette.py`: `/api/paint-palette?id=` (what the Tiles tab can paint: classes, samples, objects, exact tiles per tiler); `/api/retile` (in `editor_api.py`) takes those classes.
@@ -110,7 +110,7 @@ Walkable: `gptdhyvzqn`. Surfable: `wb`. Blocked: `frkul`.
   - `shell.js`: menus, docks, console, keys. Its public surface is `window.Shell`.
   - `bench.js`: Scene, Inspector, Hierarchy, Timeline, files, paint. Its public surface is `window.Bench`.
   - `shell-logic.js`: pure functions (shortcuts, layout, undo, `specToParams`).
-  - `editor/app.js` and `editor/logic.js`: the region editor (Geography and Map tabs; route gates are set in the Map inspector). Routes can sit beside either in a split centre (`shell.js`, `split_*` in `shell-logic.js`).
+  - `editor/app.js` and `editor/logic.js`: the region editor (Geography and Map tabs; route gates are set in the Map inspector). `editor/map-grid-logic.js` (pure, `window.MAP_GRID`): Map-grid strokes, metro line geometry, line colours, station shapes. Routes can sit beside either in a split centre (`shell.js`, `split_*` in `shell-logic.js`).
   - `agent.js`: the Agent tab.
   - `tile-editor.js`, `tile-editor-logic.js` (pure), `tile-editor.css`: the Tile editor window.
   - `playtest.js` + `playtest-logic.js` (pure, node-tested): the Play-test window over the Routes view; data from `webui/playtest_api.py` (`/api/playtest/route`, `/api/playtest/sheet.png`), hooks from `Bench.playtest_hooks`.
@@ -125,6 +125,7 @@ Walkable: `gptdhyvzqn`. Surfable: `wb`. Blocked: `frkul`.
 python3 -m pytest -q webui/tests            # job queue (with fake_claude.py) + region network
 node webui/tests/shell-logic.test.js        # shell pure logic
 node webui/tests/editor-logic.test.js       # region editor pure logic
+node webui/tests/map-grid-logic.test.js     # Map grid painter pure logic
 node webui/tests/tile-editor-logic.test.js  # tile editor pure logic
 node webui/tests/playtest-logic.test.js     # play-test movement, collision, encounters
 node webui/tests/people-events-logic.test.js  # people, signs and events pure logic

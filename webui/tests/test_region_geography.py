@@ -8,7 +8,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pokeroutes.region import edit
+from pokeroutes.region import edit, map_grid
 from pokeroutes.region.pipeline import build
 
 
@@ -48,33 +48,33 @@ def test_the_arklarna_preset_is_gone():
         build(1, routes=True, strip=False, preset="arklarna")
 
 
-def test_add_and_delete_towns_through_the_edit_api(tmp_path):
+def dry_grid_cells(doc_world):
+    size = map_grid.REGION_CELLS_PER_GRID_CELL
+    grid_width, grid_height = map_grid.grid_size_of_world(doc_world)
+    cells = [(column, row) for row in range(1, grid_height - 1) for column in range(1, grid_width - 1)
+             if doc_world.land[row * size:(row + 1) * size, column * size:(column + 1) * size].all()]
+    return cells
+
+
+def test_paint_rename_save_load_and_erase_towns_through_the_edit_api(tmp_path):
     doc = edit.generate_doc(11, geography_kind="continent")
-    w = edit.doc_to_world(doc)
-    first = land_cell_far_from(w, [])
-    second = land_cell_far_from(w, [first], distance=40)
-    doc = edit.add_town(doc, *first)
-    doc = edit.add_town(doc, *second, name="Harbour")
-    assert [c["name"] for c in doc["cities"]] == ["Town 1", "Harbour"]
-    assert "routes" in doc["stale"]
-    doc = edit.recompute(doc, ["routes"])
-    assert len(doc["routes"]) >= 1
-    with pytest.raises(ValueError):
-        edit.add_town(doc, *first)
-    sea = np.argwhere(~edit.doc_to_world(doc).land)
-    if len(sea):
-        with pytest.raises(ValueError):
-            edit.add_town(doc, int(sea[0][1]), int(sea[0][0]))
+    cells = dry_grid_cells(edit.doc_to_world(doc))
+    first = cells[0]
+    second = next(cell for cell in cells if abs(cell[0] - first[0]) + abs(cell[1] - first[1]) >= 4)
+    doc = edit.paint_map(doc, [first, second], "town")
+    assert sorted(c["name"] for c in doc["cities"]) == ["Town 1", "Town 2"]
+    renamed = next(c for c in doc["cities"] if c["grid_cells"] == [list(second)])
+    renamed["name"] = "Harbour"
+    doc = edit.paint_map(doc, [first], "town")
+    assert sorted(c["name"] for c in doc["cities"]) == ["Harbour", "Town 1"]
 
     edit.save(doc, tmp_path / "hand")
     loaded = edit.load(tmp_path / "hand" / "region.json")
     assert loaded["preset"] == "generic"
-    assert [c["name"] for c in loaded["cities"]] == ["Town 1", "Harbour"]
+    assert sorted(c["name"] for c in loaded["cities"]) == ["Harbour", "Town 1"]
 
-    town_id = loaded["cities"][0]["id"]
-    after = edit.delete_town(loaded, town_id)
+    after = edit.paint_map(loaded, [first], "erase")
     assert [c["name"] for c in after["cities"]] == ["Harbour"]
-    after = edit.recompute(after, ["routes"])
     assert after["routes"] == []
 
 

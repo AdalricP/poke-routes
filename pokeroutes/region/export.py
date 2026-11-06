@@ -164,6 +164,7 @@ def route_region(w: World, r: dict, idx: int) -> dict:
                   "grid": _rows(biome), "legend": {k: v for k, v in BIOME_NAMES.items()},
                   "gradient": _gradient(w.biome, r["path"], r["rect"])},
         "path": path,
+        "grid_cells": [list(cell) for cell in r.get("grid_cells") or []],
         "goal": goal,
         "landmarks": lms,
     }

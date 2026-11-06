@@ -6,22 +6,14 @@ GET  /api/editor/list                              -> saved regions under region
 POST /api/editor/load       {name}                 -> document from region_out/<name>/region.json
 POST /api/editor/recompute  {doc, stages: [...]}   -> document with those stages re-run
                             stages: water | climate | biomes | routes | all
-                            routes: every run lays a new network variant (route_variant
-                            in the document); pinned routes stay. With fewer than two
-                            towns a routes-only run answers 400 {"error": "place at least
-                            two towns first"}; mixed with other stages it skips routes
-                            and sets "message"
-POST /api/editor/generate-map {doc}                -> document with towns placed on the land
-                            (unpinned towns replaced, pinned kept) and a fresh network;
-                            "added_towns" and a "message" for the log
-POST /api/editor/add-route  {doc, src, dst}        -> document with a new link laid between two
-                            places; refs are {"city": id} | {"route": name} | {"landmark": id}
-POST /api/editor/draw-route {doc, waypoints, legs?, replace?} -> document with a route painted by hand:
-                            waypoints are the stroke's corner cells (legs "h" | "v" per gap if they are not
-                            in line); it may start or end on open ground (a dead end) and cross water;
-                            replace redraws an earlier drawn line
-POST /api/editor/add-town   {doc, x, y, name?}     -> document with a town placed on land at cell (x, y)
-POST /api/editor/delete-town {doc, id}             -> document without that town (routes go stale)
+                            routes: towns and routes derived again from the painted Map grid
+POST /api/editor/generate-map {doc}                -> document with towns and metro-style routes painted
+                            on the Map grid (unpinned towns and routes replaced, pinned kept);
+                            "message" for the log
+POST /api/editor/paint-map  {doc, cells, brush}    -> document with Map-grid cells [[gx, gy], ...] painted
+                            (brush route | town | erase); towns and routes are derived from the
+                            grid: neighbouring town cells are one town, neighbouring route cells
+                            one route, each route carries its cells in path order (grid_cells)
 POST /api/editor/save       {doc, name}            -> writes region_out/<name>/ (region.json, routes/*.yaml)
 POST /api/editor/spec       {doc, id}              -> one route's full spec (with its region block)
 POST /api/editor/render     {doc, scale}           -> PNG of the edited region (server-side render)
@@ -126,15 +118,8 @@ def post(h, u, srv) -> None:
             return h._json(edit.recompute(b["doc"], stages))
         if p == "/api/editor/generate-map":
             return h._json(edit.generate_map(b["doc"]))
-        if p == "/api/editor/add-route":
-            return h._json(edit.add_route(b["doc"], b.get("src") or {}, b.get("dst") or {}))
-        if p == "/api/editor/draw-route":
-            return h._json(edit.draw_route(b["doc"], list(b.get("waypoints") or []), list(b.get("legs") or []),
-                                           b.get("replace") or None))
-        if p == "/api/editor/add-town":
-            return h._json(edit.add_town(b["doc"], int(b["x"]), int(b["y"]), b.get("name")))
-        if p == "/api/editor/delete-town":
-            return h._json(edit.delete_town(b["doc"], str(b.get("id", ""))))
+        if p == "/api/editor/paint-map":
+            return h._json(edit.paint_map(b["doc"], list(b.get("cells") or []), str(b.get("brush") or "")))
         if p == "/api/editor/save":
             name = _name(b.get("name") or b["doc"].get("name"))
             with _lock:

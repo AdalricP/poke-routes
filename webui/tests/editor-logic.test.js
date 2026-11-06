@@ -158,24 +158,28 @@ test("undo / redo with copy-on-write grids, 120 steps, limit honoured", () => {
 
 test("cancel of a no-op edit does not wipe the redo stack", () => {
   const d = makeDoc(), h = new ED.History();
-  h.begin(d, "move city"); ED.moveCity(d, "a", 1, 0);
+  h.begin(d, "rename route"); ED.renameRoute(d, "Eins", "Drei");
   h.undo(d);
   assert.strictEqual(h.redos.length, 1);
   h.begin(d, "no-op rename");
   h.cancel(); // the rename turned out to be a no-op, so it's discarded
   assert.strictEqual(h.redos.length, 1, "the redo entry from before survives a cancelled edit");
-  assert.strictEqual(h.redo(d), "move city");
+  assert.strictEqual(h.redo(d), "rename route");
 });
 
-test("undo restores object edits (rename, move, delete)", () => {
+test("undo restores object edits and the painted map grid", () => {
   const d = makeDoc(), h = new ED.History();
+  const city_name = d.cities[0].name;
   h.begin(d); ED.renameRoute(d, "Eins", "Möwenstraße");
-  h.begin(d); ED.moveCity(d, "a", 1, 2);
-  h.begin(d); ED.deleteRoute(d, "Zwei");
+  h.begin(d); ED.renamePlace(d, "city", d.cities[0].id, "Neustadt");
+  h.begin(d); d.map_grid = { cell: 8, size: [2, 1], rows: ["tr"] }; d.routes = d.routes.slice(1);
   assert.strictEqual(d.routes.length, 1);
   h.undo(d); h.undo(d); h.undo(d);
   assert.deepStrictEqual(d.routes.map((r) => r.name), ["Eins", "Zwei"]);
-  assert.deepStrictEqual(d.cities[0].rect, [5, 10, 10, 15]);
+  assert.strictEqual(d.cities[0].name, city_name);
+  assert.strictEqual(d.map_grid, undefined);
+  h.redo(d); h.redo(d); h.redo(d);
+  assert.deepStrictEqual(d.map_grid.rows, ["tr"]);
 });
 
 test("stale marking and which stages a button runs", () => {
@@ -221,49 +225,6 @@ test("city rename rejects a name already used by a route or city", () => {
   assert.ok(!ED.renamePlace(d, "city", "a", "Bertsch"), "can't take another city's name");
   assert.ok(!ED.renamePlace(d, "city", "a", "Eins"), "can't take a route's name");
   assert.strictEqual(d.cities[0].name, "Ahlen");
-});
-
-test("move exit stays on the shared edge and drags the neighbour's exit", () => {
-  const d = makeDoc();
-  assert.ok(ED.moveExit(d, "Eins", 1, 14));
-  assert.deepStrictEqual(d.routes[0].exits[1].cell, [18, 14]);
-  assert.deepStrictEqual(d.routes[1].exits[0].cell, [19, 14]);
-  ED.moveExit(d, "Eins", 1, 999); // clamped to the shared stretch, off the corners
-  assert.deepStrictEqual(d.routes[0].exits[1].cell, [18, 15]);
-  // city exit is limited by the city's edge (y 10..14)
-  ED.moveExit(d, "Eins", 0, 30);
-  assert.deepStrictEqual(d.routes[0].exits[0].cell, [10, 14]);
-  assert.deepStrictEqual(ED.routeWarnings(d, d.routes[0]), []);
-});
-
-test("resize moves exits with their edge, clips the path, warns when not flush", () => {
-  const d = makeDoc();
-  assert.ok(ED.resizeRoute(d, "Eins", "x1", 17));
-  const r = d.routes[0];
-  assert.deepStrictEqual(r.rect, [10, 8, 17, 17]);
-  assert.deepStrictEqual(r.exits[1].cell, [16, 12]);
-  assert.ok(r.path.every(([x]) => x < 17));
-  assert.ok(ED.routeWarnings(d, r).some((w) => /flush/.test(w)));
-  assert.ok(!ED.resizeRoute(d, "Eins", "x1", 11) || r.rect[2] - r.rect[0] >= 6, "min width");
-  ED.resizeRoute(d, "Eins", "x1", 21);
-  assert.ok(ED.routeWarnings(d, r).some((w) => /overlaps Zwei/.test(w)));
-});
-
-test("delete route drops its link and pins what's left of it", () => {
-  const d = makeDoc();
-  ED.deleteRoute(d, "Eins");
-  assert.deepStrictEqual(d.routes.map((r) => r.name), ["Zwei"]);
-  assert.ok(d.links[0].dropped);
-  assert.ok(d.routes[0].pinned);
-  assert.ok(!d.routes[0].exits.some((e) => e.to === "Eins"));
-});
-
-test("delete route clears beats pinned to it", () => {
-  const d = makeDoc();
-  d.story = [{ name: "start", at: "Ahlen", unlocks: "" }, { name: "road", at: "Eins", unlocks: "" }];
-  ED.deleteRoute(d, "Eins");
-  assert.strictEqual(d.story[1].at, "");
-  assert.strictEqual(d.story[0].at, "Ahlen");
 });
 
 test("landmark move carries the pillar and the gate", () => {
@@ -360,117 +321,6 @@ test("story: a gated route opens once a beat hands out the move", () => {
   assert.ok(ED.reachableAt(d, 1).has("Eins"));
   assert.strictEqual(ED.routeNeeds({ mode: "sea" }), "surf");
   assert.strictEqual(ED.routeNeeds({ mode: "sea", gate: { needs: "" } }), "");
-});
-
-test("towns placed by hand: next free name, only on dry land away from other towns", () => {
-  const d = makeDoc();
-  assert.strictEqual(ED.next_town_name(d), "Town 1");
-  d.cities.push({ id: "town1", name: "Town 1", rect: [15, 18, 25, 27] });
-  assert.strictEqual(ED.next_town_name(d), "Town 2");
-  assert.strictEqual(ED.town_spot_problem(d, 1, 1), "a town has to stand on dry land");
-  assert.strictEqual(ED.town_spot_problem(d, 7, 12), "too close to another town");
-  assert.strictEqual(ED.town_spot_problem(d, 99, 1), "that is off the map");
-  assert.strictEqual(ED.town_spot_problem(d, 20, 6), "");
-});
-
-function place_of(doc, kind, id) {
-  const obj = kind === "city" ? doc.cities.find((c) => c.id === id) : ED.routeByName(doc, id);
-  return { kind, id, obj };
-}
-
-function paint(cells) {
-  let stroke = ED.start_stroke(cells[0]);
-  for (const cell of cells.slice(1)) stroke = ED.extend_stroke(stroke, cell);
-  return ED.stroke_corners(stroke);
-}
-
-test("freehand strokes snap to straight runs and ignore a wobble of one cell", () => {
-  assert.deepStrictEqual(paint([[0, 0], [3, 1], [6, 0], [9, 1]]), [[0, 0], [9, 0]]);
-  assert.deepStrictEqual(paint([[0, 0], [1, 0], [5, 0], [5, 3], [5, 8]]), [[0, 0], [5, 0], [5, 8]]);
-  assert.deepStrictEqual(paint([[2, 2]]), [[2, 2]]);
-});
-
-test("freehand strokes turn where the pointer leaves the run, even on a fast jump", () => {
-  assert.deepStrictEqual(paint([[0, 0], [6, 0], [6, 6], [12, 6]]), [[0, 0], [6, 0], [6, 6], [12, 6]]);
-  assert.deepStrictEqual(paint([[0, 0], [8, 9]]), [[0, 0], [0, 9], [8, 9]]);
-  const cells = ED.cells_of_corners(paint([[0, 0], [6, 0], [6, 6], [12, 6]]));
-  for (let k = 1; k < cells.length; k++) assert.strictEqual(Math.abs(cells[k][0] - cells[k - 1][0]) + Math.abs(cells[k][1] - cells[k - 1][1]), 1);
-});
-
-test("drawn lines: waypoints and legs snap to right-angle corners", () => {
-  assert.deepStrictEqual(ED.corners_of_line([[0, 0], [5, 3]], ["h"]), [[0, 0], [5, 0], [5, 3]]);
-  assert.deepStrictEqual(ED.corners_of_line([[0, 0], [5, 3]], ["v"]), [[0, 0], [0, 3], [5, 3]]);
-  assert.deepStrictEqual(ED.corners_of_line([[0, 0], [4, 0], [4, 0]], ["h", "h"]), [[0, 0], [4, 0]]);
-  assert.deepStrictEqual(ED.corners_of_line([[2, 2], [6, 6], [9, 2]], ["h", "v"]), [[2, 2], [6, 2], [6, 6], [6, 2], [9, 2]]);
-});
-
-test("drawn lines: corners become 4-connected cells, both ends included", () => {
-  const cells = ED.cells_of_corners([[0, 0], [3, 0], [3, -2]]);
-  assert.deepStrictEqual(cells, [[0, 0], [1, 0], [2, 0], [3, 0], [3, -1], [3, -2]]);
-  for (let k = 1; k < cells.length; k++) assert.strictEqual(Math.abs(cells[k][0] - cells[k - 1][0]) + Math.abs(cells[k][1] - cells[k - 1][1]), 1);
-});
-
-test("drawn lines: a town anchors at its centre, a route where it was clicked", () => {
-  const d = makeDoc();
-  assert.deepStrictEqual(ED.anchor_of_place(place_of(d, "city", "a"), 6.2, 11.7), [7, 12]);
-  assert.deepStrictEqual(ED.anchor_of_place(place_of(d, "route", "Eins"), 12.6, 9.1), [12, 9]);
-});
-
-test("freehand strokes: water and open ground are fine, a stroke has to touch a place and leave it", () => {
-  const d = makeDoc();
-  d.grids.lake[18 * d.W + 7] = 1;
-  assert.strictEqual(ED.stroke_problem(d, ED.cells_of_corners([[7, 12], [7, 20], [20, 20]])), "");
-  assert.strictEqual(ED.stroke_problem(d, ED.cells_of_corners([[20, 20], [20, 22]])), "start or end the route on a town or a route");
-  assert.strictEqual(ED.stroke_problem(d, ED.cells_of_corners([[6, 11], [8, 11]])), "that stroke only runs over towns and routes that are already there");
-  assert.match(ED.stroke_problem(d, ED.cells_of_corners([[7, 12], [7, 28]])), /map edge/);
-  assert.strictEqual(ED.stroke_problem(d, ED.cells_of_corners([[0 + 20, 20], [30, 20], [30, 12]])), "");
-});
-
-function doc_with_drawn_line() {
-  const d = makeDoc();
-  d.links.push({ name: "Drawn line 1", kind: "drawn", routes: ["Drei"], waypoints: [[7, 12], [7, 20], [20, 20]], legs: ["v", "h"],
-    src_ref: { city: "a" }, dst_ref: { route: "Zwei" } });
-  d.routes.push({ name: "Drei", id: "Drei", map: "MAP_DREI", rect: [4, 15, 22, 24], link: "Drawn line 1", drawn: true, pinned: true,
-    path: [[7, 15], [7, 20], [20, 20]], exits: [{ side: "north", cell: [7, 15], to: "Ahlen" }, { side: "east", cell: [21, 20], to: "Zwei" }] });
-  d.routes[1].exits.push({ side: "south", cell: [20, 16], to: "Drei" });
-  d.story = [{ name: "rival", at: "Drei" }];
-  return d;
-}
-
-test("drawn lines: a drawn route finds its line; others have none", () => {
-  const d = doc_with_drawn_line();
-  assert.strictEqual(ED.drawn_line_of_route(d, ED.routeByName(d, "Drei")).name, "Drawn line 1");
-  assert.strictEqual(ED.drawn_line_of_route(d, ED.routeByName(d, "Eins")), null);
-});
-
-test("drawn lines: moving a bend copies the waypoints", () => {
-  const waypoints = [[1, 1], [5, 1], [5, 5]];
-  const moved = ED.with_waypoint_moved(waypoints, 1, 6, 2);
-  assert.deepStrictEqual(moved, [[1, 1], [6, 2], [5, 5]]);
-  assert.deepStrictEqual(waypoints[1], [5, 1]);
-});
-
-test("drawn lines: deleting one removes its routes, the exits into them, the line and story places", () => {
-  const d = doc_with_drawn_line();
-  assert.ok(ED.delete_drawn_line(d, "Drawn line 1"));
-  assert.ok(!ED.routeByName(d, "Drei"));
-  assert.ok(!d.routes.some((r) => r.exits.some((e) => e.to === "Drei")));
-  assert.ok(!d.links.some((l) => l.name === "Drawn line 1"));
-  assert.strictEqual(d.story[0].at, "");
-  assert.strictEqual(ED.delete_drawn_line(d, "Drawn line 1"), false);
-});
-
-test("town map: route bands keep only their corners and run into the towns they reach", () => {
-  assert.deepStrictEqual(ED.without_straight_runs([[0, 0], [1, 0], [2, 0], [2, 1], [2, 2]]), [[0, 0], [2, 0], [2, 2]]);
-  const d = makeDoc();
-  const lines = ED.town_map_route_lines(d);
-  const into_ahlen = lines.filter((l) => l.route.name === "Eins" && l.points[l.points.length - 1][0] === 7.5);
-  assert.strictEqual(into_ahlen.length, 1);
-  assert.deepStrictEqual(into_ahlen[0].points[into_ahlen[0].points.length - 1], [7.5, 12.5]);
-  ED.routeByName(d, "Zwei").path = [[21, 10], [22, 10]];
-  const zwei_to_eins = ED.town_map_route_lines(d).find((l) => l.route.name === "Zwei" && l.points.length > 3);
-  assert.deepStrictEqual(zwei_to_eins.points, [[21.5, 10.5], [21.5, 12.5], [19.5, 12.5], [18.5, 12.5]]);
-  assert.deepStrictEqual(ED.point_halfway_along([[0, 0], [4, 0], [4, 4]]), [4, 0]);
 });
 
 test("town map: the sea is lighter along the coast, land and lakes get their own colours", () => {
