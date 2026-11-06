@@ -42,7 +42,7 @@
   const state = {
     atlases: {}, result: null,
     stage: 0, prevStage: null, fadeStart: 0,
-    tileCanvases: [], classCanvases: [], changedMasks: [], stageInfo: [], animCells: [], flashStart: 0,
+    tileCanvases: [], top_layer_canvas: null, classCanvases: [], changedMasks: [], stageInfo: [], animCells: [], flashStart: 0,
     view: { zoom: 1, ox: 0, oy: 0 },
     layer: viewSaved.layer === "classes" ? "classes" : "tiles",
     ov: Object.assign({ areas: true, events: true, grid: false, markings: true }, viewSaved.ov || {}),
@@ -653,6 +653,33 @@
       prev = d.tiles;
       prevTiles = st.tiles;
     });
+    state.top_layer_canvas = top_layer_canvas_of_stage(r.stages.length - 1);
+  }
+
+  function top_layer_canvas_of_stage(stage_index) {
+    const route_result = state.result;
+    const top_layer_canvas = document.createElement("canvas");
+    top_layer_canvas.width = route_result.width * CELL;
+    top_layer_canvas.height = route_result.height * CELL;
+    const top_layer_context = top_layer_canvas.getContext("2d");
+    const stage_tiles = route_result.stages[stage_index].tiles;
+    for (let cell_index = 0; cell_index < stage_tiles.length; cell_index++) {
+      const left = (cell_index % route_result.width) * CELL, top = Math.floor(cell_index / route_result.width) * CELL;
+      draw_top_layer_cell(top_layer_context, state.atlas.meta.index[stage_tiles[cell_index]], left, top);
+    }
+    return top_layer_canvas;
+  }
+
+  function draw_top_layer_cell(context, atlas_cell, left, top) {
+    const { meta, img } = state.atlas;
+    const top_layer_cell = (meta.top_layer || {})[atlas_cell];
+    if (top_layer_cell == null) return;
+    context.drawImage(img, (top_layer_cell % meta.columns) * CELL, Math.floor(top_layer_cell / meta.columns) * CELL, CELL, CELL, left, top, CELL, CELL);
+  }
+
+  function is_final_stage_shown() {
+    const is_final = !!state.result && state.stage === state.result.stages.length - 1;
+    return is_final;
   }
 
   // ------------------------------------------------------------ tile animation
@@ -676,6 +703,7 @@
     if (!state.atlas || !cells || !cells.length) return;
     const { meta, img } = state.atlas;
     const g = state.tileCanvases[state.stage].getContext("2d");
+    const top_layer_context = is_final_stage_shown() && state.top_layer_canvas ? state.top_layer_canvas.getContext("2d") : null;
     for (const c of cells) {
       const seq = [meta.index[c.mid], ...meta.anim[c.mid]];
       const a = seq[(Math.floor(animFrame * c.speed) + c.phase) % seq.length];
@@ -683,6 +711,9 @@
       c.shown_atlas_cell = a;
       g.clearRect(c.x, c.y, CELL, CELL);
       g.drawImage(img, (a % meta.columns) * CELL, Math.floor(a / meta.columns) * CELL, CELL, CELL, c.x, c.y, CELL, CELL);
+      if (!top_layer_context) continue;
+      top_layer_context.clearRect(c.x, c.y, CELL, CELL);
+      draw_top_layer_cell(top_layer_context, a, c.x, c.y);
     }
     draw();
   }
@@ -1200,6 +1231,7 @@
     const zones = PR.zonesAt(r, state.stage);
     if (state.ov.markings && state.ov.events) drawEvents(g, PR.eventsAt(r, state.stage).filter((e) => !route_people.hides_generated_event(e)).concat(route_items.visible_items()), ox, oy, s);
     if (state.ov.markings && state.ov.events) route_people.draw(g, ox, oy, s);
+    if (state.layer !== "classes" && is_final_stage_shown() && state.top_layer_canvas) draw_top_layer_over_people(g, ox, oy, W, H, opt);
     if (state.ov.markings) route_events.draw(g, ox, oy, s);
     if (state.ov.markings && state.ov.areas) drawAreas(g, zones, ox, oy, s);
     if (!opt.interactive) return;
@@ -1220,6 +1252,12 @@
       g.lineWidth = 1;
       for (const [x, y] of cells) g.strokeRect(ox + x * s + 0.5, oy + y * s + 0.5, s - 1, s - 1);
     }
+  }
+
+  function draw_top_layer_over_people(g, ox, oy, W, H, opt) {
+    g.globalAlpha = opt.fade == null ? 1 : opt.fade;
+    g.drawImage(state.top_layer_canvas, ox, oy, W, H);
+    g.globalAlpha = 1;
   }
 
   function hoverCells() {
@@ -1498,6 +1536,7 @@
       state.tileCanvases[last] = d.tiles;
       state.classCanvases[last] = d.classes;
       state.animCells[last] = d.anim;
+      state.top_layer_canvas = top_layer_canvas_of_stage(last);
       if (!quiet) log("info", `Painted ${res.painted} cells; re-tiled ${res.retiled}`);
       return true;
     } catch (e) {
@@ -3106,12 +3145,16 @@
     const final_canvas = state.tileCanvases[state.tileCanvases.length - 1] || null;
     return final_canvas;
   }
+  function final_top_layer_canvas() {
+    const top_layer_canvas = state.top_layer_canvas || null;
+    return top_layer_canvas;
+  }
   function playtest_route_name() {
     const route_name = state.region ? state.region.name : (state.result ? state.result.name : "");
     return route_name;
   }
   const playtest_hooks = {
-    show_final_stage, final_route_events, final_tile_canvas, playtest_route_name, scene_connections, follow_connection,
+    show_final_stage, final_route_events, final_tile_canvas, final_top_layer_canvas, playtest_route_name, scene_connections, follow_connection,
     draw_route_effect_particles_into, fetchJSON,
     draw_event_sprite: (graphics_context, route_event, origin_x, origin_y, cell_size) => route_items.draw_event_sprite(graphics_context, route_event, origin_x, origin_y, cell_size, animFrame),
   };
