@@ -106,7 +106,7 @@
       <div class="route-list" data-ed="routeList"></div>
     </section>
     <section>
-      <h2>Selection</h2>
+      <h2 data-ed="inspTitle">Selection</h2>
       <div data-ed="insp"><p class="muted">Click a route, town or landmark.</p></div>
     </section>
     <section>
@@ -1119,6 +1119,7 @@
     const box = $("insp");
     box.innerHTML = "";
     const o = findSel(st.sel);
+    show_selection_panel_for(o);
     if (!o) { box.innerHTML = empty_selection_hint(); return; }
     if (st.mode === "story") return inspect_place_for_story(box, o);
     if (st.sel.kind === "route" && st.mode === "gates") return inspect_route_gate(box, o);
@@ -1139,6 +1140,14 @@
       remove.onclick = () => delete_town(o.id);
       box.append(remove);
     }
+  }
+  function show_selection_panel_for(selected_object) {
+    const selection_panel = $("insp").closest("details, section");
+    const has_no_towns_to_start_from = !!(st.doc && !st.doc.cities.length && is_tool_available_in_current_mode("town"));
+    const selection_title = selected_object ? ({ route: "Route", city: "Town", landmark: "Landmark" }[st.sel.kind] || "Selection") : "Towns";
+    if (selection_panel) selection_panel.hidden = !selected_object && !has_no_towns_to_start_from;
+    const title_element = $("inspTitle");
+    if (title_element) title_element.textContent = selection_title;
   }
   function empty_selection_hint() {
     if (st.doc && !st.doc.cities.length && is_tool_available_in_current_mode("town")) {
@@ -1271,7 +1280,7 @@
   }
   function refresh_story() {
     const section = $("storySection");
-    section.hidden = !(st.mode === "story" || st.mode === "gates") || !st.doc;
+    section.hidden = st.mode !== "story" || !st.doc;
     if (section.hidden) return;
     const box = $("storyBody");
     box.innerHTML = "";

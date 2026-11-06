@@ -530,8 +530,8 @@
   // scene isn't a dead frame. Only touches the few cells that actually animate.
   const ANIM_MS = 200;
   const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const tile_animation_speeds = [1, 2, 0.5];
-  const tile_animation = { is_playing: !reduceMotion, speed_index: 0 };
+  const tile_animation_speeds = [0.25, 0.5, 1, 2, 4];
+  const tile_animation = { is_playing: !reduceMotion, speed_index: 2 };
   let animLast = 0, animFrame = 0;
   function tickAnim(t) {
     requestAnimationFrame(tickAnim);
@@ -564,12 +564,8 @@
     draw_tile_animation_frame();
     sync_tile_animation_buttons();
   }
-  function restart_tile_animation() {
-    animFrame = 0;
-    draw_tile_animation_frame();
-  }
-  function cycle_tile_animation_speed() {
-    tile_animation.speed_index = (tile_animation.speed_index + 1) % tile_animation_speeds.length;
+  function change_tile_animation_speed(speed_step) {
+    tile_animation.speed_index = Math.max(0, Math.min(tile_animation_speeds.length - 1, tile_animation.speed_index + speed_step));
     sync_tile_animation_buttons();
     Shell.status(`Tile animation speed ${tile_animation_speeds[tile_animation.speed_index]}×`);
   }
@@ -578,7 +574,9 @@
     play_button.classList.toggle("playing", tile_animation.is_playing);
     play_button.setAttribute("aria-label", tile_animation.is_playing ? "Pause tile animation" : "Play tile animation");
     play_button.title = (tile_animation.is_playing ? "Pause" : "Play") + " tile animation (Space)";
-    $("tbLast").title = `Animation speed ${tile_animation_speeds[tile_animation.speed_index]}× (End to change)`;
+    const current_speed = tile_animation_speeds[tile_animation.speed_index];
+    $("tbPrev").title = `Slower animation, now ${current_speed}× (Left arrow)`;
+    $("tbNext").title = `Faster animation, now ${current_speed}× (Right arrow)`;
   }
 
   // ------------------------------------------------------------ scene view
@@ -1939,10 +1937,10 @@
       ] },
       { sep: true },
       { id: "play", label: "Play / pause tile animation", enabled: sceneRoute, run: (ev) => { if (ev && document.activeElement && document.activeElement.tagName === "BUTTON") document.activeElement.blur(); toggle_tile_animation(); } },
-      { id: "next", label: "Next animation frame", enabled: sceneRoute, run: () => step_tile_animation(1) },
-      { id: "prev", label: "Previous animation frame", enabled: sceneRoute, run: () => step_tile_animation(-1) },
-      { id: "first", label: "Restart tile animation", enabled: sceneRoute, run: restart_tile_animation },
-      { id: "last", label: "Change animation speed", enabled: sceneRoute, run: cycle_tile_animation_speed },
+      { id: "next", label: "Faster tile animation", enabled: sceneRoute, run: () => change_tile_animation_speed(1) },
+      { id: "prev", label: "Slower tile animation", enabled: sceneRoute, run: () => change_tile_animation_speed(-1) },
+      { id: "first", label: "Previous animation frame", enabled: sceneRoute, run: () => step_tile_animation(-1) },
+      { id: "last", label: "Next animation frame", enabled: sceneRoute, run: () => step_tile_animation(1) },
     ] },
     { label: "Window", items: [
       { id: "w-scene", label: "Route bench (Scene)", radio: true, checked: () => Shell.layout.center === "scene", run: () => Shell.setCenter("scene") },
@@ -1981,10 +1979,10 @@
     document.querySelectorAll("[data-tool]").forEach((b) => { b.onclick = () => setTool(b.dataset.tool); });
     document.querySelectorAll("[data-layer]").forEach((b) => { b.onclick = () => setLayer(b.dataset.layer); });
     document.querySelectorAll("[data-ov]").forEach((b) => { b.onclick = () => toggleOv(b.dataset.ov); });
-    $("tbFirst").onclick = restart_tile_animation;
-    $("tbPrev").onclick = () => step_tile_animation(-1);
-    $("tbNext").onclick = () => step_tile_animation(1);
-    $("tbLast").onclick = cycle_tile_animation_speed;
+    $("tbFirst").onclick = () => step_tile_animation(-1);
+    $("tbPrev").onclick = () => change_tile_animation_speed(-1);
+    $("tbNext").onclick = () => change_tile_animation_speed(1);
+    $("tbLast").onclick = () => step_tile_animation(1);
     $("tbPlay").onclick = toggle_tile_animation;
     sync_tile_animation_buttons();
     $("tbGenerate").onclick = doGenerate;
