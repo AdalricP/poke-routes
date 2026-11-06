@@ -506,16 +506,10 @@ body.moving, body.moving * { user-select: none !important; cursor: move !importa
 .imp-docked.agent .ag-specs { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
 .imp-docked.agent .ag-spec { display: flex; align-items: center; gap: 6px; font-size: 11px; }
 .imp-docked.agent .ag-steer-input { width: 100%; box-sizing: border-box; margin: 4px 0; }
-.tile-swatch { display: inline-flex; align-items: center; gap: 5px; }
-.tile-swatch canvas { width: 16px; height: 16px; image-rendering: pixelated; border: 1px solid var(--line); }
-.tile-swatch.on { border-color: var(--focus); }
 .tiles-pane { padding: 6px; }
 .tiles-note { margin: 0 0 6px; font-size: 11px; color: var(--text-3); }
-.tiles-note #tileId { color: var(--text-2); font-family: var(--mono); }
-#tilePaletteCanvas { display: block; width: 100%; image-rendering: pixelated; cursor: crosshair; }
 .terrain-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 4px; margin-bottom: 8px; }
 .terrain-brush { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px; border: 1px solid var(--line); border-radius: 3px; background: #2e2e2e; color: var(--text-2); font: inherit; font-size: 11px; cursor: pointer; }
 .terrain-brush:hover { background: #383838; color: var(--text); }
 .terrain-brush.on { border-color: var(--focus); color: var(--text); background: #33404d; }
 .terrain-brush canvas { width: 40px; height: 40px; image-rendering: pixelated; }
-.single-tiles summary { cursor: pointer; font-size: 11px; color: var(--text-2); margin: 4px 0; }
