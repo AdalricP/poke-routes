@@ -23,6 +23,9 @@ NUM_PRIMARY_TILES = 512
 NUM_PRIMARY_METATILES = 512
 NUM_PRIMARY_PALS = 6
 NUM_PALS_TOTAL = 13
+METATILE_LAYER_TYPE_SHIFT = 12
+METATILE_LAYER_TYPE_MASK = 0xF
+METATILE_LAYER_TYPE_COVERED = 1
 
 
 def _read_pal(path: Path) -> np.ndarray:
@@ -186,6 +189,24 @@ class TilesetPair:
                     out[y : y + 8, x : x + 8][mask] = rgb[mask]
         self._cache[key] = out
         return out
+
+    def layer_type(self, mid: int) -> int:
+        layer_type_of_metatile = (self.attribute(mid) >> METATILE_LAYER_TYPE_SHIFT) & METATILE_LAYER_TYPE_MASK
+        return layer_type_of_metatile
+
+    def top_layer_mask(self, mid: int) -> np.ndarray:
+        top_layer_pixels = np.zeros((16, 16), dtype=bool)
+        entries = self._entries(mid)
+        if entries is None or self.layer_type(mid) == METATILE_LAYER_TYPE_COVERED:
+            return top_layer_pixels
+        for quarter_index in range(4):
+            tile_entry = int(entries[4 + quarter_index])
+            tile_pixels = self._tile(tile_entry & 0x3FF)
+            tile_pixels = tile_pixels[:, ::-1] if tile_entry & 0x400 else tile_pixels
+            tile_pixels = tile_pixels[::-1, :] if tile_entry & 0x800 else tile_pixels
+            top_y, top_x = (quarter_index // 2) * 8, (quarter_index % 2) * 8
+            top_layer_pixels[top_y:top_y + 8, top_x:top_x + 8] = tile_pixels != 0
+        return top_layer_pixels
 
     def animated_metatiles(self) -> Dict[int, int]:
         """metatile id -> animation frame count, for every metatile that uses at least one

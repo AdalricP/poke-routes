@@ -154,7 +154,8 @@ def build_atlas(p, primary_sym: str, secondary_sym: str, png_url: str, breeze_pl
     other frames of any metatile that animates in-game (water, flowers, waterfalls...) and for
     the preview-only idle motions (pokeroutes/idle_motion.py: tree crowns, tall grass and flowers
     swaying a pixel, props bopping or rolling...). "anim" lists each moving metatile's atlas cells
-    per tick, "motion" its motion, speed and place in its prop, "breeze" the swaying tree crowns, grass and flowers."""
+    per tick, "motion" its motion, speed and place in its prop, "breeze" the swaying tree crowns, grass and flowers,
+    "top_layer" the cell holding just the pixels that draw over people (tree crowns...) for each atlas cell that has any."""
     from PIL import Image
 
     n_pri, n_sec = p.metatile_count()
@@ -170,27 +171,45 @@ def build_atlas(p, primary_sym: str, secondary_sym: str, png_url: str, breeze_pl
                                                  prop_cells_by_metatile, breeze_plan)
     extra = [(mid, p.render_metatile(mid, frame=f)) for mid, nf in played_game_animation.items() for f in range(1, nf)]
     extra_idle = [(mid, offset, pixels) for mid, frames in idle_frames.items() for offset, pixels in frames.items()]
-    rows = (len(ids) + len(extra) + len(extra_idle) + ATLAS_COLS - 1) // ATLAS_COLS
+    top_layer_mask_by_metatile = {mid: p.top_layer_mask(mid) for mid in ids}
+    top_layer_mask_by_metatile = {mid: mask for mid, mask in top_layer_mask_by_metatile.items() if mask.any()}
+    cells_with_top_layer = [mid for mid in ids if mid in top_layer_mask_by_metatile]
+    cells_with_top_layer += [mid for mid, _pixels in extra if mid in top_layer_mask_by_metatile]
+    cells_with_top_layer += [mid for mid, _offset, _pixels in extra_idle if mid in top_layer_mask_by_metatile]
+    rows = (len(ids) + len(extra) + len(extra_idle) + len(cells_with_top_layer) + ATLAS_COLS - 1) // ATLAS_COLS
     img = np.zeros((rows * 16, ATLAS_COLS * 16, 4), dtype=np.uint8)
 
-    def put(n, pixels):
+    def put(n, pixels, shown_pixels=None):
         y, x = (n // ATLAS_COLS) * 16, (n % ATLAS_COLS) * 16
         img[y:y + 16, x:x + 16, :3] = pixels
-        img[y:y + 16, x:x + 16, 3] = 255
+        img[y:y + 16, x:x + 16, 3] = 255 if shown_pixels is None else shown_pixels * 255
+
+    top_layer_cell_of_atlas_cell = {}
+
+    def put_top_layer(atlas_cell, mid, pixels):
+        if mid not in top_layer_mask_by_metatile:
+            return
+        top_layer_cell = len(ids) + len(extra) + len(extra_idle) + len(top_layer_cell_of_atlas_cell)
+        put(top_layer_cell, pixels, top_layer_mask_by_metatile[mid])
+        top_layer_cell_of_atlas_cell[str(atlas_cell)] = top_layer_cell
 
     index = {}
     for n, mid in enumerate(ids):
-        put(n, p.render_metatile(mid))
+        pixels = p.render_metatile(mid)
+        put(n, pixels)
+        put_top_layer(n, mid, pixels)
         index[str(mid)] = n
     anim_index: dict = {}
     for k, (mid, pixels) in enumerate(extra):
         n = len(ids) + k
         put(n, pixels)
+        put_top_layer(n, mid, pixels)
         anim_index.setdefault(str(mid), []).append(n)
     idle_cells: dict = {}
     for k, (mid, offset, pixels) in enumerate(extra_idle):
         n = len(ids) + len(extra) + k
         put(n, pixels)
+        put_top_layer(n, mid, pixels)
         idle_cells.setdefault(mid, {})[offset] = n
     for mid, cells in idle_cells.items():
         anim_index[str(mid)] = atlas_sequence_for_motion(index[str(mid)], cells, motions[mid].motion)
@@ -201,7 +220,7 @@ def build_atlas(p, primary_sym: str, secondary_sym: str, png_url: str, breeze_pl
     meta = {"png": png_url, "cell": 16, "columns": ATLAS_COLS, "count": len(ids),
             "index": index, "primary": primary_sym, "secondary": secondary_sym, "anim": anim_index,
             "breeze": sorted(mid for mid in idle_cells if motions[mid].motion in BREEZE_MOTIONS), "motion": motion_meta,
-            "leaf_colours_by_tree_class": LEAF_COLOURS_BY_TREE_LETTER, **(extra_meta or {})}
+            "leaf_colours_by_tree_class": LEAF_COLOURS_BY_TREE_LETTER, "top_layer": top_layer_cell_of_atlas_cell, **(extra_meta or {})}
     return buf.getvalue(), meta
 
 

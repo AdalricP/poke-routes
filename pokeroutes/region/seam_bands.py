@@ -72,9 +72,7 @@ def water_class_on_one_side(world, rect: Sequence[int], shared_edge: SharedEdge,
 def water_class_across_edge(world, rect: Sequence[int], shared_edge: SharedEdge, along_in_region_cells: int) -> str:
     this_side = water_class_on_one_side(world, rect, shared_edge, 0, along_in_region_cells)
     other_side = water_class_on_one_side(world, rect, shared_edge, 1, along_in_region_cells)
-    other_side_nearby = [water_class_on_one_side(world, rect, shared_edge, 1, along_in_region_cells + step) for step in (-1, 1)]
-    this_side_nearby = [water_class_on_one_side(world, rect, shared_edge, 0, along_in_region_cells + step) for step in (-1, 1)]
-    crosses_here = (this_side and (other_side or any(other_side_nearby))) or (other_side and (this_side or any(this_side_nearby)))
+    crosses_here = bool(this_side and other_side)
     if not crosses_here:
         return ""
     water_class = SEA_BAND_CLASS if SEA_BAND_CLASS in (this_side, other_side) else FRESH_WATER_BAND_CLASS

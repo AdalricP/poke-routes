@@ -403,13 +403,15 @@
 
   function draw_world(context, now, elapsed_in_seconds) {
     const camera = Logic.camera_top_left_in_pixels(player_pixel_position(now));
-    draw_map_tiles(context, camera);
+    draw_map_tiles(context, camera, session.tile_canvas, true);
     draw_people_and_objects(context, camera, now);
+    draw_map_tiles(context, camera, hooks.final_top_layer_canvas(), false);
+    draw_grass_rustles(context, camera, now);
     hooks.draw_route_effect_particles_into(context, session.particle_set, { left: 0, top: 0, width: screen_width_in_pixels, height: screen_height_in_pixels }, 1, elapsed_in_seconds);
   }
 
-  function draw_map_tiles(context, camera) {
-    const tile_canvas = session.tile_canvas;
+  function draw_map_tiles(context, camera, tile_canvas, with_neighbouring_maps) {
+    if (!tile_canvas) return;
     const play_world = session.play_world;
     const first_cell_x = Math.floor(camera.x / tile_size), first_cell_y = Math.floor(camera.y / tile_size);
     for (let cell_y = first_cell_y; cell_y <= first_cell_y + Logic.viewport_height_in_tiles; cell_y++) {
@@ -418,7 +420,7 @@
         context.drawImage(tile_canvas, source_x * tile_size, source_y * tile_size, tile_size, tile_size, cell_x * tile_size - camera.x, cell_y * tile_size - camera.y, tile_size, tile_size);
       }
     }
-    for (const neighbouring_map of session.neighbouring_maps) draw_neighbouring_map(context, camera, neighbouring_map);
+    if (with_neighbouring_maps) for (const neighbouring_map of session.neighbouring_maps) draw_neighbouring_map(context, camera, neighbouring_map);
   }
 
   function draw_neighbouring_map(context, camera, neighbouring_map) {
@@ -449,7 +451,6 @@
     const player_drawable = { sort_y: player_pixel_position(now).y / tile_size + 0.01, draw: (drawing_context, drawing_camera) => draw_player(drawing_context, drawing_camera, now) };
     const drawables_in_depth_order = [...object_drawables, player_drawable].sort((first, second) => first.sort_y - second.sort_y);
     for (const drawable of drawables_in_depth_order) drawable.draw(context, camera);
-    draw_grass_rustles(context, camera, now);
   }
 
   function draw_play_object(context, camera, play_object, draw_position) {

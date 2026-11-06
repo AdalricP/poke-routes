@@ -8,7 +8,7 @@ ORTHOGONAL_OFFSETS = {"N": (0, -1), "E": (1, 0), "S": (0, 1), "W": (-1, 0)}
 NEIGHBOUR_OFFSETS = {"N": (0, -1), "NE": (1, -1), "E": (1, 0), "SE": (1, 1),
                      "S": (0, 1), "SW": (-1, 1), "W": (-1, 0), "NW": (-1, -1)}
 DIAGONAL_SIDES = {"NE": ("N", "E"), "SE": ("S", "E"), "SW": ("S", "W"), "NW": ("N", "W")}
-HIGH_SIDE_OFFSET_BY_LEDGE = {"s": (0, -1), "j": (0, 1), "e": (-1, 0), "cell_x": (1, 0)}
+HIGH_SIDE_OFFSET_BY_LEDGE = {"s": (0, -1), "j": (0, 1), "e": (-1, 0), "x": (1, 0)}
 ROW_LEDGE_LETTERS = ("s", "j")
 LEDGES_SHOWING_BOTH_SIDES = ("j",)
 FULL_MASK_KEY = "255"
