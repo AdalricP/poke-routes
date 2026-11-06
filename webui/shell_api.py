@@ -34,12 +34,13 @@ MAX_SPEC = 512 * 1024
 _ark = None
 _ark_atlases: dict = {}
 _ark_overlay_token = None
+_ark_tilers_by_secondary: dict = {}
 _lock = threading.Lock()
 
 
 # ------------------------------------------------------------------ Ark tiler
 
-def ark_tiler():
+def ark_tiler(secondary: str = ""):
     global _ark, _ark_overlay_token
     from pokeroutes.tileset_overlay import ARK_TILESET_PAIR_NAME, overlay_file_change_token
 
@@ -50,7 +51,24 @@ def ark_tiler():
 
             _ark, _ark_overlay_token = ArkTiler.load(), overlay_token
             _ark_atlases.clear()
-        return _ark
+            _ark_tilers_by_secondary.clear()
+        if not secondary or secondary == _ark.secondary or secondary not in _ark.full_class_table.get("secondary_tilesets", {}):
+            return _ark
+        if secondary not in _ark_tilers_by_secondary:
+            _ark_tilers_by_secondary[secondary] = _ark.for_secondary(secondary)
+        return _ark_tilers_by_secondary[secondary]
+
+
+def ark_secondary_for_spec(spec) -> str:
+    from pokeroutes.ruletile_secondaries import secondary_for_spec
+
+    chosen_secondary = secondary_for_spec(ark_tiler().full_class_table, spec)
+    return chosen_secondary
+
+
+def ark_tiler_for_spec(spec):
+    tiler_for_spec = ark_tiler(ark_secondary_for_spec(spec))
+    return tiler_for_spec
 
 
 def ark_available() -> tuple:
@@ -69,7 +87,7 @@ def ark_tiles(route, warnings):
     import numpy as np
     from pokeroutes.ruletile import tile_route
 
-    t = ark_tiler()
+    t = ark_tiler_for_spec(route.spec)
     t0 = time.time()
     final = tile_route(t, route)
     t_final = time.time() - t0
@@ -84,47 +102,53 @@ def ark_tiles(route, warnings):
     return final, tiles, t_final
 
 
-def ark_atlas_url(shade: str, png: bool = False) -> str:
+def ark_atlas_url(shade: str, png: bool = False, secondary: str = "") -> str:
     import tile_looks
     from urllib.parse import urlencode
 
-    query = urlencode({"tiler": "ark", "shade": shade, "v": tile_looks.version()})
+    from pokeroutes.ruletile_secondaries import WOODLAND_SECONDARY
+
+    query_fields = {"tiler": "ark", "shade": shade, "v": tile_looks.version()}
+    if secondary and secondary != WOODLAND_SECONDARY:
+        query_fields["secondary"] = secondary
+    query = urlencode(query_fields)
     url = ("/api/atlas.png?" if png else "/api/atlas?") + query
     return url
 
 
-def ark_default_tile_motions():
+def ark_default_tile_motions(secondary: str = ""):
     from pokeroutes.breeze import breeze_plan_for_ark_class_table
     from pokeroutes.idle_motion import default_motions, default_prop_motions_from_ark_class_table, prop_cells_from_ark_class_table
 
-    class_table = ark_tiler().c
-    game_animated = ark_tiler().pair().animated_metatiles()
+    class_table = ark_tiler(secondary).c
+    game_animated = ark_tiler(secondary).pair().animated_metatiles()
     defaults = default_motions(breeze_plan_for_ark_class_table(class_table), default_prop_motions_from_ark_class_table(class_table), game_animated)
     return defaults, prop_cells_from_ark_class_table(class_table)
 
 
-def ark_atlas(srv, shade: str):
+def ark_atlas(srv, shade: str, secondary: str = ""):
     import tile_looks
     from pokeroutes.breeze import breeze_plan_for_ark_class_table
     from pokeroutes.idle_motion import motions_with_overrides
-    from pokeroutes.ruletile import PRIMARY_SYMBOL, SECONDARY_SYMBOL
     from pokeroutes.tree_shade import ShadedTilesetPair, floor_plan_for_shade
 
-    tiler = ark_tiler()
+    tiler = ark_tiler(secondary)
+    cache_key = (shade, tiler.secondary)
     with _lock:
-        cached = _ark_atlases.get(shade)
+        cached = _ark_atlases.get(cache_key)
     if cached is not None:
         return cached
     breeze_plan = breeze_plan_for_ark_class_table(tiler.c)
-    defaults, prop_cells_by_metatile = ark_default_tile_motions()
+    defaults, prop_cells_by_metatile = ark_default_tile_motions(tiler.secondary)
     tileset_pair = tiler.pair()
     motions = motions_with_overrides(defaults, tile_looks.motion_overrides("ark"), prop_cells_by_metatile,
                                      set(tileset_pair.animated_metatiles()))
     shaded_pair = ShadedTilesetPair(tileset_pair, floor_plan_for_shade(tiler.c, shade), tiler.grass)
-    cached = srv.build_atlas(shaded_pair, PRIMARY_SYMBOL, SECONDARY_SYMBOL, ark_atlas_url(shade, png=True),
-                             breeze_plan, motions, prop_cells_by_metatile, {"shade": shade})
+    cached = srv.build_atlas(shaded_pair, tiler.primary_symbol, tiler.secondary_symbol,
+                             ark_atlas_url(shade, png=True, secondary=tiler.secondary),
+                             breeze_plan, motions, prop_cells_by_metatile, {"shade": shade, "ark_secondary": tiler.secondary})
     with _lock:
-        _ark_atlases[shade] = cached
+        _ark_atlases[cache_key] = cached
     return cached
 
 
@@ -192,7 +216,8 @@ def handle(h, method: str, u, srv) -> bool:
             from pokeroutes.tree_shade import SHADE_CHOICES
 
             requested_shade = q.get("shade", ["leaves"])[0]
-            png, meta = ark_atlas(srv, requested_shade if requested_shade in SHADE_CHOICES and requested_shade != "auto" else "leaves")
+            png, meta = ark_atlas(srv, requested_shade if requested_shade in SHADE_CHOICES and requested_shade != "auto" else "leaves",
+                                  q.get("secondary", [""])[0])
             if u.path == "/api/atlas.png":
                 return h._send(200, png, "image/png") or True
             return h._json(meta) or True

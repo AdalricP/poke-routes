@@ -56,7 +56,17 @@ Put it in a pokeemerald-format tree: `data/tilesets/{primary,secondary}/<name>/`
 
 - **Name**: the user sees it as the **PokeRoutes** tileset (tiler id `ark`, ROM symbols `gTileset_ArkOutdoor` / `gTileset_ArkWoodland` unchanged).
 - **Where it lives**: `pokeroutes/ruletile.py`, `ArkTiler`, with the newer terrain rules in `pokeroutes/ruletile_terrain.py` (bridges, sand shores, sideways falls, ledges over ground). It is driven by a class table JSON, `data/tilesets/metatile_classes_ark.json`, found inside a ROM tree located by `find_rom()` (the `ARK_ROM` env var, then fallback candidates).
-- **Hardcoded names**: the tileset names are constants (`PRIMARY`, `SECONDARY` and the `*_SYMBOL`s). As written it serves exactly one tileset pair, the Arklarna one.
+- **Secondaries**: one primary (`ark_outdoor`) and several secondaries. `ark_woodland` (default: forests, meadows) plus the terrain secondaries the ROM builder adds (`tools/arklarna_tiles/terrain_secondaries.py`, listed under `secondary_tilesets` in the class table):
+
+  | Secondary | Symbol | Picked for | Art (borrowed from the pret decomps, credited in each folder's `CREDITS.md`) |
+  |---|---|---|---|
+  | `ark_coast` | `gTileset_ArkCoast` | `beach`, open-sea routes (`region.mode: sea`) | FireRed sea in 3 depth bands + darker Dive water, FireRed sand with water and grass rims, Emerald Route 105-109 sea ridges and peak rocks, FireRed grey/brown sea rocks, Emerald Route 124 shallows as wet flats |
+  | `ark_mountain` | `gTileset_ArkMountain` | `mountain` | FireRed Mt. Ember: rocky ground, slope rock, 2-row terrace faces, stairs, boulders |
+  | `ark_snow` | `gTileset_ArkSnow` | `snow` | FireRed Icefall Cave: snow, snow plateaus ringed by ice ridges, ice, snow clumps, ice boulders, ladder |
+  | `ark_desert` | `gTileset_ArkDesert` | `desert` | Emerald Route 111: sand, raised dunes, mesa rock, desert rocks |
+  | `ark_cave` | `gTileset_ArkCave` | spec key `ark_secondary: ark_cave` (no cave biome yet) | FireRed Mt. Moon: floor, sandy floor, walls with the dark void, ladders, rocks |
+
+  `ruletile_secondaries.secondary_for_spec` picks one (spec key `ark_secondary` wins, then open sea, then biome); `ArkTiler.load(secondary=...)` / `tiler.for_secondary(...)` gives a tiler for it, whose `c` is the primary's classes plus the secondary's (`class_table_for_secondary`). The tile editor overlay applies to the woodland pair only. Not there yet: cacti, dead shrubs, snow-covered trees, cave water, crystals; secondary water is not animated.
 - **CLI and web UI**: `--tileset ark`, and Generate > Tiler in the web UI (`webui/shell_api.py`, `ark_tiler`).
 - **Class table format** (read `ArkTiler.tile` and `_trees`):
   - `mask_bits`: the order of `N NE E SE S SW W NW` bits for blob masks.
@@ -72,10 +82,20 @@ Put it in a pokeemerald-format tree: `data/tilesets/{primary,secondary}/<name>/`
   | `shore` (sand `d`) | `body` (blob class used away from water), `joins`, `water`, `by_mask` {water-neighbour mask → id} |
   | `bridge` (`q`) | `parts` {horizontal_/vertical_ single, top/left, middle, bottom/right, single_<side>_end} |
   | none | `base` [ids], picked deterministically by position |
+  | `sea_depth` (`b`, coast) | `bands` [blob tables shallow, mid, deep], `band_starts_in_metatiles`, `depth_water` (band = smoothed distance to cells outside it; a band's rim sits on its cells, lighter neighbours open the mask) |
+  | `sea_rocks` (`u`, coast) | `blocks_2x2` (whole 2x2 `u` groups in water), `single`; `u` on land takes the `boulder` prop |
+  | `cliff_face` (`k`, mountain) | `parts` `<upper or lower>_<left, mid, right or single>`: upper when the cell below is face too |
+  | `sand_with_dunes` (`d`, desert) | `base` flat sand, `dune_by_mask`, `dune_noise_threshold` |
 
-  Extras on existing classes: `a.sideways_parts` ('<east|west>_<north|middle|south>_<lip|fall|foot>', used when a fall touches more water west and east than north and south), `a.parts.<row>_single` (one-wide falls), `s/j/e/x.over_ground` {ground letter → blob mask → id} and `over_ground_ends` (ledge on the top layer over path/sand or tall grass on its high side; the ground blob is computed as if the ledge cell were that ground).
+  Extras on existing classes: `blob47` `fill_variants` (full mask picked by position), `deep_interior` (cave void where a whole 5x5 is wall), `water_by_mask` + `water` on coast sand (rim against water; `by_mask` is then the grass rim), `r.in_sea_by_mask` (coast: rock regions touching the sea take the Emerald sea-ridge art), `surf: true` (elevation 1 like `w`). `a.sideways_parts` ('<east|west>_<north|middle|south>_<lip|fall|foot>', used when a fall touches more water west and east than north and south), `a.parts.<row>_single` (one-wide falls), `s/j/e/x.over_ground` {ground letter → blob mask → id} and `over_ground_ends` (ledge on the top layer over path/sand or tall grass on its high side; the ground blob is computed as if the ledge cell were that ground).
 
   Letters missing from the table go through `ruletile.FALLBACK` (sea → water, cliff → rock …; sand and bridges have their own art since the a1-terrain ROM branch).
+
+### Add or change a terrain secondary
+
+1. In the ROM tree, `tools/arklarna_tiles/land_secondaries.py` (or `coast_secondary.py`) names the pieces as source metatile ids of a pret tileset already in the tree (`general_frlg`, `seafoam_islands_frlg`, `general` + `mauville`, ...). `terrain_kits.py` turns them into classes: `PLAIN_SCHEME` (variants), `QUARTER_SCHEME` (thin rims: 8x8 quarters from N/E/S/W/corner/inner pieces, missing ones mirrored or synthesised), `WHOLE_PIECE_SCHEME` (thick rims: whole pieces per open side), `CliffFace`. `borrowed_metatiles.py` reads any pret pair (FireRed layout 640/640); `borrowed_autotiles.py` swaps backgrounds (`rebased_onto_new_background`) and builds the autotiles.
+2. Register it in `terrain_secondaries.TERRAIN_SECONDARIES` (directory, symbol, biomes), add the C entries in `src/data/tilesets/{headers,graphics,metatiles}.h`, run `python3 tools/arklarna_tiles/build.py` and `make`. Primary and woodland outputs must stay byte-identical; check the diff.
+3. Find source ids by rendering the source maps (`data/layouts/*/map.bin`) with their own pair, then look at generated routes at 3x.
 
 ### Add a new rule-tiled tileset (needs a small code change)
 

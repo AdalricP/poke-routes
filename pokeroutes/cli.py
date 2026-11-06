@@ -39,8 +39,10 @@ def _generate_and_write(spec, a, route=None, offsets=None):
     model = MODELS / f"{spec.tileset}.json"
     if getattr(a, "tileset", None) == "ark":
         from .ruletile import ArkTiler, tile_route, write_ark_emerald
+        from .ruletile_secondaries import secondary_for_spec
 
-        tiler = ArkTiler.load()
+        default_tiler = ArkTiler.load()
+        tiler = default_tiler.for_secondary(secondary_for_spec(default_tiler.full_class_table, spec))
         layout = tile_route(tiler, route)
         write_ark_emerald(route, layout, out / "emerald", tiler, offsets=offsets)
         grade_for_biome(layout.render(tiler.pair()), spec.biome).save(out / "emerald.png")

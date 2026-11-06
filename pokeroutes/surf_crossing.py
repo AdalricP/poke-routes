@@ -5,14 +5,15 @@ Surf over it: while the route is built the lanes out there are kept as bridges
 become water again and a Surf gate is recorded on the route.
 
 A route laid over open sea (region ``mode: sea``) is open water from edge to
-edge: sandy islets with a grass heart, shallow sandbars and sea rocks are
-scattered over it, never on the surf line between the exits."""
+edge: sandy islets with a grass heart, shallow sandbars and sea rocks (single,
+2x2 clusters and ridges that shape channels) are scattered over it, never on the
+surf line between the exits, and patches of Dive water lie in the deepest parts."""
 from __future__ import annotations
 
 from typing import List, Tuple
 
 import numpy as np
-from scipy.ndimage import binary_dilation
+from scipy.ndimage import binary_dilation, binary_erosion, distance_transform_edt
 
 from .generate import WALKABLE, Route, Zone
 from .noise import fbm
@@ -30,6 +31,13 @@ SANDBAR_LENGTH_RANGE_IN_METATILES = (5, 11)
 SEA_ROCK_SHARE_OF_OPEN_SEA = 0.004
 SEA_ROCK_SIDE_IN_METATILES = 2
 EDGE_MARGIN_FOR_SEA_DRESSING = 3
+SEA_ROCK_CLUSTER_SHARE_OF_ROCKS = 0.6
+SEA_RIDGE_COUNT_PER_THOUSAND_CELLS = 0.9
+SEA_RIDGE_LENGTH_RANGE_IN_METATILES = (4, 10)
+SEA_RIDGE_WIDTH_IN_METATILES = 3
+DIVE_DISTANCE_FROM_LAND_IN_METATILES = 7.0
+DIVE_PATCH_NOISE_THRESHOLD = 0.55
+DIVE_PATCH_NOISE_SCALE = 5.0
 
 
 def open_surf_crossings(route: Route) -> int:
@@ -129,8 +137,12 @@ def dress_open_sea(route: Route) -> None:
     keep_clear = surf_line_mask(route)
     islet_count = place_islets(route, keep_clear)
     sandbar_count = place_sandbars(route, keep_clear)
+    ridge_count = place_sea_ridges(route, keep_clear)
+    cluster_count = place_sea_rock_clusters(route, keep_clear)
     rock_count = place_sea_rocks(route, keep_clear)
-    route.log.append(f"open sea: {islet_count} islets, {sandbar_count} sandbars, {rock_count} sea rocks")
+    dive_cell_count = place_dive_water(route)
+    route.log.append(f"open sea: {islet_count} islets, {sandbar_count} sandbars, {ridge_count} rock ridges, "
+                     f"{cluster_count} rock clusters, {rock_count} sea rocks, {dive_cell_count} Dive water cells")
 
 
 def place_islets(route: Route, keep_clear: np.ndarray) -> int:
@@ -153,7 +165,7 @@ def place_islets(route: Route, keep_clear: np.ndarray) -> int:
             continue
         if (binary_dilation(islet, iterations=2) & (keep_clear | ~(route.cls == sea_class()))).any():
             continue
-        heart = distance <= radius * ISLET_GRASS_HEART_SHARE_OF_RADIUS
+        heart = binary_erosion(islet, iterations=1) & (distance <= radius * ISLET_GRASS_HEART_SHARE_OF_RADIUS)
         route.cls[islet] = sand
         route.cls[heart] = "g"
         if radius >= 3.6:
@@ -166,6 +178,9 @@ def place_islets(route: Route, keep_clear: np.ndarray) -> int:
 
 def plant_tree_on_islet(route: Route, centre_y: int, centre_x: int) -> None:
     top, left = centre_y - centre_y % 2, centre_x - centre_x % 2
+    surrounding_block = route.cls[max(top - 1, 0):top + 3, max(left - 1, 0):left + 3]
+    if surrounding_block.shape != (4, 4) or (surrounding_block == sea_class()).any():
+        return
     route.cls[top:top + 2, left:left + 2] = "f"
 
 
@@ -201,7 +216,7 @@ def place_sea_rocks(route: Route, keep_clear: np.ndarray) -> int:
     rock = code("BOULDER", "r")
     candidates = open_sea_mask(route) & ~keep_clear
     candidate_cells = list(zip(*np.nonzero(candidates)))
-    wanted_count = int(len(candidate_cells) * SEA_ROCK_SHARE_OF_OPEN_SEA)
+    wanted_count = int(len(candidate_cells) * SEA_ROCK_SHARE_OF_OPEN_SEA * (1 - SEA_ROCK_CLUSTER_SHARE_OF_ROCKS))
     placed_count = 0
     for cell_index in rng.permutation(len(candidate_cells))[:wanted_count * 3]:
         if placed_count >= wanted_count:
@@ -215,3 +230,82 @@ def place_sea_rocks(route: Route, keep_clear: np.ndarray) -> int:
         route.cls[top:top + SEA_ROCK_SIDE_IN_METATILES, left:left + SEA_ROCK_SIDE_IN_METATILES] = rock
         placed_count += 1
     return placed_count
+
+
+def is_free_open_sea(route: Route, block: np.ndarray, keep_clear: np.ndarray) -> bool:
+    is_inside_open_sea = bool(block.any()) and bool((block <= open_sea_mask(route)).all())
+    is_far_from_everything = not (binary_dilation(block, iterations=2) & (keep_clear | (route.cls != sea_class()))).any()
+    is_free = is_inside_open_sea and is_far_from_everything
+    return is_free
+
+
+def ridge_cells(route: Route, top: int, left: int, length: int, runs_east_west: bool) -> np.ndarray:
+    ridge = np.zeros(route.cls.shape, dtype=bool)
+    for step in range(length):
+        sway = int(round(np.sin(step * 0.45 + top * 0.3)))
+        row = top + (sway if runs_east_west else step)
+        column = left + (step if runs_east_west else sway)
+        rows = slice(max(row, 0), row + (SEA_RIDGE_WIDTH_IN_METATILES if runs_east_west else 1))
+        columns = slice(max(column, 0), column + (1 if runs_east_west else SEA_RIDGE_WIDTH_IN_METATILES))
+        ridge[rows, columns] = True
+    return ridge
+
+
+def random_ridge_origin(route: Route, length: int) -> Tuple[int, int]:
+    rng = route.rng
+    top = int(rng.integers(EDGE_MARGIN_FOR_SEA_DRESSING, max(EDGE_MARGIN_FOR_SEA_DRESSING + 1, route.h - length - 3)))
+    left = int(rng.integers(EDGE_MARGIN_FOR_SEA_DRESSING, max(EDGE_MARGIN_FOR_SEA_DRESSING + 1, route.w - length - 3)))
+    return top, left
+
+
+def place_sea_ridges(route: Route, keep_clear: np.ndarray) -> int:
+    rng = route.rng
+    wanted_count = int(round(route.h * route.w / 1000 * SEA_RIDGE_COUNT_PER_THOUSAND_CELLS))
+    placed_count = 0
+    for _attempt in range(wanted_count * 10):
+        if placed_count >= wanted_count:
+            break
+        length = int(rng.integers(*SEA_RIDGE_LENGTH_RANGE_IN_METATILES))
+        runs_east_west = bool(rng.random() < 0.5)
+        top, left = random_ridge_origin(route, length)
+        ridge = ridge_cells(route, top, left, length, runs_east_west)
+        if not is_free_open_sea(route, ridge, keep_clear):
+            continue
+        route.cls[ridge] = "r"
+        placed_count += 1
+    return placed_count
+
+
+def place_sea_rock_clusters(route: Route, keep_clear: np.ndarray) -> int:
+    from .stages import code
+
+    rng = route.rng
+    rock = code("BOULDER", "r")
+    candidate_cells = list(zip(*np.nonzero(open_sea_mask(route) & ~keep_clear)))
+    wanted_count = int(len(candidate_cells) * SEA_ROCK_SHARE_OF_OPEN_SEA * SEA_ROCK_CLUSTER_SHARE_OF_ROCKS / 4)
+    placed_count = 0
+    for cell_index in rng.permutation(len(candidate_cells))[:wanted_count * 4]:
+        if placed_count >= wanted_count:
+            break
+        top, left = (int(coordinate) for coordinate in candidate_cells[cell_index])
+        cluster = np.zeros(route.cls.shape, dtype=bool)
+        cluster[top:top + 2, left:left + 2] = True
+        if cluster.sum() != 4 or not is_free_open_sea(route, cluster, keep_clear):
+            continue
+        route.cls[cluster] = rock
+        placed_count += 1
+    return placed_count
+
+
+def place_dive_water(route: Route) -> int:
+    from .classify import DIVE
+
+    is_sea = route.cls == sea_class()
+    distance_to_land = distance_transform_edt(np.pad(is_sea, 1, constant_values=True))[1:-1, 1:-1]
+    patch_noise = fbm(route.h, route.w, DIVE_PATCH_NOISE_SCALE, route.rng)
+    is_deep_enough = distance_to_land >= DIVE_DISTANCE_FROM_LAND_IN_METATILES
+    dive = is_sea & is_deep_enough & (patch_noise >= DIVE_PATCH_NOISE_THRESHOLD)
+    dive = binary_erosion(binary_dilation(dive, iterations=1), iterations=1) & is_sea & is_deep_enough
+    route.cls[dive] = DIVE
+    dive_cell_count = int(dive.sum())
+    return dive_cell_count

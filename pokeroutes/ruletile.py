@@ -34,6 +34,10 @@ import numpy as np
 
 from .classify import seal_waterfalls
 from .layout import Layout
+from .ruletile_secondaries import (SEA_ROCK_LETTER, WOODLAND_SECONDARY, blob_cell_metatile, class_table_for_secondary,
+                                   cliff_face_metatile, dune_grid, sand_with_dunes_metatile, land_boulder_metatile,
+                                   sand_metatile, sea_band_grid, sea_depth_metatile, surf_letters_of, symbol_of_secondary,
+                                   tile_rock_ridges_in_sea, tile_sea_rocks)
 from .ruletile_terrain import (grid_with_ledge_grounds, shore_metatile, tile_bridges, tile_ledges_over_ground,
                                tile_sideways_waterfalls)
 
@@ -51,7 +55,9 @@ FALLBACK = {
     "o": "g",
     "j": "s",
     "m": "p", "i": "p",                                  # snow, ice -> path until the Ark set has snow art
+    "D": "b",                                            # dive water -> sea
 }
+FALLBACK_CHAIN_LIMIT = 4
 DIRS = {"N": (0, -1), "NE": (1, -1), "E": (1, 0), "SE": (1, 1),
         "S": (0, 1), "SW": (-1, 1), "W": (-1, 0), "NW": (-1, -1)}
 DIAG = {"NE": ("N", "E"), "NW": ("N", "W"), "SE": ("S", "E"), "SW": ("S", "W")}
@@ -109,34 +115,57 @@ def find_rom(root: Optional[Path] = None) -> Path:
 
 
 class ArkTiler:
-    def __init__(self, classes: dict, rom: Path, overlay: Optional[dict] = None):
+    def __init__(self, classes: dict, rom: Path, overlay: Optional[dict] = None, secondary: str = WOODLAND_SECONDARY):
         from .tileset_overlay import apply_overlay_to_ark_class_table, empty_overlay
 
-        self.overlay = overlay or empty_overlay()
-        self.c = apply_overlay_to_ark_class_table(classes, self.overlay) if overlay else classes
+        self.secondary = secondary
+        self.full_class_table = classes
+        is_woodland_pair = secondary == WOODLAND_SECONDARY
+        self.overlay = (overlay if is_woodland_pair else None) or empty_overlay()
+        classes_for_pair = class_table_for_secondary(classes, secondary)
+        self.c = apply_overlay_to_ark_class_table(classes_for_pair, self.overlay) if overlay and is_woodland_pair else classes_for_pair
         self.rom = rom
+        self.primary_symbol = PRIMARY_SYMBOL
+        self.secondary_symbol = symbol_of_secondary(classes, secondary)
         self.C = self.c["classes"]
         self.bits = self.c["mask_bits"]
         self.grass = self.C["g"]["base"][0]
 
     @classmethod
-    def load(cls, rom: Optional[Path] = None) -> "ArkTiler":
+    def load(cls, rom: Optional[Path] = None, secondary: Optional[str] = None) -> "ArkTiler":
         from .tileset_overlay import ARK_TILESET_PAIR_NAME, read_overlay_for_tileset_pair
 
         rom = find_rom(rom)
         table = json.loads((rom / "data/tilesets/metatile_classes_ark.json").read_text())
-        return cls(table, rom, read_overlay_for_tileset_pair(ARK_TILESET_PAIR_NAME))
+        chosen_secondary = secondary if secondary in table.get("secondary_tilesets", {}) else WOODLAND_SECONDARY
+        return cls(table, rom, read_overlay_for_tileset_pair(ARK_TILESET_PAIR_NAME), chosen_secondary)
+
+    def for_secondary(self, secondary: str) -> "ArkTiler":
+        if secondary == self.secondary:
+            return self
+        from .tileset_overlay import ARK_TILESET_PAIR_NAME, read_overlay_for_tileset_pair
+
+        tiler_for_secondary = ArkTiler(self.full_class_table, self.rom, read_overlay_for_tileset_pair(ARK_TILESET_PAIR_NAME), secondary)
+        return tiler_for_secondary
 
     def rom_pair(self):
         from .tileset import load_pair
-        return load_pair(self.rom / "data/tilesets", PRIMARY, SECONDARY)
+        return load_pair(self.rom / "data/tilesets", PRIMARY, self.secondary)
 
     # -- helpers -----------------------------------------------------------
+    def drawn_letter(self, letter: str) -> str:
+        for _fallback_step in range(FALLBACK_CHAIN_LIMIT):
+            if letter in self.C:
+                return letter
+            letter = FALLBACK.get(letter, "g")
+        drawn = letter if letter in self.C else "g"
+        return drawn
+
     def prepare(self, cls: np.ndarray) -> List[str]:
         g = np.asarray(cls).astype(str)
         rows = []
         for row in g:
-            rows.append("".join(c if c in self.C else FALLBACK.get(c, "g") for c in row))
+            rows.append("".join(self.drawn_letter(c) for c in row))
         return rows
 
     def _mask(self, grid, x, y, same) -> int:
@@ -177,25 +206,44 @@ class ArkTiler:
             self._tile_cells(grid, mask_grid, ids, blocked)
             tile_ledges_over_ground(grid, ids, C)
         self._trees(grid, ids, blocked, mask_grid)
+        self.tile_secondary_pieces(grid, ids, blocked)
         col = blocked.astype(np.uint8)
         el = np.full((H, W), 3, np.uint8)
         el[blocked] = 0
+        surf_letters = surf_letters_of(C)
         for y in range(H):
             for x in range(W):
-                if grid[y][x] in ("w", "a"):
+                if grid[y][x] in surf_letters:
                     el[y, x] = 1
         return Layout(ids.astype(np.uint16), col, el)
+
+    def tile_secondary_pieces(self, grid, ids, blocked):
+        surf_letters = "".join(sorted(surf_letters_of(self.C)))
+        if "r" in self.C:
+            tile_rock_ridges_in_sea(grid, ids, self.C["r"], surf_letters, self.bits)
+        if self.C.get(SEA_ROCK_LETTER, {}).get("autotile") == "sea_rocks":
+            tile_sea_rocks(grid, ids, blocked, self.C[SEA_ROCK_LETTER], surf_letters, land_boulder_metatile(self.c))
 
     def _tile_cells(self, grid, mask_grid, ids, blocked):
         H, W = len(grid), len(grid[0])
         C = self.C
+        sea_bands = sea_band_grid(grid, C["b"]) if C.get("b", {}).get("autotile") == "sea_depth" else None
+        dunes = dune_grid(grid, "d", C["d"]["dune_noise_threshold"]) if C.get("d", {}).get("autotile") == "sand_with_dunes" else None
         for y in range(H):
             for x in range(W):
                 c = grid[y][x]
                 k = C[c]
                 kind = k.get("autotile")
-                if kind == "blob47":
-                    ids[y, x] = k["by_mask"][str(self._mask(mask_grid, x, y, set(k.get("joins", c))))]
+                if kind == "sea_depth":
+                    ids[y, x] = sea_depth_metatile(grid, sea_bands, x, y, k, self.bits)
+                elif kind == "blob47" and "water_by_mask" in k:
+                    ids[y, x] = sand_metatile(grid, x, y, k, self.bits)
+                elif kind == "blob47":
+                    ids[y, x] = blob_cell_metatile(grid, k, self._mask(mask_grid, x, y, set(k.get("joins", c))), x, y)
+                elif kind == "sand_with_dunes":
+                    ids[y, x] = sand_with_dunes_metatile(dunes, x, y, k, self.bits)
+                elif kind == "cliff_face":
+                    ids[y, x] = cliff_face_metatile(grid, x, y, k)
                 elif kind == "shore":
                     shore = shore_metatile(grid, x, y, k, self.bits)
                     body = C[k["body"]]
@@ -223,7 +271,7 @@ class ArkTiler:
                     single = k["parts"].get(f"{row}_single")
                     is_single_column = not l and not r and single is not None
                     ids[y, x] = single if is_single_column else k["parts"][f"{row}_{col}"]
-                elif kind not in ("tree2x2", "bridge"):
+                elif kind not in ("tree2x2", "bridge", "sea_rocks"):
                     ids[y, x] = k["base"][(x * 7 + y * 13) % len(k["base"])]
                 if k.get("collision"):
                     blocked[y, x] = True
@@ -449,10 +497,10 @@ def write_ark_emerald(route, layout: Layout, out: Path, tiler: ArkTiler, offsets
     """write_emerald, then point the layout at the Ark tilesets and a forest border."""
     from .export import write_emerald
 
-    write_emerald(route, layout, out, PRIMARY, SECONDARY, offsets=offsets)
+    write_emerald(route, layout, out, PRIMARY, tiler.secondary, offsets=offsets)
     lay = Path(out) / "data/layouts" / route.spec.id
     entry = json.loads((lay / "layouts_entry.json").read_text())
-    entry["primary_tileset"], entry["secondary_tileset"] = PRIMARY_SYMBOL, SECONDARY_SYMBOL
+    entry["primary_tileset"], entry["secondary_tileset"] = tiler.primary_symbol, tiler.secondary_symbol
     (lay / "layouts_entry.json").write_text(json.dumps(entry, indent=2))
     (lay / "border.bin").write_bytes(np.array(tiler.border(), dtype="<u2").tobytes())
     from .tileset_overlay import overlay_has_changes, write_overlaid_tileset_pair_files

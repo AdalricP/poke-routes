@@ -245,7 +245,7 @@ def retile_class_grid_with_route_tiler(srv, gid, route, final, painted_class_gri
 
         route_with_painted_classes = copy.copy(route)
         route_with_painted_classes.cls = painted_class_grid
-        ark_layout = tile_route(shell_api.ark_tiler(), route_with_painted_classes)
+        ark_layout = tile_route(shell_api.ark_tiler_for_spec(route.spec), route_with_painted_classes)
         return ark_layout
     # an object's own class change must not re-tile the cells around it (a painted tree
     # would sprout half-crowns on the grass below it)
