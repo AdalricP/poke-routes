@@ -530,14 +530,19 @@
   // scene isn't a dead frame. Only touches the few cells that actually animate.
   const ANIM_MS = 200;
   const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const tile_animation_speeds = [0.25, 0.5, 1, 2, 4];
+  const tile_animation = { is_playing: !reduceMotion, speed_index: 2 };
   let animLast = 0, animFrame = 0;
   function tickAnim(t) {
     requestAnimationFrame(tickAnim);
-    if (reduceMotion || t - animLast < ANIM_MS) return;
-    const cells = state.animCells[state.stage];
-    if (!state.atlas || !cells || !cells.length) return;
+    if (!tile_animation.is_playing || t - animLast < ANIM_MS / tile_animation_speeds[tile_animation.speed_index]) return;
     animLast = t;
     animFrame++;
+    draw_tile_animation_frame();
+  }
+  function draw_tile_animation_frame() {
+    const cells = state.animCells[state.stage];
+    if (!state.atlas || !cells || !cells.length) return;
     const { meta, img } = state.atlas;
     const g = state.tileCanvases[state.stage].getContext("2d");
     for (const c of cells) {
@@ -549,6 +554,30 @@
     draw();
   }
   requestAnimationFrame(tickAnim);
+  function toggle_tile_animation() {
+    tile_animation.is_playing = !tile_animation.is_playing;
+    sync_tile_animation_buttons();
+  }
+  function step_tile_animation(frame_delta) {
+    tile_animation.is_playing = false;
+    animFrame = Math.max(0, animFrame + frame_delta);
+    draw_tile_animation_frame();
+    sync_tile_animation_buttons();
+  }
+  function change_tile_animation_speed(speed_step) {
+    tile_animation.speed_index = Math.max(0, Math.min(tile_animation_speeds.length - 1, tile_animation.speed_index + speed_step));
+    sync_tile_animation_buttons();
+    Shell.status(`Tile animation speed ${tile_animation_speeds[tile_animation.speed_index]}×`);
+  }
+  function sync_tile_animation_buttons() {
+    const play_button = $("tbPlay");
+    play_button.classList.toggle("playing", tile_animation.is_playing);
+    play_button.setAttribute("aria-label", tile_animation.is_playing ? "Pause tile animation" : "Play tile animation");
+    play_button.title = (tile_animation.is_playing ? "Pause" : "Play") + " tile animation (Space)";
+    const current_speed = tile_animation_speeds[tile_animation.speed_index];
+    $("tbPrev").title = `Slower animation, now ${current_speed}× (Left arrow)`;
+    $("tbNext").title = `Faster animation, now ${current_speed}× (Right arrow)`;
+  }
 
   // ------------------------------------------------------------ scene view
   const wrap = $("viewScene");
@@ -1340,8 +1369,6 @@
     else { state.prevStage = null; state.flashStart = 0; }
     state.stage = i;
     const label = `${i + 1} / ${r.stages.length} · ${r.stages[i].name}`;
-    $("tbStage").textContent = label;
-    $("tbStage").title = label;
     renderTree();
     draw();
   }
@@ -1371,7 +1398,7 @@
   }
   function togglePlay() { state.playing ? stopPlay() : startPlay(); }
   function syncPlay() {
-    for (const b of [$("tbPlay")]) {
+    for (const b of []) {
       b.classList.toggle("playing", state.playing);
       b.setAttribute("aria-label", state.playing ? "Pause" : "Play stages");
     }
@@ -1551,9 +1578,20 @@
     if (tab === "scene") updateTitle();
     $("tbStageGroup").hidden = tab !== "scene";
     $("tbTilerGroup").hidden = tab !== "scene";
+    show_tiles_tab_only_in_scene(tab);
     $("tbGenerate").textContent = generate_button_label_for_view(tab);
     $("tbGenerate").title = generate_button_label_for_view(tab);
     syncNonSceneToolbar();
+  }
+  function show_tiles_tab_only_in_scene(center_tab) {
+    const tiles_tab_button = document.querySelector('[data-left-tab="tiles"]');
+    if (!tiles_tab_button) return;
+    const palette_tab_label = { scene: "Tiles", geography: "Biomes" }[center_tab];
+    tiles_tab_button.hidden = !palette_tab_label;
+    tiles_tab_button.textContent = palette_tab_label || "Tiles";
+    const palette_tab_is_open = !$("leftTiles").hidden || !$("leftBiomes").hidden;
+    if (!palette_tab_label && palette_tab_is_open) { show_left_tab("hierarchy"); return; }
+    if (palette_tab_is_open) show_left_tab("tiles");
   }
   function generate_button_label_for_view(center_tab) {
     switch (center_tab) {
@@ -1898,16 +1936,16 @@
         { id: "t-ark", label: "Ark rule tiles", radio: true, checked: () => prefs.tiler === "ark", enabled: () => !state.tilers || state.tilers.some((t) => t.id === "ark" && t.ok), run: () => setTiler("ark") },
       ] },
       { sep: true },
-      { id: "play", label: "Play / pause stages", enabled: sceneRoute, run: (ev) => { if (ev && document.activeElement && document.activeElement.tagName === "BUTTON") document.activeElement.blur(); togglePlay(); } },
-      { id: "next", label: "Next stage", enabled: sceneRoute, run: () => step(1) },
-      { id: "prev", label: "Previous stage", enabled: sceneRoute, run: () => step(-1) },
-      { id: "first", label: "First stage", enabled: sceneRoute, run: () => stageEnd(false) },
-      { id: "last", label: "Final stage", enabled: sceneRoute, run: () => stageEnd(true) },
+      { id: "play", label: "Play / pause tile animation", enabled: sceneRoute, run: (ev) => { if (ev && document.activeElement && document.activeElement.tagName === "BUTTON") document.activeElement.blur(); toggle_tile_animation(); } },
+      { id: "next", label: "Faster tile animation", enabled: sceneRoute, run: () => change_tile_animation_speed(1) },
+      { id: "prev", label: "Slower tile animation", enabled: sceneRoute, run: () => change_tile_animation_speed(-1) },
+      { id: "first", label: "Previous animation frame", enabled: sceneRoute, run: () => step_tile_animation(-1) },
+      { id: "last", label: "Next animation frame", enabled: sceneRoute, run: () => step_tile_animation(1) },
     ] },
     { label: "Window", items: [
-      { id: "w-scene", label: "Route bench (Scene)", radio: true, checked: () => Shell.layout.center === "scene", run: () => Shell.setCenter("scene") },
+      { id: "w-scene", label: "Routes", radio: true, checked: () => Shell.layout.center === "scene", run: () => Shell.setCenter("scene") },
       { id: "w-geography", label: "Geography editor", radio: true, checked: () => Shell.layout.center === "geography", run: () => Shell.setCenter("geography") },
-      { id: "w-region", label: "Route design A", radio: true, checked: () => Shell.layout.center === "region", run: () => Shell.setCenter("region") },
+      { id: "w-region", label: "Map", radio: true, checked: () => Shell.layout.center === "region", run: () => Shell.setCenter("region") },
       { id: "w-story", label: "Story", radio: true, checked: () => Shell.layout.center === "story", run: () => Shell.setCenter("story") },
       { id: "w-gates", label: "Route design B", radio: true, checked: () => Shell.layout.center === "gates", run: () => Shell.setCenter("gates") },
       { sep: true },
@@ -1941,11 +1979,12 @@
     document.querySelectorAll("[data-tool]").forEach((b) => { b.onclick = () => setTool(b.dataset.tool); });
     document.querySelectorAll("[data-layer]").forEach((b) => { b.onclick = () => setLayer(b.dataset.layer); });
     document.querySelectorAll("[data-ov]").forEach((b) => { b.onclick = () => toggleOv(b.dataset.ov); });
-    $("tbFirst").onclick = () => stageEnd(false);
-    $("tbPrev").onclick = () => step(-1);
-    $("tbNext").onclick = () => step(1);
-    $("tbLast").onclick = () => stageEnd(true);
-    $("tbPlay").onclick = togglePlay;
+    $("tbFirst").onclick = () => step_tile_animation(-1);
+    $("tbPrev").onclick = () => change_tile_animation_speed(-1);
+    $("tbNext").onclick = () => change_tile_animation_speed(1);
+    $("tbLast").onclick = () => step_tile_animation(1);
+    $("tbPlay").onclick = toggle_tile_animation;
+    sync_tile_animation_buttons();
     $("tbGenerate").onclick = doGenerate;
     $("tbGenerate").title = "Generate";
     $("tbZoomIn").onclick = zoomInView;
@@ -2042,9 +2081,32 @@
 
   function show_left_tab(left_tab_name) {
     document.querySelectorAll("[data-left-tab]").forEach((tab_button) => tab_button.classList.toggle("on", tab_button.dataset.leftTab === left_tab_name));
+    const is_geography_view = Shell.layout.center === "geography";
     $("leftHierarchy").hidden = left_tab_name !== "hierarchy";
-    $("leftTiles").hidden = left_tab_name !== "tiles";
-    if (left_tab_name === "tiles") render_terrain_brushes();
+    $("leftTiles").hidden = left_tab_name !== "tiles" || is_geography_view;
+    $("leftBiomes").hidden = left_tab_name !== "tiles" || !is_geography_view;
+    if (left_tab_name !== "tiles") return;
+    if (is_geography_view) { render_biome_brushes(); return; }
+    render_terrain_brushes();
+  }
+
+  function render_biome_brushes() {
+    const biome_grid = $("biomeGrid");
+    const editor_actions = region_editor();
+    biome_grid.innerHTML = "";
+    if (!editor_actions || !window.ED) return;
+    const current_paint_biome = editor_actions.paint_biome ? editor_actions.paint_biome() : null;
+    for (const biome_code of window.ED.PAINT_BIOMES) {
+      const biome_rgb = window.ED.BIOME_RGB[biome_code] || [255, 0, 255];
+      const biome_button = el("button", "terrain-brush" + (biome_code === current_paint_biome ? " on" : ""));
+      biome_button.type = "button";
+      biome_button.title = `Paint ${window.ED.BIOME_NAMES[biome_code] || biome_code}`;
+      const biome_swatch = el("span", "biome-swatch");
+      biome_swatch.style.background = `rgb(${biome_rgb.join(",")})`;
+      biome_button.append(biome_swatch, el("span", "", window.ED.BIOME_NAMES[biome_code] || biome_code));
+      biome_button.onclick = () => { editor_actions.set_paint_biome(biome_code); render_biome_brushes(); };
+      biome_grid.append(biome_button);
+    }
   }
 
   const terrain_preview_size_in_pixels = 40;

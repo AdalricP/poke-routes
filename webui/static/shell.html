@@ -79,22 +79,21 @@
 
     <div class="tb-group tb-center" role="group" aria-label="Stages">
       <span id="tbStageGroup">
-        <button type="button" class="tb-btn" id="tbFirst" title="First stage (Home)" aria-label="First stage">
+        <button type="button" class="tb-btn" id="tbFirst" title="Previous animation frame (Home)" aria-label="Previous animation frame">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3h1.6v10H3zM13 3v10L5.5 8z" fill="currentColor"/></svg>
         </button>
-        <button type="button" class="tb-btn" id="tbPrev" title="Previous stage (Left arrow)" aria-label="Previous stage">
+        <button type="button" class="tb-btn" id="tbPrev" title="Slower animation (Left arrow)" aria-label="Slower animation">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.5 3v10L4 8z" fill="currentColor"/></svg>
         </button>
-        <button type="button" class="tb-btn play" id="tbPlay" title="Play stages (Space)" aria-label="Play stages">
+        <button type="button" class="tb-btn play" id="tbPlay" title="Pause tile animation (Space)" aria-label="Pause tile animation">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path class="i-play" d="M4.5 2.5v11l9-5.5z" fill="currentColor"/><g class="i-pause"><rect x="4" y="3" width="2.6" height="10" fill="currentColor"/><rect x="9.4" y="3" width="2.6" height="10" fill="currentColor"/></g></svg>
         </button>
-        <button type="button" class="tb-btn" id="tbNext" title="Next stage (Right arrow)" aria-label="Next stage">
+        <button type="button" class="tb-btn" id="tbNext" title="Faster animation (Right arrow)" aria-label="Faster animation">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 3v10L12 8z" fill="currentColor"/></svg>
         </button>
-        <button type="button" class="tb-btn" id="tbLast" title="Final stage (End)" aria-label="Final stage">
+        <button type="button" class="tb-btn" id="tbLast" title="Next animation frame (End)" aria-label="Next animation frame">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.4 3H13v10h-1.6zM3 3v10l7.5-5z" fill="currentColor"/></svg>
         </button>
-        <span class="tb-stage" id="tbStage">no route</span>
         <span class="tb-sep"></span>
       </span>
       <button type="button" class="tb-primary" id="tbGenerate">Generate</button>
@@ -137,6 +136,10 @@
         <ul class="tree" id="tree" role="tree" aria-label="Route parts"></ul>
         <ul class="tree" id="mapTree" role="tree" aria-label="Places and layers" hidden></ul>
       </div>
+      <div id="leftBiomes" class="tiles-pane" hidden>
+        <p class="tiles-note">Pick a biome, then paint it on the map. Painted biomes stay through every recompute.</p>
+        <div class="terrain-grid" id="biomeGrid"></div>
+      </div>
       <div id="leftTiles" class="tiles-pane" hidden>
         <p class="tiles-note">Pick a terrain or a tree and paint it on the map; edges and corners fix themselves like the generator's own. Generate starts a fresh map without the paint.</p>
         <div class="terrain-grid" id="terrainGrid"></div>
@@ -149,9 +152,9 @@
   <section class="dock center" id="dockCenter" aria-label="Views">
     <header class="dock-head">
       <div class="tabs" role="tablist">
-        <button type="button" class="dock-tab" data-center="scene" role="tab">Scene</button>
+        <button type="button" class="dock-tab" data-center="scene" role="tab">Routes</button>
         <button type="button" class="dock-tab" data-center="geography" role="tab" title="Heights, coast, rivers, biomes, legendary spots">Geography</button>
-        <button type="button" class="dock-tab" data-center="region" role="tab" title="Route design A: towns and routes laid on the geography; double-click a route to open it in Scene">Routes A</button>
+        <button type="button" class="dock-tab" data-center="region" role="tab" title="Towns and routes laid on the geography; double-click a route to open it in Routes">Map</button>
         <button type="button" class="dock-tab" data-center="story" role="tab" title="Story beats by hand: what happens where, which field move it gives">Story</button>
         <button type="button" class="dock-tab" data-center="gates" role="tab" title="Route design B: what each route needs (HMs, story blocks) and where you can go at each beat">Routes B</button>
       </div>

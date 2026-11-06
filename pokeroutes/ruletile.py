@@ -13,6 +13,8 @@ writes (``tools/arklarna_tiles/build.py`` in the ROM tree):
   grass cells next to trees get crown overhang metatiles (crown drawn above the
   player);
 * ledges: south ledges as rows, east/west ledges as columns, with end caps;
+  where differently-facing ledges touch, corner / T / cross pieces from the
+  class's ``corners`` table (keyed by :func:`ledge_arm_key`), when it has one;
 * waterfalls: top/mid/bottom by left/mid/right pieces.
 
 Classes this tileset has no art for are swapped first (sand -> path, sea -> water,
@@ -49,6 +51,44 @@ FALLBACK = {
 DIRS = {"N": (0, -1), "NE": (1, -1), "E": (1, 0), "SE": (1, 1),
         "S": (0, 1), "SW": (-1, 1), "W": (-1, 0), "NW": (-1, -1)}
 DIAG = {"NE": ("N", "E"), "NW": ("N", "W"), "SE": ("S", "E"), "SW": ("S", "W")}
+
+
+LEDGE_LETTERS = ("s", "e", "x")
+SOUTH_LEDGE = "s"
+
+
+def ledge_arm(own: str, neighbour: str, side_by_side: bool) -> str:
+    """Which band a ledge cell reaches out with towards one neighbour ('.' = none).
+    Side by side, ledges join through a south-ledge row; above/below, through a
+    column (an east/west ledge), which a south ledge meets as that column's letter."""
+    if neighbour not in LEDGE_LETTERS:
+        return "."
+    if side_by_side:
+        return SOUTH_LEDGE if SOUTH_LEDGE in (own, neighbour) else "."
+    if own == SOUTH_LEDGE:
+        return neighbour if neighbour != SOUTH_LEDGE else "."
+    return own if neighbour in (SOUTH_LEDGE, own) else "."
+
+
+def ledge_arm_key(grid: List[str], x: int, y: int) -> str:
+    """The 'NESW' key of a ledge cell into its class's corners table."""
+    height, width = len(grid), len(grid[0])
+    own = grid[y][x]
+    arms = []
+    for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):
+        inside = 0 <= x + dx < width and 0 <= y + dy < height
+        neighbour = grid[y + dy][x + dx] if inside else "."
+        arms.append(ledge_arm(own, neighbour, side_by_side=dy == 0))
+    return "".join(arms)
+
+
+def ark_joins_ledge_corners(rom: Optional[Path] = None) -> bool:
+    """True when the Ark class table has corner pieces for every ledge direction, so
+    differently-facing ledges can touch; False without a table or without corners."""
+    try:
+        return ArkTiler.load(rom).joins_ledge_corners()
+    except FileNotFoundError:
+        return False
 
 
 def find_rom(root: Optional[Path] = None) -> Path:
@@ -98,6 +138,9 @@ class ArkTiler:
         from .tileset import load_pair
         return load_pair(self.rom / "data/tilesets", PRIMARY, SECONDARY)
 
+    def joins_ledge_corners(self) -> bool:
+        return all("corners" in self.C.get(letter, {}) for letter in LEDGE_LETTERS)
+
     def border(self) -> List[int]:
         return list(self.C["f"]["base"])
 
@@ -115,6 +158,8 @@ class ArkTiler:
                 kind = k.get("autotile")
                 if kind == "blob47":
                     ids[y, x] = k["by_mask"][str(self._mask(grid, x, y, set(k.get("joins", c))))]
+                elif kind in ("row", "column") and "corners" in k:
+                    ids[y, x] = k["corners"][ledge_arm_key(grid, x, y)]
                 elif kind == "row":
                     l = x > 0 and grid[y][x - 1] == c
                     r = x < W - 1 and grid[y][x + 1] == c
