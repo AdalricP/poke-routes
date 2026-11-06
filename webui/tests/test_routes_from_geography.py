@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from pokeroutes.generate import generate
-from pokeroutes.region import edit
+from pokeroutes.region import edit, map_grid
 from pokeroutes.region.route_geography import geography_spec_fields
 from pokeroutes.spec import Exit, RouteSpec
 
@@ -114,8 +114,8 @@ def generic_doc_with_towns(seed=3, town_count=4):
     from pokeroutes.region.town_sites import pick_town_sites
 
     doc = edit.generate_doc(seed, "generic")
-    for x, y in pick_town_sites(edit.doc_to_world(doc), 0, [])[:town_count]:
-        doc = edit.add_town(doc, x, y)
+    sites = pick_town_sites(edit.doc_to_world(doc), 0, [])[:town_count]
+    doc = edit.paint_map(doc, [list(map_grid.grid_cell_of_region_cell(site)) for site in sites], "town")
     return doc
 
 
@@ -123,25 +123,11 @@ def route_layout(doc):
     return tuple((route["name"], tuple(route["rect"])) for route in doc["routes"])
 
 
-def test_each_routes_recompute_lays_a_different_network_and_pinned_routes_stay():
-    doc = edit.recompute(generic_doc_with_towns(), ["routes"])
-    pinned_route = dict(doc["routes"][0], pinned=True)
-    doc["routes"][0] = pinned_route
-    second = edit.recompute(doc, ["routes"])
-    third = edit.recompute(second, ["routes"])
-    assert len({route_layout(doc), route_layout(second), route_layout(third)}) == 3
-    assert second["route_variant"] == doc["route_variant"] + 1
-    for later in (second, third):
-        kept = [route for route in later["routes"] if route["name"] == pinned_route["name"]]
-        assert kept and kept[0]["rect"] == pinned_route["rect"]
-
-
-def test_routes_with_no_towns_answer_with_a_message():
-    doc = edit.generate_doc(3, "generic")
-    with pytest.raises(edit.RegionEditRefused, match="place at least two towns first"):
-        edit.recompute(doc, ["routes"])
-    mixed = edit.recompute(doc, ["biomes", "routes"])
-    assert "two towns" in mixed["message"]
+def test_recomputing_routes_keeps_the_painted_map():
+    doc = edit.generate_map(edit.generate_doc(3, "generic"))
+    again = edit.recompute(doc, ["routes"])
+    assert route_layout(again) == route_layout(doc)
+    assert again["map_grid"] == doc["map_grid"]
 
 
 def test_generate_map_places_towns_and_keeps_pinned_ones():

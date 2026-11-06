@@ -15,28 +15,34 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from pokeroutes.generate import generate
-from pokeroutes.region import edit
+from pokeroutes.region import edit, map_grid
 from pokeroutes.spec import Exit, RouteSpec
 
 
-def land_cell_far_from(world, taken, distance):
-    rows, columns = np.nonzero(world.land & ~world.lake)
-    for row, column in zip(rows.tolist(), columns.tolist()):
-        if 10 <= column < world.W - 10 and 10 <= row < world.H - 10 and \
-                all(abs(column - x) + abs(row - y) >= distance for x, y in taken):
-            return column, row
-    raise AssertionError("no free land")
+def is_dry_grid_cell(world, cell) -> bool:
+    size = map_grid.REGION_CELLS_PER_GRID_CELL
+    column, row = cell
+    block = world.land[row * size:(row + 1) * size, column * size:(column + 1) * size] & \
+        ~world.lake[row * size:(row + 1) * size, column * size:(column + 1) * size]
+    return bool(block.size) and bool(block.all())
 
 
-def region_with_four_towns():
+def dry_run_of_grid_cells(world, length):
+    grid_width, grid_height = map_grid.grid_size_of_world(world)
+    for row in range(1, grid_height - 1):
+        for column in range(1, grid_width - length):
+            run = [(column + step, row) for step in range(length)]
+            if all(is_dry_grid_cell(world, cell) for cell in run):
+                return run
+    raise AssertionError("no dry run of grid cells")
+
+
+def region_with_hand_painted_towns_and_routes():
     doc = edit.generate_doc(11, geography_kind="continent")
-    world = edit.doc_to_world(doc)
-    taken = []
-    for _ in range(4):
-        cell = land_cell_far_from(world, taken, 30)
-        taken.append(cell)
-        doc = edit.add_town(doc, *cell)
-    return edit.recompute(doc, ["routes"])
+    run = dry_run_of_grid_cells(edit.doc_to_world(doc), 7)
+    doc = edit.paint_map(doc, [run[0], run[3], run[6]], "town")
+    doc = edit.paint_map(doc, run[1:3] + run[4:6], "route")
+    return doc
 
 
 def route_spec_object(spec_dict) -> RouteSpec:
@@ -52,43 +58,40 @@ def generated_exit_count(doc, route) -> int:
 
 @pytest.fixture(scope="module")
 def hand_placed_region():
-    return region_with_four_towns()
+    return region_with_hand_painted_towns_and_routes()
 
 
-DEAD_END_LENGTH_IN_CELLS = 18
+DEAD_END_LENGTH_IN_GRID_CELLS = 2
 
 
-def is_open_dry_ground(doc, world, cell) -> bool:
-    x, y = cell
-    if not (3 <= x < world.W - 3 and 3 <= y < world.H - 3) or not world.land[y, x] or world.lake[y, x]:
-        return False
-    rects = [town["rect"] for town in doc["cities"]] + [route["rect"] for route in doc["routes"]]
-    return not any(x0 - 1 <= x < x1 + 1 and y0 - 1 <= y < y1 + 1 for x0, y0, x1, y1 in rects)
+def is_open_dry_grid_cell(world, marks, cell) -> bool:
+    grid_width, grid_height = map_grid.grid_size_of_world(world)
+    inside = 0 < cell[0] < grid_width - 1 and 0 < cell[1] < grid_height - 1
+    return inside and is_dry_grid_cell(world, cell) and not any(neighbour in marks for neighbour in map_grid.neighbours_of(cell) + [cell])
 
 
-def dead_end_line_from_a_town(doc):
+def dead_end_from_a_town(doc):
     world = edit.doc_to_world(doc)
+    marks = map_grid.marks_of_map_grid(doc["map_grid"])
     for town in doc["cities"]:
-        x0, y0, x1, y1 = town["rect"]
-        centre = ((x0 + x1) // 2, (y0 + y1) // 2)
-        for step_x, step_y in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            edge_distance = (x1 - x0) // 2 + 2 if step_x else (y1 - y0) // 2 + 2
-            line = [(centre[0] + step_x * distance, centre[1] + step_y * distance)
-                    for distance in range(edge_distance, edge_distance + DEAD_END_LENGTH_IN_CELLS)]
-            if all(is_open_dry_ground(doc, world, cell) for cell in line):
-                return [list(centre), list(line[-1])]
+        for column, row in town["grid_cells"]:
+            for step_x, step_y in map_grid.STEPS:
+                line = [(column + step_x * distance, row + step_y * distance) for distance in range(1, DEAD_END_LENGTH_IN_GRID_CELLS + 1)]
+                if all(is_open_dry_grid_cell(world, {k: v for k, v in marks.items() if k != (column, row)}, cell) for cell in line[1:]) and \
+                        is_dry_grid_cell(world, line[0]) and line[0] not in marks:
+                    return [list(cell) for cell in line]
     raise AssertionError("no open ground for a dead end next to any town")
 
 
 @pytest.fixture(scope="module")
 def generated_region():
     doc = edit.generate_map(edit.generate_doc(1))
-    return edit.draw_route(doc, dead_end_line_from_a_town(doc))
+    return edit.paint_map(doc, dead_end_from_a_town(doc), "route")
 
 
 def test_routes_between_hand_placed_towns_have_one_exit_per_connection(hand_placed_region):
     routes = hand_placed_region["routes"]
-    assert len(routes) >= 3
+    assert len(routes) >= 2
     for route in routes:
         connections = len(route["exits"])
         assert len(route["spec"]["exits"]) == connections, route["name"]
