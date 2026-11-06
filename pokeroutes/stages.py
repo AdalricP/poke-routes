@@ -875,7 +875,7 @@ def stage_ledges(route: Route) -> None:
     north-south, a ledge across a loop lane makes it a downhill-only shortcut."""
     from .terraces import TERRACE_BIOMES
 
-    if route.spec.biome in ("desert",) + TERRACE_BIOMES:  # sand has no steps; terraces cut their own
+    if route.spec.biome in ("desert", "beach") + TERRACE_BIOMES:  # sand has no steps; terraces cut their own
         route.snap("ledges")
         return
     p, rng, spec = plan_of(route), route.rng, route.spec

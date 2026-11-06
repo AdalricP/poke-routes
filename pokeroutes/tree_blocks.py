@@ -15,8 +15,10 @@ from .generate import DIRS4, WALKABLE, Route, reachable
 Cell = Tuple[int, int]
 
 TREE_CLASS = "f"
+WATER_CLASS = "w"
 GROUND_CLASSES_A_TREE_MAY_GROW_OVER = "gt"
 LARGEST_REVERT_ROUNDS = 6
+LONGEST_WALK_AROUND_A_CLEARED_TREE = 6
 
 
 def settle_half_tree_blocks(route: Route) -> None:
@@ -31,6 +33,9 @@ def settle_half_tree_blocks(route: Route) -> None:
     for block_cells in half_tree_blocks(original_classes):
         if can_fill_block_with_trees(route, original_classes, block_cells, kept_open_cells):
             filled_blocks.append(block_cells)
+        elif can_flood_block_with_water(route, original_classes, block_cells):
+            for cell in block_cells:
+                route.cls[cell] = WATER_CLASS
         elif can_clear_block_to_ground(route, original_classes, block_cells):
             cleared_blocks.append(block_cells)
     for block_cells in filled_blocks:
@@ -74,24 +79,57 @@ def can_fill_block_with_trees(route: Route, original_classes: np.ndarray, block_
     return is_fillable
 
 
+def can_flood_block_with_water(route: Route, original_classes: np.ndarray, block_cells: List[Cell]) -> bool:
+    tree_cells = [cell for cell in block_cells if original_classes[cell] == TREE_CLASS]
+    other_cells = [cell for cell in block_cells if original_classes[cell] != TREE_CLASS]
+    is_floodable = len(tree_cells) <= 2 and all(original_classes[cell] == WATER_CLASS for cell in other_cells) \
+        and not any(route.protect[cell] for cell in tree_cells)
+    return is_floodable
+
+
 def can_clear_block_to_ground(route: Route, original_classes: np.ndarray, block_cells: List[Cell]) -> bool:
     tree_cells = [cell for cell in block_cells if original_classes[cell] == TREE_CLASS]
     if len(tree_cells) > 2:
         return False
     block_cell_set = set(block_cells)
-    opens_onto_other_ground = any(opens_onto_ground_outside_block(route, original_classes, cell, block_cell_set)
-                                  for cell in tree_cells)
-    is_clearable = not opens_onto_other_ground
+    ground_beyond = [neighbour for cell in tree_cells for neighbour in walkable_neighbours_outside_block(route, original_classes, cell, block_cell_set)]
+    if not ground_beyond:
+        return True
+    ground_inside = [cell for cell in block_cells if str(original_classes[cell]) in WALKABLE]
+    is_clearable = bool(ground_inside) and all(within_a_short_walk(original_classes, ground_inside[0], cell)
+                                               for cell in ground_beyond)
     return is_clearable
 
 
-def opens_onto_ground_outside_block(route: Route, original_classes: np.ndarray, tree_cell: Cell, block_cell_set: Set[Cell]) -> bool:
-    for step_y, step_x in DIRS4:
-        neighbour = (tree_cell[0] + step_y, tree_cell[1] + step_x)
-        if neighbour in block_cell_set or not route.inside(*neighbour):
-            continue
-        if str(original_classes[neighbour]) in WALKABLE:
+def walkable_neighbours_outside_block(route: Route, original_classes: np.ndarray, tree_cell: Cell,
+                                      block_cell_set: Set[Cell]) -> List[Cell]:
+    neighbours = [(tree_cell[0] + step_y, tree_cell[1] + step_x) for step_y, step_x in DIRS4]
+    outside_ground = [neighbour for neighbour in neighbours
+                      if neighbour not in block_cell_set and route.inside(*neighbour)
+                      and str(original_classes[neighbour]) in WALKABLE]
+    return outside_ground
+
+
+def within_a_short_walk(original_classes: np.ndarray, start: Cell, goal: Cell) -> bool:
+    from collections import deque
+
+    height, width = original_classes.shape
+    distances = {start: 0}
+    queue = deque([start])
+    while queue:
+        cell = queue.popleft()
+        if cell == goal:
             return True
+        if distances[cell] >= LONGEST_WALK_AROUND_A_CLEARED_TREE:
+            continue
+        for step_y, step_x in DIRS4:
+            neighbour = (cell[0] + step_y, cell[1] + step_x)
+            if neighbour in distances or not (0 <= neighbour[0] < height and 0 <= neighbour[1] < width):
+                continue
+            if str(original_classes[neighbour]) not in WALKABLE:
+                continue
+            distances[neighbour] = distances[cell] + 1
+            queue.append(neighbour)
     return False
 
 
