@@ -1603,6 +1603,22 @@
     renderTree();
     draw();
   }
+  function find_menu_item(menu_item_id) {
+    const found_item = SL.flattenMenus(menus).find((menu_item) => menu_item.id === menu_item_id);
+    return found_item;
+  }
+  function run_menu_item(menu_item_id) {
+    const menu_item = find_menu_item(menu_item_id);
+    if (!menu_item || (typeof menu_item.enabled === "function" && !menu_item.enabled())) return;
+    menu_item.run();
+  }
+  function sync_history_buttons() {
+    for (const [button_id, menu_item_id] of [["tbUndo", "undo"], ["tbRedo", "redo"]]) {
+      const menu_item = find_menu_item(menu_item_id);
+      const is_available = !!menu_item && (typeof menu_item.enabled !== "function" || !!menu_item.enabled());
+      $(button_id).disabled = !is_available;
+    }
+  }
   function sync_markings_button() {
     const markings_button = $("tbMarkings");
     if (!markings_button) return;
@@ -2389,6 +2405,9 @@
     $("paintClass").addEventListener("change", () => { choose_brush($("paintClass").value); });
     document.querySelectorAll("[data-left-tab]").forEach((tab_button) => { tab_button.onclick = () => show_left_tab(tab_button.dataset.leftTab); });
     $("tbMarkings").onclick = () => toggleOv("markings");
+    $("tbUndo").onclick = () => run_menu_item("undo");
+    $("tbRedo").onclick = () => run_menu_item("redo");
+    setInterval(sync_history_buttons, 500);
     sync_markings_button();
     $("dice").onclick = doRegenerate;
     $("name").addEventListener("change", () => edited("name"));
