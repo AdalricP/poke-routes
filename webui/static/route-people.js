@@ -8,6 +8,7 @@
   const MOVEMENT_LABELS = { still: "Stands still", look_around: "Looks around", wander: "Wanders" };
   const FACING_ARROWS = { down: "↓", up: "↑", left: "←", right: "→" };
   const SIGN_COLOURS = { board: "#b07a42", edge: "#5a3a1c", post: "#6b4422" };
+  const FIRERED_SIGN_SPRITE_ENTRY = { sprite_kind: "sign" };
   const MAXIMUM_TEAM_SIZE = 6;
 
   function load_image(url) {
@@ -83,6 +84,8 @@
     }
 
     function draw_sign(graphics_context, left, top, cell_size) {
+      const firered_sign_image = sprite_image(FIRERED_SIGN_SPRITE_ENTRY);
+      if (firered_sign_image) { graphics_context.drawImage(firered_sign_image, left, top, cell_size, cell_size); return; }
       const board_height = cell_size * 0.5, board_top = top + cell_size * 0.12;
       graphics_context.fillStyle = SIGN_COLOURS.post;
       graphics_context.fillRect(left + cell_size * 0.44, board_top + board_height, cell_size * 0.12, cell_size * 0.36);

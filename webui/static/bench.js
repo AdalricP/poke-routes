@@ -2159,6 +2159,7 @@
         log: (text, is_error) => log(is_error ? "error" : "info", text),
         onView: syncNonSceneToolbar,
         is_active: () => SL.is_region_editor_tab(Shell.layout.center),
+        on_document_change: follow_map_changes_of_open_route,
       },
     });
     region_editor_actions.set_view_modes(main_view_mode, beside_view_mode, Shell.layout.center);
@@ -2183,6 +2184,7 @@
     replaceParams(p, "region route");
     state.route_trail = state.pending_walk && state.pending_walk.to === p.name ? state.pending_walk.trail : [];
     state.pending_walk = null;
+    if (region) region.map_sync = map_sync_record_of_spec(spec, params());
     state.region = region;
     if (region) sset(REGION_KEY, region); else sdel(REGION_KEY);
     renderRegionLink();
@@ -2192,6 +2194,85 @@
     Shell.setCenter("scene");
     log("info", `Opened ${p.name} from region ${current_region_seed()}`);
     generate();
+  }
+
+  function open_map_of_spec(spec) {
+    const region_block = spec.region || {};
+    const open_map = { route_name: (region_block.chain || {}).route || spec.name, map_name: spec.name, rect: region_block.rect || [0, 0, 0, 0] };
+    return open_map;
+  }
+  function map_sync_record(open_map, sync_target, region_document, opened_params) {
+    const record = {
+      route_name: sync_target ? sync_target.route.name : open_map.route_name, map_name: open_map.map_name, rect: open_map.rect,
+      signature: sync_target ? SL.open_map_signature(region_document, sync_target) : "",
+      chain: sync_target ? sync_target.route.chain.map((chain_map) => ({ name: chain_map.name, rect: chain_map.rect })) : [],
+      opened_params,
+    };
+    return record;
+  }
+  function map_sync_record_of_spec(spec, opened_params) {
+    const region_document = region_editor() && region_editor().getDoc();
+    if (!region_document || !spec.region || !spec.region.rect) return null;
+    const open_map = open_map_of_spec(spec);
+    const record = map_sync_record(open_map, SL.sync_target_for_open_map(region_document, open_map), region_document, opened_params);
+    return record;
+  }
+
+  // Map -> Routes: when the route open here changes on the Map, the Routes view follows it (same seed, the
+  // settings changed here kept, painted cells kept on maps that are still there).
+  let map_sync_in_flight = false, map_sync_waiting_document = null;
+  async function follow_map_changes_of_open_route(region_document) {
+    if (map_sync_in_flight) { map_sync_waiting_document = region_document; return; }
+    map_sync_in_flight = true;
+    try {
+      await follow_one_map_change(region_document);
+    } catch (problem) {
+      log("error", "Could not follow the Map: " + problem.message);
+    } finally {
+      map_sync_in_flight = false;
+      const waiting_document = map_sync_waiting_document;
+      map_sync_waiting_document = null;
+      if (waiting_document) follow_map_changes_of_open_route(waiting_document);
+    }
+  }
+  async function follow_one_map_change(region_document) {
+    if (state.chain) { await follow_map_change_of_open_chain(region_document); return; }
+    const sync = state.region && state.region.map_sync;
+    if (!sync || !region_document) return;
+    const sync_target = SL.sync_target_for_open_map(region_document, sync);
+    if (!sync_target) { report_open_route_erased(sync); return; }
+    const signature = SL.open_map_signature(region_document, sync_target);
+    if (signature === sync.signature) return;
+    const spec = await region_editor().spec_of_map(sync_target.chain_map.id);
+    if (!state.region || state.region.map_sync !== sync) return;
+    move_painted_cells_along_the_chain(sync.chain, sync_target.route.chain, region_document.cell || 4);
+    apply_followed_spec(spec, sync, sync_target, region_document);
+  }
+  function report_open_route_erased(sync) {
+    if (sync.erased_reported) return;
+    sync.erased_reported = true;
+    const message = `${sync.map_name} was erased on the Map; the Routes view keeps its last version`;
+    log("warn", message);
+    Shell.status(message);
+  }
+  function move_painted_cells_along_the_chain(old_chain_maps, new_chain_maps, metatiles_per_region_cell) {
+    for (const memory_key of [SL.PAINT_KEY, SL.PAINT_OBJECTS_KEY]) {
+      const followed_memory = SL.paint_memory_after_chain_change(sget(memory_key) || {}, old_chain_maps, new_chain_maps, metatiles_per_region_cell);
+      sset(memory_key, followed_memory);
+    }
+  }
+  function apply_followed_spec(spec, sync, sync_target, region_document) {
+    const { params: fresh_params, region } = SL.specToParams(spec, params());
+    const synced_params = SL.params_after_map_sync(sync.opened_params, params(), fresh_params);
+    const opened_params = Object.assign({}, fresh_params, { seed: synced_params.seed });
+    replaceParams(synced_params, "follow the Map");
+    region.map_sync = map_sync_record(open_map_of_spec(spec), sync_target, region_document, opened_params);
+    state.region = region;
+    sset(REGION_KEY, region);
+    renderRegionLink();
+    show_open_route_on_map();
+    log("info", `Routes view follows the Map: ${spec.name}`);
+    generate({ keepPaint: true });
   }
 
   function describe_region_gate(gate) {
@@ -3251,9 +3332,9 @@
     return hand_edits;
   }
 
-  function chain_slot(chain_map, placement, map_params, map_region) {
+  function chain_slot(chain_map, placement, map_params, map_region, opened_params) {
     const slot = Object.assign({
-      name: chain_map.name, rect: chain_map.rect, placement, params: map_params, region: map_region,
+      name: chain_map.name, rect: chain_map.rect, placement, params: map_params, region: map_region, opened_params: opened_params || map_params,
       result: null, atlas: null, tileCanvases: [], classCanvases: [], changedMasks: [], stageInfo: [], animCells: [],
       stage: 0, prevStage: null, generated: "", palette: state.palette, is_generating: false,
     }, empty_hand_edits_of(chain_map.name));
@@ -3280,8 +3361,65 @@
   }
 
   function params_and_region_remembered(remembered_map) {
-    const params_and_region = [remembered_map.params, remembered_map.region];
+    const params_and_region = [remembered_map.params, remembered_map.region, remembered_map.opened_params];
     return params_and_region;
+  }
+
+  function params_and_region_following(old_chain) {
+    return (chain_map) => followed_params_and_region(old_chain, chain_map);
+  }
+
+  function followed_params_and_region(old_chain, chain_map) {
+    const [fresh_params, region] = params_and_region_of_spec(chain_map);
+    const old_slot = old_chain.slots.find((slot) => slot.rect.join() === chain_map.rect.join()) || old_chain.slots.find((slot) => slot.name === chain_map.name);
+    if (!old_slot) return [fresh_params, region];
+    const synced_params = SL.params_after_map_sync(old_slot.opened_params, old_slot.params, fresh_params);
+    const followed = [synced_params, region, Object.assign({}, fresh_params, { seed: synced_params.seed })];
+    return followed;
+  }
+
+  function open_chain_place() {
+    const open_slot = active_chain_slot();
+    const open_place = { route_name: state.chain.route_name, map_name: open_slot.name, rect: open_slot.rect };
+    return open_place;
+  }
+
+  function route_signature(region_document, synced_route) {
+    const signature = JSON.stringify(synced_route.chain.map((chain_map) => SL.open_map_signature(region_document, { route: synced_route, chain_map })));
+    return signature;
+  }
+
+  function chain_map_sync_record(region_document) {
+    const sync_target = region_document ? SL.sync_target_for_open_map(region_document, open_chain_place()) : null;
+    if (!sync_target) return null;
+    const record = {
+      map_name: state.chain.route_name, signature: route_signature(region_document, sync_target.route),
+      chain: sync_target.route.chain.map((chain_map) => ({ name: chain_map.name, rect: chain_map.rect })),
+    };
+    return record;
+  }
+
+  async function follow_map_change_of_open_chain(region_document) {
+    const chain = state.chain, sync = chain.map_sync;
+    if (!sync || !region_document) return;
+    const sync_target = SL.sync_target_for_open_map(region_document, open_chain_place());
+    if (!sync_target) { report_open_route_erased(sync); return; }
+    if (route_signature(region_document, sync_target.route) === sync.signature) return;
+    const opened = await region_editor().route_chain_specs_of_map(sync_target.chain_map.id);
+    if (state.chain !== chain) return;
+    move_painted_cells_along_the_chain(sync.chain, sync_target.route.chain, region_document.cell || metatiles_per_region_cell());
+    reopen_followed_chain(chain, Object.assign(opened, { focus_map_name: sync_target.chain_map.name }), region_document);
+  }
+
+  function reopen_followed_chain(old_chain, opened, region_document) {
+    store_live_map_into_slot();
+    const focus_index = Math.max(0, opened.maps.findIndex((chain_map) => chain_map.name === opened.focus_map_name));
+    const followed_chain = chain_of_route(opened.route, opened.maps, params_and_region_following(old_chain), focus_index);
+    show_chain_in_routes_view(followed_chain, "follow the Map");
+    followed_chain.map_sync = chain_map_sync_record(region_document);
+    remember_open_chain();
+    log("info", `Routes view follows the Map: ${opened.route}`);
+    generate_chain_maps(all_map_indices_of(followed_chain), { keepPaint: true });
   }
 
   function all_map_indices_of(chain) {
@@ -3295,6 +3433,8 @@
     state.route_trail = trail_after_walking_into(opened);
     state.pending_walk = null;
     show_chain_in_routes_view(chain, "region route");
+    chain.map_sync = chain_map_sync_record(open_region_document());
+    remember_open_chain();
     sset("pokeroutes-shell-region-seed", current_region_seed());
     Shell.setCenter("scene");
     log("info", `Opened ${opened.route} (${chain.slots.length} map${chain.slots.length === 1 ? "" : "s"}) from region ${current_region_seed()}`);
@@ -3332,6 +3472,7 @@
     if (focus_index < 0) return false;
     const chain = chain_of_route(remembered_chain.route, remembered_chain.maps, params_and_region_remembered, focus_index);
     chain.slots[focus_index].params = saved_params;
+    chain.map_sync = remembered_chain.map_sync || null;
     show_chain_in_routes_view(chain, null);
     return true;
   }
@@ -3341,8 +3482,8 @@
     if (!chain) return;
     active_chain_slot().params = params();
     const remembered_chain = {
-      route: chain.route_name,
-      maps: chain.slots.map((slot) => ({ name: slot.name, rect: slot.rect, params: slot.params, region: slot.region })),
+      route: chain.route_name, map_sync: chain.map_sync || null,
+      maps: chain.slots.map((slot) => ({ name: slot.name, rect: slot.rect, params: slot.params, region: slot.region, opened_params: slot.opened_params })),
     };
     sset(CHAIN_KEY, remembered_chain);
   }
@@ -3600,7 +3741,7 @@
   }
 
   async function generate_chain_maps(map_indices, opts) {
-    if (state.busy) { pendingGenerate = true; return; }
+    if (state.busy) { pendingGenerate = opts.keepPaint ? { keepPaint: true } : true; return; }
     const chain = state.chain;
     store_live_map_into_slot();
     remember_open_chain();
@@ -3612,7 +3753,10 @@
     const outcomes = await Promise.all(generations);
     setBusy(false);
     if (state.chain === chain) finish_chain_generation(chain, outcomes, started_at_in_milliseconds, opts);
-    if (pendingGenerate) { pendingGenerate = false; generate(); }
+    if (!pendingGenerate) return;
+    const pending_generate_options = pendingGenerate === true ? undefined : pendingGenerate;
+    pendingGenerate = false;
+    generate(pending_generate_options);
   }
 
   function finish_chain_generation(chain, outcomes, started_at_in_milliseconds, opts) {
@@ -3753,6 +3897,6 @@
   };
   $("tbPlaytest").onclick = open_playtest;
 
-  window.Bench = { generate, state, params, setParams, undoStack, menus, extras, loadSpecText, playtest_hooks, reload_atlas_at_version, fetchJSON, postJSON, log, draw, open_route_name };
+  window.Bench = { generate, state, params, setParams, undoStack, menus, extras, loadSpecText, playtest_hooks, reload_atlas_at_version, fetchJSON, postJSON, log, draw, region_editor, open_route_name };
   boot();
 })();

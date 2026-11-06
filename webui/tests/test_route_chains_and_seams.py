@@ -47,7 +47,7 @@ def region_with_drawn_staircase():
 def test_an_l_shaped_route_becomes_three_maps_along_its_path():
     route = l_shaped_route(l_path(), [0, 0, 16, 16])
 
-    ordered_grid_cells = ordered_grid_cells_of_route(route)
+    ordered_grid_cells = ordered_grid_cells_of_route(route, map_grid.REGION_CELLS_PER_GRID_CELL)
 
     assert ordered_grid_cells == [[0, 0], [1, 0], [1, 1]]
 
@@ -55,11 +55,11 @@ def test_an_l_shaped_route_becomes_three_maps_along_its_path():
 def test_painted_grid_cells_win_over_the_derived_ones():
     route = dict(l_shaped_route(l_path(), [0, 0, 16, 16]), grid_cells=[[3, 4], [3, 5]])
 
-    assert ordered_grid_cells_of_route(route) == [[3, 4], [3, 5]]
+    assert ordered_grid_cells_of_route(route, map_grid.REGION_CELLS_PER_GRID_CELL) == [[3, 4], [3, 5]]
 
 
 def test_consecutive_chain_maps_meet_at_the_same_crossing():
-    pieces = chain_maps_of_route(l_shaped_route(l_path(), [0, 0, 16, 16]))
+    pieces = chain_maps_of_route(l_shaped_route(l_path(), [0, 0, 16, 16]), map_grid.REGION_CELLS_PER_GRID_CELL)
 
     seam_exits = [(piece["name"], piece_exit) for piece in pieces for piece_exit in piece["exits"] if piece_exit.get("seam")]
 
@@ -72,7 +72,7 @@ def test_consecutive_chain_maps_meet_at_the_same_crossing():
 
 
 def test_the_first_and_last_maps_keep_the_routes_own_exits():
-    pieces = chain_maps_of_route(l_shaped_route(l_path(), [0, 0, 16, 16]))
+    pieces = chain_maps_of_route(l_shaped_route(l_path(), [0, 0, 16, 16]), map_grid.REGION_CELLS_PER_GRID_CELL)
 
     assert pieces[0]["exits"][0]["to"] == "Town A"
     assert pieces[-1]["exits"][-1]["to"] == "Town B"
@@ -125,6 +125,54 @@ def test_chain_maps_export_porymap_connections_with_world_offsets(region_with_dr
     along_axis = 1 if seam_exit["side"] in ("east", "west") else 0
 
     assert seam_exit["offset"] == (neighbour["region"]["rect"][along_axis] - first_piece["region"]["rect"][along_axis]) * 4
+
+
+def t_shaped_route_with_its_branch_appended():
+    main_cells = [[0, 0], [1, 0], [2, 0]]
+    branch_cells = [[1, 2], [1, 1]]
+    route = dict(l_shaped_route(l_path(), [0, 0, 24, 24]), grid_cells=main_cells + branch_cells, path=[])
+    return route
+
+
+def test_a_branch_appended_after_the_longest_run_joins_the_map_beside_it():
+    pieces = chain_maps_of_route(t_shaped_route_with_its_branch_appended(), map_grid.REGION_CELLS_PER_GRID_CELL)
+
+    seam_partners = {(tuple(piece["chain"]["grid_cell"]), piece_exit["to_chain_map"]) for piece in pieces
+                     for piece_exit in piece["exits"] if piece_exit.get("seam")}
+    name_of_cell = {tuple(piece["chain"]["grid_cell"]): piece["name"] for piece in pieces}
+
+    assert ((1, 1), name_of_cell[(1, 0)]) in seam_partners
+    assert ((1, 0), name_of_cell[(1, 1)]) in seam_partners
+    assert ((1, 2), name_of_cell[(1, 1)]) in seam_partners
+    assert len(seam_partners) == 8
+
+
+@pytest.mark.parametrize("region_cells_per_square", [4, 12])
+def test_chain_maps_are_one_square_of_the_regions_grid(region_cells_per_square):
+    pieces = chain_maps_of_route(t_shaped_route_with_its_branch_appended(), region_cells_per_square)
+
+    first_two_rects = [piece["rect"] for piece in pieces][:2]
+
+    assert first_two_rects == [[0, 0, region_cells_per_square, region_cells_per_square],
+                               [region_cells_per_square, 0, 2 * region_cells_per_square, region_cells_per_square]]
+
+
+def test_the_walk_through_a_branching_route_only_steps_between_neighbours():
+    cells = [(0, 0), (1, 0), (2, 0), (1, 2), (1, 1)]
+
+    walk = map_grid.walk_through_route_cells(cells)
+
+    assert all(abs(walk[index][0] - walk[index + 1][0]) + abs(walk[index][1] - walk[index + 1][1]) == 1 for index in range(len(walk) - 1))
+    assert walk[0] == (0, 0) and walk[-1] == (1, 1) and set(walk) == set(cells)
+
+
+def test_the_largest_square_fits_the_gba_map_buffer():
+    from pokeroutes.export import MAX_MAP_DATA_SIZE
+    from pokeroutes.region.world import CELL
+
+    side_in_metatiles = max(map_grid.GRID_CELL_SIZES_IN_REGION_CELLS) * CELL
+
+    assert (side_in_metatiles + 15) * (side_in_metatiles + 14) <= MAX_MAP_DATA_SIZE
 
 
 def test_the_whole_route_opens_with_every_chain_map_spec_in_chain_order(region_with_drawn_staircase):

@@ -4,13 +4,12 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from .map_grid import REGION_CELLS_PER_GRID_CELL
+from .map_grid import region_cells_per_grid_cell
 from .world import CELL
 
 Cell = Tuple[int, int]
 GridCell = Tuple[int, int]
 
-MAP_GRID_CELL_SIDE_IN_REGION_CELLS = REGION_CELLS_PER_GRID_CELL
 STEP_TOWARD_SIDE = {"east": (1, 0), "west": (-1, 0), "south": (0, 1), "north": (0, -1)}
 SIDE_OF_STEP = {step: side for side, step in STEP_TOWARD_SIDE.items()}
 OPPOSITE_SIDE = {"east": "west", "west": "east", "north": "south", "south": "north"}
@@ -31,9 +30,9 @@ class MapGrid:
         return len(self.row_boundaries_in_region_cells) - 1
 
 
-def evenly_spaced_boundaries(start_in_region_cells: int, end_in_region_cells: int) -> Tuple[int, ...]:
+def evenly_spaced_boundaries(start_in_region_cells: int, end_in_region_cells: int, grid_cell_side_in_region_cells: int) -> Tuple[int, ...]:
     length_in_region_cells = end_in_region_cells - start_in_region_cells
-    piece_count = max(1, round(length_in_region_cells / MAP_GRID_CELL_SIDE_IN_REGION_CELLS))
+    piece_count = max(1, round(length_in_region_cells / grid_cell_side_in_region_cells))
     boundaries = tuple(start_in_region_cells + round(piece_index * length_in_region_cells / piece_count)
                        for piece_index in range(piece_count + 1))
     return boundaries
@@ -44,24 +43,25 @@ def painted_grid_cells_of_route(route: dict) -> List[List[int]]:
     return painted_grid_cells
 
 
-def global_map_grid_reaching(grid_cells: Sequence[Sequence[int]]) -> MapGrid:
-    side = MAP_GRID_CELL_SIDE_IN_REGION_CELLS
+def global_map_grid_reaching(grid_cells: Sequence[Sequence[int]], grid_cell_side_in_region_cells: int) -> MapGrid:
+    side = grid_cell_side_in_region_cells
     column_boundaries = tuple(range(0, (max(grid_cell[0] for grid_cell in grid_cells) + 2) * side, side))
     row_boundaries = tuple(range(0, (max(grid_cell[1] for grid_cell in grid_cells) + 2) * side, side))
     global_map_grid = MapGrid(column_boundaries, row_boundaries)
     return global_map_grid
 
 
-def map_grid_of_route(route: dict) -> MapGrid:
+def map_grid_of_route(route: dict, grid_cell_side_in_region_cells: int) -> MapGrid:
     painted_grid_cells = painted_grid_cells_of_route(route)
     if painted_grid_cells:
-        painted_map_grid = global_map_grid_reaching(painted_grid_cells)
+        painted_map_grid = global_map_grid_reaching(painted_grid_cells, grid_cell_side_in_region_cells)
         return painted_map_grid
     x0, y0, x1, y1 = route["rect"]
     if not route.get("path"):
         single_cell_grid = MapGrid((x0, x1), (y0, y1))
         return single_cell_grid
-    map_grid = MapGrid(evenly_spaced_boundaries(x0, x1), evenly_spaced_boundaries(y0, y1))
+    map_grid = MapGrid(evenly_spaced_boundaries(x0, x1, grid_cell_side_in_region_cells),
+                       evenly_spaced_boundaries(y0, y1, grid_cell_side_in_region_cells))
     return map_grid
 
 
@@ -133,11 +133,11 @@ def grid_neighbours_inside(map_grid: MapGrid, grid_cell: GridCell) -> List[GridC
     return inside
 
 
-def ordered_grid_cells_of_route(route: dict) -> List[List[int]]:
+def ordered_grid_cells_of_route(route: dict, grid_cell_side_in_region_cells: int) -> List[List[int]]:
     painted_grid_cells = painted_grid_cells_of_route(route)
     if painted_grid_cells:
         return painted_grid_cells
-    map_grid = map_grid_of_route(route)
+    map_grid = map_grid_of_route(route, grid_cell_side_in_region_cells)
     chain = grid_cells_along_path(map_grid, route.get("path") or []) or [(0, 0)]
     for route_exit in route.get("exits") or []:
         exit_grid_cell = grid_cell_holding(map_grid, route_exit["cell"])
@@ -147,11 +147,25 @@ def ordered_grid_cells_of_route(route: dict) -> List[List[int]]:
     return ordered_grid_cells
 
 
-def chain_parent_index(ordered_grid_cells: Sequence[Sequence[int]], piece_index: int) -> Optional[int]:
-    for earlier_index in range(piece_index - 1, -1, -1):
-        if are_grid_neighbours(ordered_grid_cells[earlier_index], ordered_grid_cells[piece_index]):
-            return earlier_index
-    return None
+def neighbouring_piece_indices(ordered_grid_cells: Sequence[Sequence[int]], piece_index: int) -> List[int]:
+    neighbouring_indices = [other_index for other_index, other_grid_cell in enumerate(ordered_grid_cells)
+                            if are_grid_neighbours(other_grid_cell, ordered_grid_cells[piece_index])]
+    return neighbouring_indices
+
+
+def chain_parent_indices(ordered_grid_cells: Sequence[Sequence[int]]) -> Dict[int, int]:
+    parent_of_piece: Dict[int, int] = {}
+    reached = {0} if ordered_grid_cells else set()
+    waiting = deque(sorted(reached))
+    while waiting:
+        piece_index = waiting.popleft()
+        for neighbour_index in neighbouring_piece_indices(ordered_grid_cells, piece_index):
+            if neighbour_index in reached:
+                continue
+            reached.add(neighbour_index)
+            parent_of_piece[neighbour_index] = piece_index
+            waiting.append(neighbour_index)
+    return parent_of_piece
 
 
 def is_inside_rect(region_cell: Sequence[int], rect: Sequence[int]) -> bool:
@@ -295,16 +309,14 @@ def settle_piece_shapes(route: dict, pieces: List[dict]) -> None:
         piece["shape"] = piece["shape"] if len(pieces) > 1 else route.get("shape")
 
 
-def chain_maps_of_route(route: dict, gated_entrance_toward: str = "") -> List[dict]:
-    map_grid = map_grid_of_route(route)
-    ordered_grid_cells = ordered_grid_cells_of_route(route)
+def chain_maps_of_route(route: dict, grid_cell_side_in_region_cells: int, gated_entrance_toward: str = "") -> List[dict]:
+    map_grid = map_grid_of_route(route, grid_cell_side_in_region_cells)
+    ordered_grid_cells = ordered_grid_cells_of_route(route, grid_cell_side_in_region_cells)
     pieces = [empty_piece(route, map_grid, grid_cell, piece_index, len(ordered_grid_cells))
               for piece_index, grid_cell in enumerate(ordered_grid_cells)]
     place_route_exits_on_pieces(route, pieces)
-    for piece_index in range(1, len(pieces)):
-        parent_index = chain_parent_index(ordered_grid_cells, piece_index)
-        if parent_index is not None:
-            seam_exits_between_pieces(route, pieces, piece_index, parent_index)
+    for piece_index, parent_index in sorted(chain_parent_indices(ordered_grid_cells).items()):
+        seam_exits_between_pieces(route, pieces, piece_index, parent_index)
     place_goal_on_its_piece(route, pieces)
     place_gate_on_its_piece(route, pieces, gated_entrance_toward)
     settle_piece_shapes(route, pieces)
@@ -364,8 +376,9 @@ def gated_entrance_toward_of(world, route: dict) -> str:
 
 
 def chain_maps_of_world(world) -> List[dict]:
+    grid_cell_side_in_region_cells = region_cells_per_grid_cell(world)
     chain_maps = [chain_map for route in world.routes
-                  for chain_map in chain_maps_of_route(route, gated_entrance_toward_of(world, route))]
+                  for chain_map in chain_maps_of_route(route, grid_cell_side_in_region_cells, gated_entrance_toward_of(world, route))]
     for chain_map in chain_maps:
         for route_exit in chain_map["exits"]:
             point_exit_at_neighbouring_chain_map(route_exit, chain_maps)

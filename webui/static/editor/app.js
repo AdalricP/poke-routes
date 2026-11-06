@@ -33,6 +33,7 @@
         <option value="crescent">crescent bay</option>
       </select>
       <label class="inl" data-map-only>grid <select data-ed="gridSel" aria-label="Map grid square size"></select></label>
+      <label class="inl" data-map-only>size <input data-ed="sizeWidth" type="number" min="3" step="1" aria-label="Region width in squares"> x <input data-ed="sizeHeight" type="number" min="3" step="1" aria-label="Region height in squares"></label>
     </div>
     <div class="grp">
       <select data-ed="loadSel" aria-label="Saved regions"><option value="">saved regions...</option></select>
@@ -77,6 +78,7 @@
         <button type="button" class="tog on" data-layer="routes" title="4">Routes</button>
         <button type="button" class="tog on" data-layer="labels" title="5">Labels</button>
         <button type="button" class="tog on" data-layer="townmap" title="6">Town map</button>
+        <button type="button" class="tog on" data-layer="squares" title="7">Squares</button>
       </div>
       <div class="seg seg-zoom" role="group" aria-label="Zoom">
         <button type="button" data-ed="zOut" aria-label="Zoom out">-</button>
@@ -175,6 +177,8 @@
     biome: "Paint biome", water: "Coast", route: "Route", town: "Town", erase: "Eraser",
   };
   const MAP_BRUSHES = new Set(["route", "town", "erase"]);
+  const MAP_ONLY_LAYERS = new Set(["routes", "townmap", "squares"]);
+  const SEE_THROUGH_SQUARE_ALPHA = 0.28;
   const BRUSH_TOOLS = new Set(["raise", "lower", "flatten", "smooth", "biome", "water"]);
   const SPEC_FIELDS = [
     ["meander", 0.05], ["max_lanes", 1], ["dead_ends", 1], ["lakes", 1], ["tall_grass", 0.05], ["ledge_chance", 0.05],
@@ -204,7 +208,7 @@
   const st = {
     doc: null, hist: new ED.History(100), view: { z: 6, ox: 0, oy: 0 },
     mode: null, tool: "select", brush: 1, strength: 0.03, biome: "f", water: "sea",
-    layers: { height: true, biome: true, water: true, routes: true, labels: true, townmap: true },
+    layers: { height: true, biome: true, water: true, routes: true, labels: true, townmap: true, squares: true },
     sel: null, hover: null, drag: null, space: false, busy: false, unsaved: false, cursor: null,
     open_route: null, sel_tile: null, route_brush_key: "", player_on_map: null,
   };
@@ -299,10 +303,19 @@
     if (doc.name) $("docName").value = doc.name;
     $("seed").value = doc.seed;
     $("gridSel").value = String((doc.map_grid || {}).cell || 8);
+    show_region_size_in_squares();
     if (st.sel && !findSel(st.sel)) st.sel = null;
     rebuildBase();
     if (resized || !keepView) fit();
     refreshAll();
+    tell_host_the_document_changed();
+  }
+  function tell_host_the_document_changed() {
+    if (host && host.on_document_change) host.on_document_change(st.doc);
+  }
+  async function spec_of_map(map_id) {
+    const spec = await api("/api/editor/spec", { doc: ED.encodeDoc(st.doc), id: map_id });
+    return spec;
   }
   async function generate() {
     const seed = Math.max(0, parseInt($("seed").value, 10) || 0);
@@ -384,6 +397,7 @@
     st.unsaved = true;
     if (cause) st.doc.stale = ED.markStale(st.doc.stale, cause);
     refreshAll(label);
+    tell_host_the_document_changed();
   }
   function undo() {
     if (st.busy) return;
@@ -400,9 +414,12 @@
   function afterHistory(msg) {
     st.unsaved = true;
     if (st.sel && !findSel(st.sel)) st.sel = null;
+    $("gridSel").value = String((st.doc.map_grid || {}).cell || 8);
+    show_region_size_in_squares();
     rebuildBase();
     refreshAll();
     toast(msg);
+    tell_host_the_document_changed();
   }
   async function recompute(button) {
     if (!st.doc) return;
@@ -445,6 +462,30 @@
       refreshAll();
     });
     $("gridSel").value = String((st.doc.map_grid || {}).cell || 8);
+  }
+  function region_size_in_squares() {
+    const region_size = (st.doc && st.doc.map_grid && st.doc.map_grid.size) || [0, 0];
+    return region_size;
+  }
+  function show_region_size_in_squares() {
+    const [width_in_squares, height_in_squares] = region_size_in_squares();
+    $("sizeWidth").value = String(width_in_squares);
+    $("sizeHeight").value = String(height_in_squares);
+  }
+  async function resize_region(width_in_squares, height_in_squares) {
+    const [current_width_in_squares, current_height_in_squares] = region_size_in_squares();
+    const is_unchanged = width_in_squares === current_width_in_squares && height_in_squares === current_height_in_squares;
+    if (!st.doc || is_unchanged || !(width_in_squares > 0) || !(height_in_squares > 0)) { show_region_size_in_squares(); return; }
+    await busy("resizing the region", async () => {
+      const out = await api("/api/editor/resize-region", { doc: ED.encodeDoc(st.doc), width: width_in_squares, height: height_in_squares });
+      st.hist.begin(st.doc, "resize region");
+      out.name = st.doc.name;
+      setDoc(out, true);
+      st.unsaved = true;
+      st.sel_tile = null;
+      refreshAll();
+    });
+    show_region_size_in_squares();
   }
   function player_head_position(d, player) {
     const route = ED.routeByName(d, player.route_name);
@@ -631,9 +672,11 @@
         ctx.stroke();
       }
     }
+    ctx.globalAlpha = town_map && !st.layers.squares ? SEE_THROUGH_SQUARE_ALPHA : 1;
     if (st.layers.routes) (town_map ? draw_town_map_routes : drawRoutes)(d, X, Y, z);
     (town_map ? draw_town_map_landmarks : drawLandmarks)(d, X, Y, z);
     if (st.mode !== "geography") (town_map ? draw_town_map_towns : drawCities)(d, X, Y, z);
+    ctx.globalAlpha = 1;
     if (st.layers.labels) (town_map ? draw_town_map_labels : drawLabels)(d, X, Y, z);
     if (st.mode === "story") drawBeats(d, X, Y, z);
     if (st.mode === "geography") draw_map_selection_on_geography(d, X, Y, z);
@@ -1338,9 +1381,13 @@
 
   async function open_whole_route_in_host(route_or_chain_map) {
     await busy("opening " + route_or_chain_map.name, async () => {
-      const opened_route = await api("/api/editor/route-chain-specs", { doc: ED.encodeDoc(st.doc), id: route_or_chain_map.id });
+      const opened_route = await route_chain_specs_of_map(route_or_chain_map.id);
       open_route_spec_in_host(Object.assign({ focus_map_name: route_or_chain_map.name }, opened_route));
     });
+  }
+  async function route_chain_specs_of_map(map_id) {
+    const opened_route = await api("/api/editor/route-chain-specs", { doc: ED.encodeDoc(st.doc), id: map_id });
+    return opened_route;
   }
 
   // ------------------------------------------------------------ side panel
@@ -1832,6 +1879,7 @@
     for (const map_only_row of $$("[data-map-only]")) map_only_row.hidden = st.mode !== "region" && st.mode !== null;
     $$('[data-layer="routes"]')[0].hidden = st.mode === "geography";
     $$('[data-layer="townmap"]')[0].hidden = st.mode === "geography";
+    $$('[data-layer="squares"]')[0].hidden = st.mode === "geography";
     $$("[data-layer]").forEach((b) => b.classList.toggle("on", st.layers[b.dataset.layer]));
     if (st.sel && !is_place_kind_selectable_in_a_shown_view(st.sel.kind)) st.sel = null;
     st.hover = null;
@@ -1897,7 +1945,12 @@
     grid_select.closest("label").remove();
     const grid_row = prop("Map grid", grid_select);
     grid_row.dataset.mapOnly = "true";
-    const region_fold = fold("Region", [prop("Name", name_input), seed_row, geography_row, grid_row]);
+    const width_input = $("sizeWidth"), height_input = $("sizeHeight");
+    width_input.className = height_input.className = "num grow";
+    width_input.closest("label").remove();
+    const size_row = prop("Size", width_input, el("span", { class: "times" }, "x"), height_input);
+    size_row.dataset.mapOnly = "true";
+    const region_fold = fold("Region", [prop("Name", name_input), seed_row, geography_row, grid_row, size_row]);
     region_fold.dataset.sideFold = "region";
     host.side.append(region_fold);
     const section_of = (id) => side.querySelector(`[data-ed="${id}"]`).closest("section");
@@ -1982,8 +2035,8 @@
     if (is_place_kind_selectable_in_current_mode("route")) {
       group("routes", "Routes", st.doc.routes.map((r) => ({ label: r.name, meta: r.role ? r.role.replace(/_/g, " ") : "", color: "#e8d27a", icon_class: "line", on: is_on("route", r.name), run: pick("route", r.name), frame: () => fly_to_route(r) })));
     }
-    const layer_names = { height: "Height", biome: "Biome", water: "Water", routes: "Routes", labels: "Labels", townmap: "Town-map style" };
-    group("layers", "Layers", Object.keys(layer_names).filter((k) => (k !== "routes" && k !== "townmap") || st.mode !== "geography").map((k) => (
+    const layer_names = { height: "Height", biome: "Biome", water: "Water", routes: "Routes", labels: "Labels", townmap: "Town-map style", squares: "Squares" };
+    group("layers", "Layers", Object.keys(layer_names).filter((k) => !MAP_ONLY_LAYERS.has(k) || st.mode !== "geography").map((k) => (
       { label: layer_names[k], eye: { on: st.layers[k], toggle: () => toggleLayer(k) }, run: () => toggleLayer(k) })));
     if (ul.parentElement) ul.parentElement.scrollTop = scroll;
   }
@@ -2011,6 +2064,7 @@
   }
   $("gridSel").value = "8";
   $("gridSel").onchange = () => regrid_map(+$("gridSel").value);
+  $("sizeWidth").onchange = $("sizeHeight").onchange = () => resize_region(parseInt($("sizeWidth").value, 10), parseInt($("sizeHeight").value, 10));
   on(window, "pokeroutes-player-on-map", (event) => { st.player_on_map = event.detail || null; draw(); });
   $("genBtn").onclick = generate;
   $("diceBtn").onclick = () => { $("seed").value = Math.floor(Math.random() * 100000); generate(); };
@@ -2070,7 +2124,7 @@
     load: loadSaved, listSaved, exportSpecs, recompute, setTool, toggleLayer, fit, openInBench,
     set_editor_mode, set_route_opener: (route_opener) => { open_route_spec_in_host = route_opener; },
     deleteSelected, help: () => { $("help").hidden = !$("help").hidden; },
-    generate_map, set_open_route,
+    generate_map, set_open_route, spec_of_map, route_chain_specs_of_map, paint_map: paint_map_cells,
     set_paint_biome: (biome_code) => { st.biome = biome_code; setTool("biome"); refreshTool(); },
     paint_biome: () => st.biome,
     set_view_modes, fit_every_view,
