@@ -47,7 +47,7 @@ def region_with_drawn_staircase():
 def test_an_l_shaped_route_becomes_three_maps_along_its_path():
     route = l_shaped_route(l_path(), [0, 0, 16, 16])
 
-    ordered_grid_cells = ordered_grid_cells_of_route(route)
+    ordered_grid_cells = ordered_grid_cells_of_route(route, map_grid.REGION_CELLS_PER_GRID_CELL)
 
     assert ordered_grid_cells == [[0, 0], [1, 0], [1, 1]]
 
@@ -55,11 +55,11 @@ def test_an_l_shaped_route_becomes_three_maps_along_its_path():
 def test_painted_grid_cells_win_over_the_derived_ones():
     route = dict(l_shaped_route(l_path(), [0, 0, 16, 16]), grid_cells=[[3, 4], [3, 5]])
 
-    assert ordered_grid_cells_of_route(route) == [[3, 4], [3, 5]]
+    assert ordered_grid_cells_of_route(route, map_grid.REGION_CELLS_PER_GRID_CELL) == [[3, 4], [3, 5]]
 
 
 def test_consecutive_chain_maps_meet_at_the_same_crossing():
-    pieces = chain_maps_of_route(l_shaped_route(l_path(), [0, 0, 16, 16]))
+    pieces = chain_maps_of_route(l_shaped_route(l_path(), [0, 0, 16, 16]), map_grid.REGION_CELLS_PER_GRID_CELL)
 
     seam_exits = [(piece["name"], piece_exit) for piece in pieces for piece_exit in piece["exits"] if piece_exit.get("seam")]
 
@@ -72,7 +72,7 @@ def test_consecutive_chain_maps_meet_at_the_same_crossing():
 
 
 def test_the_first_and_last_maps_keep_the_routes_own_exits():
-    pieces = chain_maps_of_route(l_shaped_route(l_path(), [0, 0, 16, 16]))
+    pieces = chain_maps_of_route(l_shaped_route(l_path(), [0, 0, 16, 16]), map_grid.REGION_CELLS_PER_GRID_CELL)
 
     assert pieces[0]["exits"][0]["to"] == "Town A"
     assert pieces[-1]["exits"][-1]["to"] == "Town B"

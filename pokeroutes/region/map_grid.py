@@ -501,13 +501,44 @@ def is_dead_end_stretch(cells: Sequence[GridCell], touches: Sequence[Tuple[int, 
     return dead_end
 
 
+def shortest_steps_inside(start: GridCell, goal: GridCell, cells: Set[GridCell]) -> List[GridCell]:
+    came_from: Dict[GridCell, Optional[GridCell]] = {start: None}
+    waiting = [start]
+    while waiting:
+        cell = waiting.pop(0)
+        if cell == goal:
+            break
+        for neighbour in neighbours_of(cell):
+            if neighbour in cells and neighbour not in came_from:
+                came_from[neighbour] = cell
+                waiting.append(neighbour)
+    if goal not in came_from:
+        return [goal]
+    steps = [goal]
+    while came_from[steps[-1]] not in (None, start):
+        steps.append(came_from[steps[-1]])
+    forward_steps = steps[::-1]
+    return forward_steps
+
+
+def walk_through_route_cells(cells: Sequence[GridCell]) -> List[GridCell]:
+    if not cells:
+        return []
+    route_cells = set(cells)
+    walk = [cells[0]]
+    for cell in cells[1:]:
+        steps = [cell] if cell in neighbours_of(walk[-1]) else shortest_steps_inside(walk[-1], cell, route_cells)
+        walk.extend(steps)
+    return walk
+
+
 def region_path_of_stretch(cells: Sequence[GridCell], touches: Sequence[Tuple[int, GridCell, GridCell, int]], size: int) -> List[List[int]]:
     through_touches = through_touches_of_stretch(cells, touches)
     first_end_touches = [touch for touch in through_touches if touch[0] == 0][:1]
     last_end_touches = [touch for touch in through_touches if touch not in first_end_touches][:1]
     lead_in = [exit_region_cell_of_touch(first_end_touches[0], size)] if first_end_touches else []
     lead_out = [exit_region_cell_of_touch(last_end_touches[0], size)] if last_end_touches else []
-    corners = lead_in + [centre_region_cell_of_grid_cell(cell, size) for cell in cells] + lead_out
+    corners = lead_in + [centre_region_cell_of_grid_cell(cell, size) for cell in walk_through_route_cells(cells)] + lead_out
     region_path = [[x, y] for x, y in region_cells_along_corners(corners)]
     return region_path
 
