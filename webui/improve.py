@@ -2010,8 +2010,10 @@ def session_graph(viewed_session_number=None) -> dict:
         return {"session": viewed_past_session, "live": False, "commits": graph_commits, "active_jobs": [],
                 "past_sessions": past_sessions}
     session = current_session()
-    graph_commits = commits_between(session["root"], [f"refs/heads/{MAIN}", *job_branch_references()])
     active_jobs = [describe_active_job_for_graph(job) for job in _view_jobs().values() if job.get("status") in ACTIVE]
+    active_job_branches = [f"refs/heads/{active_job['branch']}" for active_job in active_jobs
+                           if active_job["branch"] and f"refs/heads/{active_job['branch']}" in job_branch_references()]
+    graph_commits = commits_between(session["root"], [f"refs/heads/{MAIN}", *active_job_branches])
     live_graph = {"session": session, "live": True, "commits": graph_commits, "active_jobs": active_jobs,
                   "past_sessions": past_sessions, "main": main_head_commit()}
     return live_graph
