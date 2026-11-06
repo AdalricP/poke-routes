@@ -35,6 +35,7 @@ their meaning):
   n     cave entrance   the door cell of a cave mouth in a cliff face
   q     bridge          bridge deck over water (MB_BRIDGE_*, Pacifidlog logs)
   u     boulder         small blocked rock standing alone on land or in the sea
+  D     dive water      deep sea you can Dive in (MB_DEEP_WATER); open-sea routes only
 
 Emerald reuses some metatiles as both walkable and blocked (the mountain-top
 tile is plateau floor in one place and unreachable rock in another), so the
@@ -55,6 +56,7 @@ GRASS, PATH, TALL, WATER, TREE, ROCK, LEDGE_S, LEDGE_E, LEDGE_W, WATERFALL, OTHE
 LEDGE_N = "j"
 SNOW, ICE = "m", "i"
 FENCE = "c"
+DIVE = "D"
 SAND, SEA, SHALLOW, ASH_GRASS, ASH, CLIFF, STAIRS, LAVA, CAVE_ENTRANCE, BRIDGE, BOULDER = (
     "d", "b", "h", "y", "v", "k", "z", "l", "n", "q", "u",
 )
@@ -71,7 +73,7 @@ CLASS_NAMES = {
     WATERFALL: "waterfall", OTHER: "other",
     SAND: "sand", SEA: "sea", SHALLOW: "shallow water", ASH_GRASS: "ash grass", ASH: "ash ground",
     CLIFF: "cliff", STAIRS: "stairs", LAVA: "lava / hot springs", CAVE_ENTRANCE: "cave entrance",
-    BRIDGE: "bridge", BOULDER: "boulder", FENCE: "fence",
+    BRIDGE: "bridge", BOULDER: "boulder", FENCE: "fence", DIVE: "dive water",
 }
 CLASS_COLORS = {
     GRASS: (120, 190, 90), PATH: (214, 180, 120), TALL: (40, 130, 50), WATER: (70, 120, 220),
@@ -80,10 +82,10 @@ CLASS_COLORS = {
     SAND: (240, 220, 140), SEA: (30, 60, 170), SHALLOW: (130, 190, 230), ASH_GRASS: (150, 150, 110),
     ASH: (190, 185, 160), CLIFF: (90, 50, 30), STAIRS: (230, 230, 230), LAVA: (240, 60, 0),
     CAVE_ENTRANCE: (20, 20, 20), BRIDGE: (170, 120, 60), BOULDER: (110, 100, 90), FENCE: (150, 105, 70),
-    SNOW: (236, 240, 246), ICE: (170, 215, 240),
+    SNOW: (236, 240, 246), ICE: (170, 215, 240), DIVE: (14, 30, 110),
 }
 WALKABLE_CLASSES = frozenset("gptdhyvzqnci")  # shallow water is wade-able
-SURFABLE_CLASSES = frozenset("wb")
+SURFABLE_CLASSES = frozenset("wbD")
 BLOCKED_CLASSES = frozenset("frkulc")  # hot springs ('l' walkable in towns) are rare; lava blocks
 LEDGE_CLASSES = frozenset({LEDGE_S, LEDGE_E, LEDGE_W, LEDGE_N})
 ONE_WAY_LEDGE_STEPS = {LEDGE_S: (1, 0), LEDGE_N: (-1, 0)}
@@ -112,7 +114,7 @@ def defuse_ledge_corners(cls):
                 out[y, x] = Counter(ground).most_common(1)[0][0] if ground else GRASS
     return out
 
-WATER_LIKE_CLASSES = frozenset("wbhaq")  # pond, sea, shallow, waterfall, bridge: a fall can meet any of these
+WATER_LIKE_CLASSES = frozenset("wbhaqD")  # pond, sea, shallow, waterfall, bridge: a fall can meet any of these
 
 # When a model has (almost) no examples of a class, the autotiler paints the
 # next class in this chain instead, so any biome's grid can be tiled with any model.
@@ -121,7 +123,7 @@ FALLBACK = {
     SEA: WATER, WATER: SEA, SHALLOW: WATER, BRIDGE: PATH, STAIRS: PATH,
     CLIFF: ROCK, ROCK: CLIFF, BOULDER: ROCK, LAVA: ROCK, CAVE_ENTRANCE: CLIFF,
     GRASS: ASH, WATERFALL: WATER, TREE: CLIFF, FENCE: OTHER,
-    SNOW: ASH, ICE: SHALLOW,
+    SNOW: ASH, ICE: SHALLOW, DIVE: SEA,
     LEDGE_N: GRASS,  # Emerald has no north-ledge art: the lip just reads as grass (a plains verge's south edge)
 }
 

@@ -110,7 +110,7 @@ def ark_atlas_url_for_route(spec) -> str:
     from pokeroutes.tree_shade import resolved_shade
 
     shade = resolved_shade(getattr(spec, "tree_shade", "auto"), tile_looks.tree_shade_of_tileset("ark"), getattr(spec, "biome", ""))
-    route_atlas_url = shell_api.ark_atlas_url(shade)
+    route_atlas_url = shell_api.ark_atlas_url(shade, secondary=shell_api.ark_secondary_for_spec(spec))
     return route_atlas_url
 
 
@@ -658,7 +658,7 @@ def export_zip(gid: str) -> tuple:
                 import shell_api
                 from pokeroutes.ruletile import write_ark_emerald
 
-                write_ark_emerald(route, final, out, shell_api.ark_tiler())
+                write_ark_emerald(route, final, out, shell_api.ark_tiler_for_spec(route.spec))
             else:
                 G().export.write_emerald(route, final, out, primary, secondary, borders=tl.at.m.get("borders"))
         except Exception as e:  # export.py is in flux: fall back to just the layout files
@@ -669,10 +669,9 @@ def export_zip(gid: str) -> tuple:
             (lay / "map.bin").write_bytes(final.to_blockdata())
             if gid in _ark_ids:
                 import shell_api
-                from pokeroutes.ruletile import PRIMARY_SYMBOL, SECONDARY_SYMBOL
-
-                border = shell_api.ark_tiler().border()
-                primary_symbol, secondary_symbol = PRIMARY_SYMBOL, SECONDARY_SYMBOL
+                route_tiler = shell_api.ark_tiler_for_spec(route.spec)
+                border = route_tiler.border()
+                primary_symbol, secondary_symbol = route_tiler.primary_symbol, route_tiler.secondary_symbol
             else:
                 border = (tl.at.m.get("borders") or {}).get("f") or [0x1D4, 0x1D5, 0x1DC, 0x1DD]
                 primary_symbol, secondary_symbol = f"gTileset_{primary.title()}", f"gTileset_{secondary.title()}"
