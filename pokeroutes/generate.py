@@ -267,14 +267,20 @@ def reachable(cls: np.ndarray, starts: Sequence[Cell]) -> np.ndarray:
     return seen
 
 
+def cells_of_first_exit_with_ground(route: Route) -> Sequence[Cell]:
+    exits_with_ground = [cells for _exit, cells in route.exits if any(route.cls[cell] in WALKABLE for cell in cells)]
+    first_exit_cells = exits_with_ground[0] if exits_with_ground else route.exits[0][1]
+    return first_exit_cells
+
+
 def stage_connect(route: Route) -> None:
     """Every walkable pocket must be reachable from the first exit; carve if not."""
-    starts = route.exits[0][1]
+    starts = cells_of_first_exit_with_ground(route)
     for _ in range(12):
         seen = reachable(route.cls, starts)
         walk = np.isin(route.cls, list(WALKABLE))
         orphan = walk & ~seen
-        if not orphan.any():
+        if not orphan.any() or not seen.any():
             break
         ys, xs = np.nonzero(orphan)
         target = (int(ys[0]), int(xs[0]))

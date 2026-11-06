@@ -12,13 +12,12 @@
   const KIND_LABELS = { item_ball: "Poké Ball (visible)", hidden_item: "Hidden item" };
   const SPRITE_PIXELS_PER_CELL = 16;
   const STILL = { lean: 0, shift: 0, lift: 0 };
-  const SPRITE_MOTION_BY_KIND = { item_ball: "bop", berry_tree: "dance", strength_boulder: "wobble" };
+  const SPRITE_MOTION_BY_KIND = { item_ball: "bop", berry_tree: "dance" };
   const SPRITE_MOTION_TICKS = {
     bop: [...Array(9).fill(STILL), { lean: 0, shift: 0, lift: -1 }, { lean: 0, shift: 0, lift: -1 }, STILL, STILL,
       { lean: 0, shift: 0, lift: -1 }, { lean: 0, shift: 0, lift: -1 }, STILL],
     dance: [STILL, { lean: -1, shift: 0, lift: 0 }, { lean: -1, shift: 0, lift: -1 }, { lean: -1, shift: 0, lift: 0 },
       STILL, { lean: 1, shift: 0, lift: 0 }, { lean: 1, shift: 0, lift: -1 }, { lean: 1, shift: 0, lift: 0 }],
-    wobble: [...Array(12).fill(STILL), { lean: 0, shift: 1, lift: 0 }, STILL, { lean: 0, shift: -1, lift: 0 }, STILL],
   };
   const LEANING_SHARE_OF_SPRITE_HEIGHT = 0.6;
 

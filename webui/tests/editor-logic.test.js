@@ -182,6 +182,21 @@ test("undo restores object edits and the painted map grid", () => {
   assert.deepStrictEqual(d.map_grid.rows, ["tr"]);
 });
 
+test("undo of a region resize puts the old size, grids and places back in one step", () => {
+  const d = makeDoc(), h = new ED.History();
+  const old_height_grid = d.grids.height;
+  h.begin(d, "resize region");
+  d.size = [48, 32]; d.W = 48; d.H = 32;
+  d.grids = Object.assign({}, d.grids, { height: new Float32Array(48 * 32) });
+  d.cities = d.cities.slice(0, 1);
+  assert.strictEqual(h.undo(d), "resize region");
+  assert.deepStrictEqual([d.W, d.H], [40, 30]);
+  assert.strictEqual(d.grids.height, old_height_grid);
+  assert.strictEqual(d.cities.length, 2);
+  h.redo(d);
+  assert.deepStrictEqual([d.W, d.H, d.cities.length], [48, 32, 1]);
+});
+
 test("stale marking and which stages a button runs", () => {
   let st = ED.markStale([], "biome");
   assert.deepStrictEqual(st, ["routes"]);

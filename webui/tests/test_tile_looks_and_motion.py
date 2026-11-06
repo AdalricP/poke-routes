@@ -151,3 +151,10 @@ def test_tile_look_changes_are_checked_before_they_are_stored():
     assert "metatiles" in tile_looks.change_problem({"tileset": "ark", "metatiles": [], "motion": "bop"}, FakeServer)
     assert "motion" in tile_looks.change_problem({"tileset": "ark", "metatiles": [3], "motion": "spin"}, FakeServer)
     assert tile_looks.change_problem({"tileset": "ark", "metatiles": [3], "motion": "bop", "speed": 2}, FakeServer) == ""
+
+
+def test_heavy_props_stand_still_and_light_ones_keep_their_idle_motion():
+    from pokeroutes.idle_motion import default_prop_motion
+    heavy_prop_motions = [default_prop_motion(prop_name) for prop_name in ("boulder", "pebbles", "log", "fallen_log_0")]
+    assert heavy_prop_motions == ["", "", "", ""]
+    assert default_prop_motion("mushroom_red") == "bop"
