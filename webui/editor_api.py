@@ -13,7 +13,9 @@ POST /api/editor/render     {doc, scale}           -> PNG of the edited region (
 POST /api/editor/export     {doc}                  -> zip: region.json + routes/*.yaml
 POST /api/retile            {id, cells: [[x, y, cls], ...]}
                             bench paint: set classes on a generated route and re-tile it;
-                            the export zip then carries the painted map
+                            the export zip then carries the painted map. A cell given both a
+                            class and a "#metatile" is an object (a whole tree): it gets that
+                            exact metatile and its neighbours keep theirs
 """
 from __future__ import annotations
 
@@ -34,7 +36,7 @@ sys.path.insert(0, str(ROOT))
 from pokeroutes.classify import LEDGE_CLASSES, defuse_ledge_corners  # noqa: E402
 OUT = ROOT / "region_out"
 MAX_BODY = 48 * 1024 * 1024
-PAINT_CLASSES = set("fgptwrsexaq")
+PAINT_CLASSES = set("gptwfrsexaqdbhyvkzlnu")  # every class but "o" (other)
 highest_metatile_id = 1023
 metatile_overrides_by_route_id: dict = {}
 _lock = threading.Lock()
@@ -150,7 +152,8 @@ def retile(srv, b: dict) -> dict:
         painted_class_grid[cell_y, cell_x] = class_code
     if any(class_code in LEDGE_CLASSES for _, _, class_code in class_cells):
         painted_class_grid = defuse_ledge_corners(painted_class_grid)
-    layout = retile_class_grid_with_route_tiler(srv, gid, route, final, painted_class_grid)
+    object_cells = {(x, y) for x, y, _ in class_cells} & {(x, y) for x, y, _ in metatile_cells}
+    layout = retile_class_grid_with_route_tiler(srv, gid, route, final, painted_class_grid, object_cells)
     metatile_overrides = metatile_overrides_by_route_id.setdefault(gid, {})
     for cell_x, cell_y, _class_code in class_cells:
         metatile_overrides.pop((cell_x, cell_y), None)
@@ -182,7 +185,7 @@ def split_painted_cells_into_classes_and_metatiles(painted_cells, grid_shape) ->
     return painted_cells_by_kind
 
 
-def retile_class_grid_with_route_tiler(srv, gid, route, final, painted_class_grid):
+def retile_class_grid_with_route_tiler(srv, gid, route, final, painted_class_grid, object_cells=()):
     from fasttile import keys
 
     if gid in srv._ark_ids:
@@ -193,7 +196,12 @@ def retile_class_grid_with_route_tiler(srv, gid, route, final, painted_class_gri
         route_with_painted_classes.cls = painted_class_grid
         ark_layout = tile_route(shell_api.ark_tiler(), route_with_painted_classes)
         return ark_layout
-    unchanged_neighbourhoods = np.array(keys(painted_class_grid)) == np.array(keys(route.cls))
+    # an object's own class change must not re-tile the cells around it (a painted tree
+    # would sprout half-crowns on the grass below it)
+    context_grid = painted_class_grid.copy()
+    for cell_x, cell_y in object_cells:
+        context_grid[cell_y, cell_x] = route.cls[cell_y, cell_x]
+    unchanged_neighbourhoods = np.array(keys(context_grid)) == np.array(keys(route.cls))
     fixed_metatiles = np.where(unchanged_neighbourhoods, final.metatile.astype(np.int64), -1)
     route_seed = int(getattr(route.spec, "seed", 0))
     learned_layout = srv.tiler(srv.route_tileset(route.spec)).tile(painted_class_grid, seed=route_seed, fixed=fixed_metatiles)
