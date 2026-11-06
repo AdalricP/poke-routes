@@ -19,6 +19,8 @@ CLASSES_A_CROWN_MAY_HANG_OVER = "of"
 TALL_GRASS_SHARE_OF_RAISED_GROUND = 0.45
 TREE_CHANCE_ON_RAISED_GROUND = 0.02
 EXTRA_TREE_CHANCE_BESIDE_WOODLAND = 0.5
+EXTRA_TREE_CHANCE_BESIDE_WOODLAND_BY_OPEN_BIOME = {"plains": 0.1, "meadow": 0.14, "beach": 0.1}
+TALL_GRASS_SWEEP_SCALE_IN_CELLS = 9.0
 BUSH_CLUSTER_CHANCE_PER_CELL = 0.006
 EXTRA_BUSH_CLUSTER_CHANCE_BESIDE_WOODLAND = 0.03
 BUSH_CLUSTER_SIZES = (2, 5)
@@ -61,12 +63,13 @@ def crown_has_room(route, block_y: int, block_x: int) -> bool:
 
 
 def plant_trees_on_raised_ground(route, closeness: np.ndarray) -> None:
+    extra_tree_chance = EXTRA_TREE_CHANCE_BESIDE_WOODLAND_BY_OPEN_BIOME.get(route.spec.biome, EXTRA_TREE_CHANCE_BESIDE_WOODLAND)
     for block_y in range(0, route.h - 1, 2):
         for block_x in range(0, route.w - 1, 2):
             block = (slice(block_y, block_y + 2), slice(block_x, block_x + 2))
             if not (route.cls[block] == RAISED_GROUND_CLASS).all() or not crown_has_room(route, block_y, block_x):
                 continue
-            tree_chance = TREE_CHANCE_ON_RAISED_GROUND + EXTRA_TREE_CHANCE_BESIDE_WOODLAND * float(closeness[block].mean())
+            tree_chance = TREE_CHANCE_ON_RAISED_GROUND + extra_tree_chance * float(closeness[block].mean())
             if route.rng.random() < tree_chance:
                 route.cls[block] = TREE_CLASS
 
@@ -149,7 +152,7 @@ def sweep_tall_grass_over_raised_ground(route) -> None:
     is_raised = route.cls == RAISED_GROUND_CLASS
     if not is_raised.any():
         return
-    sweep_noise = fbm(route.h, route.w, 5.0, route.rng, octaves=3)
+    sweep_noise = fbm(route.h, route.w, TALL_GRASS_SWEEP_SCALE_IN_CELLS, route.rng, octaves=3)
     threshold = np.quantile(sweep_noise[is_raised], 1.0 - TALL_GRASS_SHARE_OF_RAISED_GROUND)
     for cell_y, cell_x in np.argwhere(is_raised & (sweep_noise >= threshold)):
         draw_raised_ground_as(route, (int(cell_y), int(cell_x)), TALL_GRASS_CLASS)

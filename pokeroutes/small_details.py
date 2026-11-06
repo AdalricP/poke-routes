@@ -20,7 +20,8 @@ EXIT_MOUTH_KEPT_CLEAR_IN_CELLS = 3
 EDGE_BONUS = 3.0
 PATH_BONUS = 1.5
 SHORE_BONUS = 4.0
-SPACING_BETWEEN_CLUSTERS_IN_CELLS = 3
+SPACING_BETWEEN_CLUSTERS_IN_CELLS = 2
+DENSITY_MULTIPLIER = 2.2
 MIXED_PROP_SHARE_IN_A_CLUSTER = 0.3
 
 Cell = Tuple[int, int]
@@ -70,7 +71,7 @@ def scatter_small_details(route, recipes: Sequence[DetailRecipe] = DETAIL_RECIPE
     for recipe in recipes:
         clusters_per_thousand = recipe.clusters_per_thousand_cells_by_biome.get(
             route.spec.biome, recipe.clusters_per_thousand_cells_by_biome.get(LAND_DEFAULT, 0.0))
-        cluster_count = int(round(clusters_per_thousand * route.h * route.w / 1000.0 * (0.7 + 0.6 * route.rng.random())))
+        cluster_count = int(round(DENSITY_MULTIPLIER * clusters_per_thousand * route.h * route.w / 1000.0 * (0.7 + 0.6 * route.rng.random())))
         for _cluster_number in range(cluster_count):
             place_one_cluster(route, recipe, surroundings)
     route.snap("small details")
