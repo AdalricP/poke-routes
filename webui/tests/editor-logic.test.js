@@ -491,6 +491,34 @@ test("town map: the sea is lighter along the coast, land and lakes get their own
   assert.deepStrictEqual(Array.from(data.slice(halo_pixel, halo_pixel + 3)), ED.TOWN_MAP_RGB.halo);
 });
 
+test("town map: rivers are water bands on the grid that widen downstream", () => {
+  const d = makeDoc();
+  d.grids.flow = new Float32Array(d.W * d.H);
+  d.grids.recv = new Int32Array(d.W * d.H).fill(-1);
+  for (let x = 10; x <= 20; x++) {
+    const i = 20 * d.W + x;
+    d.grids.river[i] = 1;
+    d.grids.flow[i] = 40 * (x - 9);
+    d.grids.recv[i] = i + 1;
+  }
+  const flow_range = { smallest_flow: 40, largest_flow: 440 };
+  assert.ok(ED.river_half_width(440, flow_range) > ED.river_half_width(40, flow_range));
+  const layers = { height: true, biome: true, water: true };
+  const S = 6, data = new Uint8ClampedArray(d.W * S * d.H * S * 4);
+  ED.renderTownMap(d, layers, S, data, null, null, null);
+  const pixel_at = (x, y) => { const o = (y * d.W * S + x) * 4; return Array.from(data.slice(o, o + 3)); };
+  assert.deepStrictEqual(pixel_at(15 * S + 3, 20 * S + 3), ED.TOWN_MAP_RGB.river);
+  assert.notDeepStrictEqual(pixel_at(10 * S + 3, 20 * S), ED.TOWN_MAP_RGB.river);
+  assert.deepStrictEqual(pixel_at(20 * S + 3, 20 * S + 1), ED.TOWN_MAP_RGB.river);
+});
+
+test("the biome palette has no legendary-only biomes", () => {
+  for (const code of "lagB") {
+    assert.ok(!ED.PAINT_BIOMES.includes(code), code);
+    assert.ok(!(code in ED.BIOME_NAMES), code);
+  }
+});
+
 if (process.env.REGION_DOC) {
   test("real region document: decode, edit, encode", () => {
     const wire = JSON.parse(fs.readFileSync(process.env.REGION_DOC, "utf8"));

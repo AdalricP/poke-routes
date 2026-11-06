@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pokeroutes.region.world import City, Landmark, World
+from pokeroutes.region.world import City, World
 from pokeroutes.region import network
 
 
@@ -42,18 +42,10 @@ def city(cid: str, cx: int, cy: int) -> City:
 
 
 def make_four_city_world() -> World:
-    """A flat world with the four hard-coded cities build_network expects, one branch
-    landmark, and two pre-seeded 'wild' landmarks (so wild_sites() doesn't have to find
-    real terrain features on a blank map)."""
+    """A flat world with four towns in its corners."""
     w = make_world()
-    w.preset = "arklarna"
     w.cities = [city("tvangsburg", 8, 8), city("pilsau", 70, 8),
                 city("huettenau", 8, 70), city("kaup", 70, 70)]
-    w.landmarks = [
-        Landmark("gold_feather_tower", "", "Gold Feather Tower", "tower", 40, 40, [38, 38, 42, 42], "", True, "land"),
-        Landmark("wild_dummy1", "", "Dummy1", "wild", 20, 55, [18, 53, 22, 57], "", True, "land"),
-        Landmark("wild_dummy2", "", "Dummy2", "wild", 55, 20, [53, 18, 57, 22], "", True, "land"),
-    ]
     return w
 
 
@@ -75,24 +67,6 @@ def test_name_routes_sets_biome_code_for_pinned_nodes():
     network.name_routes(w, net)
 
     assert pinned.get("biome_code") == "f"
-
-
-# ---------------------------------------------------------------- finding 2
-
-def test_build_network_keeps_branch_links_when_all_routes_are_pinned():
-    """network.py:616 (branch/add_kept): add_route keeps every existing route; a kept
-    branch route's rect covers its own goal cell, so branch() saw the occupancy and
-    returned before calling add() -- dropping the branch link from w.links entirely."""
-    w = make_four_city_world()
-    network.build_network(w)
-    assert any(l["name"] == "Gold Feather branch" for l in w.links)
-
-    network.build_network(w, keep=list(w.routes), plan=w.links)
-
-    names = {l["name"] for l in w.links}
-    assert "Gold Feather branch" in names
-    assert "Dummy1 branch" in names
-    assert "Dummy2 branch" in names
 
 
 # ---------------------------------------------------------------- finding 3

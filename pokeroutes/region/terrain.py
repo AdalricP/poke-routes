@@ -1,6 +1,6 @@
-"""Terrain: heightmap (fBm + domain warp), erosion, rivers, lakes, climate and
-biomes, run on whatever land mask the geography step drew. The Arklarna preset's
-own coastline and heightmap live here too. Every function edits the World in place."""
+"""Terrain: noise (fBm + domain warp), erosion, rivers, lakes, climate and biomes,
+run on whatever land mask the geography step drew. Every function edits the World
+in place."""
 from __future__ import annotations
 
 import heapq
@@ -59,211 +59,6 @@ def norm01(a: np.ndarray, mask=None) -> np.ndarray:
     v = a[mask] if mask is not None else a
     lo, hi = float(v.min()), float(v.max())
     return (a - lo) / max(1e-9, hi - lo)
-
-
-# ------------------------------------------------------------------ coastline
-
-def _seg_dist(px, py, ax, ay, bx, by):
-    abx, aby = bx - ax, by - ay
-    t = np.clip(((px - ax) * abx + (py - ay) * aby) / max(1e-9, abx * abx + aby * aby), 0, 1)
-    return np.hypot(px - (ax + t * abx), py - (ay + t * aby))
-
-
-def arklarna_coastline(w: World) -> None:
-    """The Arklarna preset only. Two halves: the Oberland mainland (west) and the Nehrung (east): a sand spit
-    running from the strait at Pilsau to the Samland block, with the lagoon (Haff)
-    between them. That layout is fixed by the lore; where the lobes sit, how big they
-    are, where the strait is, whether the spit is long or the Nehrung sits just across the
-    strait, and how ragged the coast is all come from the seed (and pipeline.build flips
-    the whole region per seed, so the halves aren't always west and east)."""
-    rng = w.rng
-    xs, ys = _grid(w)
-    u, v = (xs + 0.5) / w.W, (ys + 0.5) / w.H
-    U = lambda a, b: float(rng.uniform(a, b))  # noqa: E731
-    warp = Fbm(rng, 4)
-    wa, ws = U(0.05, 0.16), U(10, 26)
-    wu = u + wa * (norm01(warp(xs / ws, ys / ws)) - 0.5) * 2
-    wv = v + wa * (norm01(warp(xs / ws + 7.3, ys / ws + 3.1)) - 0.5) * 2
-
-    def ell(cx, cy, rx, ry):
-        return 1.0 - ((wu - cx) / rx) ** 2 - ((wv - cy) / ry) ** 2
-
-    def lobed(cx, cy, rx, ry, k_max=5, amp=0.32):
-        """An ellipse whose radius wobbles with angle (a few random harmonics), so each seed's
-        landmass has its own silhouette instead of the same oval."""
-        dx, dy = (wu - cx) / rx, (wv - cy) / ry
-        th = np.arctan2(dy, dx)
-        r = np.ones_like(th)
-        for k in range(2, k_max + 1):
-            r += U(0.0, amp) / (k - 1) ** 0.7 * np.cos(k * th + U(0, 2 * math.pi))
-        return 1.0 - (np.hypot(dx, dy) / np.maximum(r, 0.35)) ** 2
-
-    # the strait and the Nehrung first: the mainland grows out to meet them
-    # (some seeds: no long spit, the Nehrung is a broad island just across the strait)
-    sx, sy = U(0.57, 0.68), U(0.18, 0.46)
-    compact = rng.random() < 0.4
-    if compact:
-        ex, ey = U(sx + 0.14, 0.84), U(sy + 0.04, 0.66)
-        erx, ery = U(0.08, min(0.13, 0.95 - ex)), U(0.16, min(0.30, 0.93 - ey))
-    else:
-        ex, ey = U(0.82, 0.89), U(max(0.40, sy + 0.12), 0.70)
-        erx, ery = U(0.055, 0.11), U(0.14, min(0.29, 0.93 - ey))
-    # mainland: a lobed core, a lobe out to the strait, 1-6 headlands, 0-3 bays bitten out
-    cx, cy = U(0.24, 0.40), U(0.36, 0.66)
-    rx, ry = U(0.16, min(0.30, sx - 0.06 - cx + 0.12)), U(0.20, 0.38)
-    nx, ny = sx - U(0.08, 0.14), sy + U(0.05, 0.12)
-    main = np.maximum(lobed(cx, cy, rx, ry), ell(nx, ny, U(0.08, 0.14), U(0.09, 0.16)))
-    for _ in range(int(rng.integers(1, 7))):
-        a = U(0, 2 * math.pi)
-        d = U(0.6, 1.05)
-        lx = min(cx - math.cos(a) * rx * d, sx - 0.08)
-        ly = cy - math.sin(a) * ry * d
-        main = np.maximum(main, lobed(lx, ly, U(0.04, 0.15), U(0.04, 0.15), k_max=3, amp=0.4))
-    for _ in range(int(rng.integers(0, 4))):  # bays and fjords: seawater cut into the coast
-        a = U(0, 2 * math.pi)
-        bx_, by_ = cx - math.cos(a) * rx * U(0.75, 1.0), cy - math.sin(a) * ry * U(0.75, 1.0)
-        if bx_ > sx - 0.12:   # never cut the neck out to the strait
-            continue
-        main = np.minimum(main, -ell(bx_, by_, U(0.03, 0.08), U(0.03, 0.08)))
-    east = lobed(ex, ey, erx, ery, k_max=4, amp=0.28)
-    cs = U(4, 11)
-    coast_noise = norm01(Fbm(rng, 5, gain=U(0.5, 0.75))((xs / cs), (ys / cs))) - 0.5
-    ca = U(0.4, 1.1)
-    mainland = (main + coast_noise * ca) > 0
-    eastland = (east + coast_noise * ca) > 0
-
-    # the spit: leaves the strait heading east, bows north, drops onto the Nehrung block
-    a, b = np.array([sx + 0.014, sy - 0.005]), np.array([ex, ey - ery * 0.4])
-    ky = max(0.02, min(a[1], b[1]) - (U(0.0, 0.03) if compact else U(0.03, 0.22)))
-    k1, k2 = a + [U(0.04, 0.12), U(-0.04, 0.03)], np.array([b[0] - U(0.0, 0.08), ky])
-    pts = [(1 - t) ** 3 * a + 3 * t * (1 - t) ** 2 * k1 + 3 * t * t * (1 - t) * k2 + t ** 3 * b
-           for t in np.linspace(0, 1, 11)]
-    spit_d = np.full(mainland.shape, 1e9)
-    for (ax, ay), (bx, by) in zip(pts, pts[1:]):
-        spit_d = np.minimum(spit_d, _seg_dist(xs, ys, ax * w.W, ay * w.H, bx * w.W, by * w.H))
-    spit_w = 1.9 + 1.0 * Fbm(rng, 3)(xs / 6, ys / 6)
-    spit = spit_d < spit_w
-    eastland |= spit
-    # the mainland always reaches the strait: a neck of land out to the spit's start
-    neck = _seg_dist(xs, ys, nx * w.W, ny * w.H, (sx - 0.014) * w.W, sy * w.H) < 3.2
-    mainland |= neck & ~spit
-    # Haff: the lagoon between the mainland's east coast and the Nehrung
-    haff = (u > sx - 0.04) & (u < ex - 0.04) & (v > sy - 0.06) & ~spit
-    mainland &= ~(haff & (main + coast_noise * ca < 0.12))
-    eastland &= ~(haff & (east + coast_noise * ca < 0.12)) | spit
-    for _ in range(int(rng.integers(0, 4))):  # a few offshore islets, wherever they fall
-        ix, iy = U(0.06, 0.94), U(0.08, 0.92)
-        isl = (lobed(ix, iy, U(0.012, 0.035), U(0.012, 0.035), k_max=3, amp=0.5) + coast_noise * ca * 0.4) > 0
-        mainland |= isl & ~eastland & ~spit & ~haff
-    m = 3  # a ring of sea around the map edge
-    for a in (mainland, eastland):
-        a[:m, :] = a[-m:, :] = False
-        a[:, :m] = False
-        a[:, -m:] = False
-
-    def tidy(a):
-        lab, n = ndi.label(a)
-        if n == 0:
-            return a
-        sizes = ndi.sum(a, lab, range(1, n + 1))
-        a = np.isin(lab, [i + 1 for i, sz in enumerate(sizes) if sz >= 12])
-        holes = ndi.binary_fill_holes(a) & ~a
-        lab, n = ndi.label(holes)
-        for i in range(1, n + 1):
-            if (lab == i).sum() < 6:
-                a[lab == i] = True
-        return a
-
-    eastland = tidy(eastland)
-    # keep only the Nehrung component that holds the spit
-    lab, n = ndi.label(eastland)
-    cnt = np.bincount(lab[spit & eastland].ravel(), minlength=n + 1)
-    cnt[0] = 0
-    eastland = lab == int(np.argmax(cnt))
-    # the halves never touch: a water gap of >= 2 cells, narrowest at the strait
-    near_east = ndi.distance_transform_edt(~eastland) <= 2.5
-    mainland = tidy(mainland & ~near_east)
-    lab, n = ndi.label(mainland)
-    sizes = ndi.sum(mainland, lab, range(1, n + 1))
-    big = int(np.argmax(sizes)) + 1
-    islets = mainland & (lab != big)
-    mainland = lab == big
-    land = mainland | eastland | islets
-
-    # the strait must be narrow: if the halves ended up far apart, the spit grows back
-    # toward the mainland until a ~2-cell channel is left
-    de = ndi.distance_transform_edt(~eastland)
-    dm = np.where(mainland, de, np.inf)
-    k = np.unravel_index(int(np.argmin(dm)), dm.shape)
-    if dm[k] > 4:
-        dmn = ndi.distance_transform_edt(~mainland)
-        ek = np.unravel_index(int(np.argmin(np.where(eastland, dmn, np.inf))), dm.shape)
-        L = float(np.hypot(k[0] - ek[0], k[1] - ek[1]))
-        t = max(0.0, (L - 3.0) / L)
-        tx, ty = ek[1] + (k[1] - ek[1]) * t, ek[0] + (k[0] - ek[0]) * t
-        ext = _seg_dist(xs, ys, ek[1], ek[0], tx, ty) < 1.8
-        ext &= ndi.distance_transform_edt(~mainland) > 2.5
-        eastland |= ext
-        spit |= ext
-        land = mainland | eastland | islets
-    # the strait is where the two halves come closest
-    de = ndi.distance_transform_edt(~eastland)
-    dm = np.where(mainland, de, np.inf)
-    k = np.unravel_index(int(np.argmin(dm)), dm.shape)
-    dmn = ndi.distance_transform_edt(~mainland)
-    ek = np.unravel_index(int(np.argmin(np.where(eastland, dmn, np.inf))), dm.shape)
-    gx, gy = (k[1] + ek[1]) / 2, (k[0] + ek[0]) / 2
-
-    w.land = land
-    w.strait = (int(round(gx)), int(round(gy)))
-    half = np.zeros(land.shape, dtype=np.int8)
-    half[mainland] = 1
-    half[eastland] = 2
-    if islets.any():
-        d1 = ndi.distance_transform_edt(~mainland)
-        d2 = ndi.distance_transform_edt(~eastland)
-        half[islets & (d1 <= d2)] = 1
-        half[islets & (d2 < d1)] = 2
-    w.landmass = half
-    w.lagoon = haff & ~land
-    w.overrides["spit"] = spit & land
-    w.log.append(f"coast: {land.mean() * 100:.0f}% land, strait at {w.strait}")
-
-
-# ------------------------------------------------------------------ height
-
-def arklarna_heightmap(w: World) -> None:
-    rng = w.rng
-    xs, ys = _grid(w)
-    u, v = (xs + 0.5) / w.W, (ys + 0.5) / w.H
-    land = w.land
-    dcoast = ndi.distance_transform_edt(land)
-    dsea = ndi.distance_transform_edt(~land)
-
-    # domain warp: sample the hills at coordinates pushed around by another fBm
-    q = Fbm(rng, 4)
-    qx = q(xs / 30, ys / 30)
-    qy = q(xs / 30 + 5.2, ys / 30 + 1.3)
-    hills = Fbm(rng, 5)(xs / 26 + 3.5 * qx, ys / 26 + 3.5 * qy)
-    ridges = Fbm(rng, 5, gain=0.55)(xs / 20 + 2.0 * qx, ys / 20 + 2.0 * qy, ridged=True)
-
-    # the Oberland uplands rise in the south-west; the Samland block is hilly
-    ux, uy = 0.24 + rng.uniform(-0.04, 0.04), 0.74 + rng.uniform(-0.04, 0.04)
-    upland = np.exp(-(((u - ux) / 0.17) ** 2 + ((v - uy) / 0.2) ** 2))
-    samland = np.exp(-(((u - 0.885) / 0.07) ** 2 + ((v - 0.52) / 0.19) ** 2))
-    inland = 1 - np.exp(-dcoast / 7.0)
-
-    hills = norm01(hills) - 0.5
-    # a second, lower belt of hills across the middle of the Oberland
-    belt = np.exp(-(((v - 0.48 - rng.uniform(-0.05, 0.05)) / 0.10) ** 2)) * (u < 0.62)
-    h = 0.06 + 0.24 * inland + hills * 0.34 * inland
-    h += ridges * 0.55 * upland * inland
-    h += ridges * 0.20 * belt * inland
-    h += (ridges * 0.25 + 0.06) * samland * inland
-    h = np.where(land, np.maximum(h, 0.012), 0.0)
-    sea = -(0.04 + 0.42 * (1 - np.exp(-dsea / 7.0))) - (hills - 0.5) * 0.05
-    w.height = np.where(land, h, sea)
-    w.overrides["upland"] = upland
 
 
 # ------------------------------------------------------------------ hydrology helpers
@@ -363,9 +158,46 @@ def erode(w: World, iters: int = 30) -> None:
 
 # ------------------------------------------------------------------ rivers and lakes
 
+RAIN_ON_DRY_LAND_PER_CELL, RAIN_ON_WET_LAND_PER_CELL = 0.6, 1.4
+SNOWLINE_HEIGHT_QUANTILE = 0.88
+SNOWMELT_AT_THE_SUMMIT_PER_CELL = 7.0
+COLDEST_TEMPERATURE_WITHOUT_SNOW = 0.35
+SPRING_HEIGHT_QUANTILES = (0.55, 0.85)
+LAND_CELLS_PER_SPRING = 1400
+FEWEST_SPRINGS, MOST_SPRINGS = 2, 8
+SPRING_SHARE_OF_A_RIVER = 0.9
+SMALLEST_SPRING_SPACING_IN_CELLS = 10
+RIVER_FLOW_SHARE_OF_LAND_CELLS = 0.008
+SMALLEST_RIVER_FLOW = 36.0
+MEANDER_NOISE_SCALE_IN_CELLS = 7.0
+STEEPEST_SLOPE_THAT_MEANDERS = 0.012
+MEANDER_PULL = 1.6
+
+
 def hydrology(w: World, max_lakes: int = 3, river_cells: int = 0) -> None:
+    """Lakes fill the deepest basins; water from rain, snowmelt and springs runs
+    downhill (bending through flat lowland) and a river is wherever enough of it
+    gathers, so rivers rise in the mountains and run on into a lake or the sea."""
     land = w.land
     sea = drain_outlet(land)
+    settle_lakes(w, sea, max_lakes)
+    filled_surface = priority_fill(w.height, sea, eps=1e-5)
+    receivers = meandering_receivers(w, filled_surface, sea)
+    water_in = rain_per_cell(w) + snowmelt_per_cell(w)
+    river_flow_threshold = float(river_cells or max(SMALLEST_RIVER_FLOW, land.sum() * RIVER_FLOW_SHARE_OF_LAND_CELLS))
+    springs = spring_cells(w)
+    water_in = water_in + springs * SPRING_SHARE_OF_A_RIVER * river_flow_threshold
+    flow = accumulate(filled_surface, receivers, water_in * land)
+    w.recv, w.flow = receivers, flow
+    w.river = land & ~w.lake & (flow >= river_flow_threshold)
+    w.sea = ~land
+    w.overrides["springs"] = springs
+    w.log.append(f"hydrology: {int(w.lake.sum())} lake cells, {int(w.river.sum())} river cells, "
+                 f"{int(springs.sum())} springs (threshold {river_flow_threshold:.0f})")
+
+
+def settle_lakes(w: World, sea: np.ndarray, max_lakes: int) -> None:
+    land = w.land
     h = w.height
     filled = priority_fill(h, sea)
     depth = np.where(land, filled - h, 0)
@@ -380,22 +212,97 @@ def hydrology(w: World, max_lakes: int = 3, river_cells: int = 0) -> None:
     for _, i in sorted(cand, reverse=True)[:max_lakes]:
         lakes |= lab == i
     lakes = lakes | w.overrides.get("lake_extra", np.zeros_like(land))
-    if w.lake is not None:  # lakes found on an earlier pass were levelled; keep them
+    if w.lake is not None:
         lakes |= w.lake
     lakes &= ~w.overrides.get("no_lake", np.zeros_like(land))
-    # small basins are breached: the surface is the filled one
-    h2 = np.where(basins & ~lakes, filled, h)
-    w.height = np.where(lakes, filled, h2)
+    breached_surface = np.where(basins & ~lakes, filled, h)
+    w.height = np.where(lakes, filled, breached_surface)
     w.lake = lakes & land
-    hf = priority_fill(w.height, sea, eps=1e-5)
-    recv, _ = d8(hf, sea)
-    rain = land * (0.6 + 0.8 * (w.moist if w.moist is not None else 0.5))
-    A = accumulate(hf, recv, rain)
-    w.recv, w.flow = recv, A
-    thr = river_cells or max(30, int(land.sum() * 0.0045))
-    w.river = land & ~w.lake & (A >= thr)
-    w.sea = ~land
-    w.log.append(f"hydrology: {int(w.lake.sum())} lake cells, {int(w.river.sum())} river cells (thr {thr})")
+
+
+def rain_per_cell(w: World) -> np.ndarray:
+    wetness = w.moist if w.moist is not None else np.full(w.land.shape, 0.5)
+    rain = RAIN_ON_DRY_LAND_PER_CELL + (RAIN_ON_WET_LAND_PER_CELL - RAIN_ON_DRY_LAND_PER_CELL) * wetness
+    return rain
+
+
+def snowmelt_per_cell(w: World) -> np.ndarray:
+    land = w.land
+    if not land.any():
+        return np.zeros(land.shape)
+    snowline = float(np.quantile(w.height[land], SNOWLINE_HEIGHT_QUANTILE))
+    summit = float(w.height[land].max())
+    height_above_snowline = np.clip((w.height - snowline) / max(1e-9, summit - snowline), 0.0, 1.0)
+    is_cold = w.temp < COLDEST_TEMPERATURE_WITHOUT_SNOW if w.temp is not None else np.ones(land.shape, bool)
+    snow_cover = np.where(is_cold | (height_above_snowline > 0.5), height_above_snowline, 0.0)
+    snowmelt = SNOWMELT_AT_THE_SUMMIT_PER_CELL * np.sqrt(snow_cover) * land
+    return snowmelt
+
+
+def spring_count(w: World) -> int:
+    count = int(np.clip(round(int(w.land.sum()) / LAND_CELLS_PER_SPRING), FEWEST_SPRINGS, MOST_SPRINGS))
+    return count
+
+
+def spring_cells(w: World) -> np.ndarray:
+    """Groundwater comes out on hillsides: a few mid-to-high cells, spread apart,
+    the same ones every time the water stage runs on this seed."""
+    land = w.land & ~(w.lake if w.lake is not None else np.zeros_like(w.land))
+    springs = np.zeros(land.shape, bool)
+    if not land.any():
+        return springs
+    lowest, highest = np.quantile(w.height[land], SPRING_HEIGHT_QUANTILES)
+    candidates = land & (w.height >= lowest) & (w.height <= highest) & (shore_distance(w.land) >= 3)
+    rows, columns = np.nonzero(candidates)
+    rng = np.random.default_rng((int(w.seed), 23))
+    for candidate_index in rng.permutation(rows.size).tolist():
+        if springs.sum() >= spring_count(w):
+            break
+        row, column = int(rows[candidate_index]), int(columns[candidate_index])
+        if is_near_a_spring(springs, row, column):
+            continue
+        springs[row, column] = True
+    return springs
+
+
+def is_near_a_spring(springs: np.ndarray, row: int, column: int) -> bool:
+    reach = SMALLEST_SPRING_SPACING_IN_CELLS
+    nearby = springs[max(0, row - reach):row + reach + 1, max(0, column - reach):column + reach + 1]
+    near_a_spring = bool(nearby.any())
+    return near_a_spring
+
+
+def meander_direction_field(w: World) -> Tuple[np.ndarray, np.ndarray]:
+    rng = np.random.default_rng((int(w.seed), 29))
+    xs, ys = _grid(w)
+    angle_noise = Fbm(rng, 3, gain=0.5)(xs / MEANDER_NOISE_SCALE_IN_CELLS, ys / MEANDER_NOISE_SCALE_IN_CELLS)
+    angle = norm01(angle_noise) * 4 * math.pi
+    direction_x, direction_y = np.cos(angle), np.sin(angle)
+    return direction_x, direction_y
+
+
+def meandering_receivers(w: World, surface: np.ndarray, sink: np.ndarray) -> np.ndarray:
+    """Steepest descent, except on flat ground: there each cell may turn toward a
+    slowly swinging preferred direction, as long as the step still goes downhill,
+    so lowland rivers bend instead of running in straight D8 steps."""
+    H, W = surface.shape
+    pad = np.pad(surface, 1, constant_values=np.inf)
+    drops = np.stack([(surface - pad[1 + dy:1 + dy + H, 1 + dx:1 + dx + W]) / D8[k] for k, (dy, dx) in enumerate(N8)])
+    steepest_drop = drops.max(axis=0)
+    flatness = np.clip(1.0 - steepest_drop / STEEPEST_SLOPE_THAT_MEANDERS, 0.0, 1.0)
+    direction_x, direction_y = meander_direction_field(w)
+    alignment = np.stack([(dx * direction_x + dy * direction_y) / D8[k] for k, (dy, dx) in enumerate(N8)])
+    downhill = drops > 0
+    preference = drops / np.maximum(steepest_drop, 1e-12) + MEANDER_PULL * flatness * alignment
+    preference = np.where(downhill, preference, -np.inf)
+    chosen = np.argmax(preference, axis=0)
+    rows, columns = np.mgrid[0:H, 0:W]
+    step_y = np.array([offset[0] for offset in N8])[chosen]
+    step_x = np.array([offset[1] for offset in N8])[chosen]
+    receivers = (rows + step_y) * W + (columns + step_x)
+    receivers[(steepest_drop <= 0) | sink] = -1
+    flat_receivers = receivers.ravel()
+    return flat_receivers
 
 
 # ------------------------------------------------------------------ climate and biomes
@@ -463,7 +370,6 @@ def biomes(w: World) -> None:
     b[(m < q(m, 0.07)) & (t > q(t, 0.45))] = "d"
     b[near_river & (slope < 0.02) & (hn < 0.35) & (m > 0.45)] = "w"
     b[(dsea <= 1.5) & (hn < 0.22)] = "b"
-    b[w.overrides.get("spit", np.zeros_like(land))] = "b"
     b[w.tiers >= 4] = "M"
     b[(w.tiers >= 3) & (slope > 0.05)] = "M"
     b[(w.height > np.quantile(w.height[land], 0.985)) & (t < 0.25)] = "S"
