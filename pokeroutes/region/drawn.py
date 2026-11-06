@@ -1,22 +1,27 @@
-"""Routes drawn by hand in the editor, Mini Metro style.
+"""Routes painted freehand in the editor.
 
 A drawn line is a list of waypoints (cells) with one leg per gap between them; a leg
 is ``"h"`` (go across first, then up or down) or ``"v"`` (up or down first). The
-line runs from inside the place it starts on to inside the place it ends on. Laying
-it walks its cells and cuts them into route rectangles the same way the network
-does for a searched path (``Network._grow``), so exits, specs and Scene all work
-as for any other route. Sea stretches become sea (Surf) routes; lakes, lava and
-other routes are refused.
+editor sends the corners of a freehand stroke, so the legs rarely matter.
+
+The stroke is split wherever it passes through a town or a route: each piece in
+between is laid on its own, joined to the place before it and the place after it.
+A piece that ends on open ground is a dead end; a stroke that only starts on open
+ground is turned round so it grows out of the place it reaches. Every piece is cut
+into route rectangles the way the network does for a searched path
+(``Network._grow``), so exits, roles, specs and Scene work as for any other route.
+Water never stops a stroke: sea and lake stretches become sea (Surf) routes, short
+ones (and rivers, which are land cells) stay part of the land route as a crossing.
 """
 from __future__ import annotations
 
-import math
 from typing import List, Optional, Sequence, Tuple
 
 from . import network
 from .world import World
 
 Cell = Tuple[int, int]
+Piece = Tuple[Optional[int], List[Cell], Optional[int]]
 SHORTEST_SEA_STRETCH = 4
 SHORTEST_LAND_STRETCH = 3
 MAP_EDGE = 2
@@ -67,8 +72,13 @@ def is_short_inner_stretch(mode: str, start: int, end: int, length: int) -> bool
     return start > 0 and end < length and end - start < shortest
 
 
+def is_water(w: World, cell: Cell) -> bool:
+    x, y = cell
+    return bool(not w.land[y, x] or w.lake[y, x])
+
+
 def modes_along(w: World, cells: Sequence[Cell]) -> List[str]:
-    modes = ["land" if w.land[y, x] else "sea" for x, y in cells]
+    modes = ["sea" if is_water(w, cell) else "land" for cell in cells]
     for mode, start, end in stretch_bounds(modes):
         if is_short_inner_stretch(mode, start, end, len(modes)):
             modes[start:end] = [modes[start - 1]] * (end - start)
@@ -82,8 +92,9 @@ def stretch_end(modes: Sequence[str], start: int) -> int:
     return end
 
 
-def node_name(net: network.Network, node_index: int) -> str:
-    return net.nodes[node_index].get("name") or "another route"
+def node_at(net: network.Network, cell: Cell) -> Optional[int]:
+    node_index = int(net.occ[cell[1], cell[0]])
+    return node_index if node_index >= 0 else None
 
 
 def leading_count_inside(net: network.Network, cells: Sequence[Cell], node_index: int, start: int = 0) -> int:
@@ -93,51 +104,39 @@ def leading_count_inside(net: network.Network, cells: Sequence[Cell], node_index
     return index
 
 
-def first_index_inside_any(net: network.Network, cells: Sequence[Cell], node_indices: Sequence[int]) -> Optional[int]:
-    wanted = set(node_indices)
-    for index, (x, y) in enumerate(cells):
-        if int(net.occ[y, x]) in wanted:
-            return index
-    return None
+def stroke_pieces(net: network.Network, cells: Sequence[Cell]) -> List[Piece]:
+    pieces: List[Piece] = []
+    current: List[Cell] = []
+    before = node_at(net, cells[0])
+    for cell in cells:
+        node_index = node_at(net, cell)
+        if node_index is None:
+            current.append(cell)
+            continue
+        if current:
+            pieces.append((before, current, node_index))
+            current = []
+        before = node_index
+    if current:
+        pieces.append((before, current, None))
+    return pieces
 
 
-def trimmed_cells(net: network.Network, cells: Sequence[Cell], source: int, targets: Sequence[int]) -> List[Cell]:
-    inside_source = leading_count_inside(net, cells, source)
-    if inside_source == 0:
-        raise DrawnLineProblem("a drawn route has to start on a town or a route")
-    between = list(cells[inside_source:])
-    if targets:
-        arrival = first_index_inside_any(net, between, targets)
-        if arrival is None:
-            raise DrawnLineProblem("finish the route on a town, a route or a landmark")
-        between = between[:arrival]
-    if not between:
-        raise DrawnLineProblem("those two places touch; there is nothing to draw between them")
-    return between
+def anchored_pieces(pieces: List[Piece]) -> List[Piece]:
+    if not pieces:
+        raise DrawnLineProblem("that stroke only runs over towns and routes that are already there")
+    source, cells, target = pieces[0]
+    if source is None and target is None:
+        raise DrawnLineProblem("start or end the route on a town or a route")
+    if source is None:
+        pieces[0] = (target, cells[::-1], None)
+    return pieces
 
 
-def cell_problem(w: World, net: network.Network, cell: Cell, mode: str) -> str:
-    x, y = cell
-    where = f"at {x}, {y}"
-    if x < MAP_EDGE or y < MAP_EDGE or x >= w.W - MAP_EDGE or y >= w.H - MAP_EDGE:
-        return f"too close to the map edge {where}"
-    if net.occ[y, x] >= 0:
-        return f"crosses {node_name(net, int(net.occ[y, x]))} {where}; end the line there or go around"
-    reserved_for = net.reserved[y, x]
-    if reserved_for and reserved_for != net.allow:
-        return f"runs through the landmark {reserved_for} {where}"
-    if w.lake[y, x]:
-        return f"crosses a lake {where}; Surf routes only run over the sea"
-    if mode == "land" and not math.isfinite(net.lcost[y, x]):
-        return f"crosses ground no route can take (lava or a closed area) {where}"
-    return ""
-
-
-def first_cell_problem(w: World, net: network.Network, cells: Sequence[Cell], modes: Sequence[str]) -> str:
-    for cell, mode in zip(cells, modes):
-        problem = cell_problem(w, net, cell, mode)
-        if problem:
-            return problem
+def edge_problem(w: World, cells: Sequence[Cell]) -> str:
+    for x, y in cells:
+        if x < MAP_EDGE or y < MAP_EDGE or x >= w.W - MAP_EDGE or y >= w.H - MAP_EDGE:
+            return f"too close to the map edge at {x}, {y}"
     return ""
 
 
@@ -167,69 +166,77 @@ def lay_rectangles(net: network.Network, link: dict, cells: List[Cell], modes: L
     return rectangles
 
 
-def finish_at_target(net: network.Network, link: dict, last_rectangle: int, last_cell: Cell) -> None:
-    if link.get("dst"):
-        net._connect(last_rectangle, ("multi", [k for k, _ in link["dst"]]), last_cell, link, into=True)
-        return
-    net.nodes[last_rectangle]["goal"] = list(last_cell)
-    net.nodes[last_rectangle]["goal_landmark"] = link.get("landmark")
+def without_cells_in_new_rectangles(net: network.Network, piece: Piece) -> Piece:
+    source, cells, target = piece
+    while cells and node_at(net, cells[0]) is not None:
+        source = node_at(net, cells[0])
+        cells = cells[1:]
+    while cells and node_at(net, cells[-1]) is not None:
+        target = node_at(net, cells[-1])
+        cells = cells[:-1]
+    return source, cells, target
 
 
-def lay_drawn(net: network.Network, link: dict) -> List[int]:
-    w = net.w
-    source = link["src"][0][0]
-    targets = [k for k, _ in link.get("dst", [])]
-    cells = trimmed_cells(net, link["cells"], source, targets)
-    net.allow = link.get("landmark") or ""
-    modes = modes_along(w, cells)
-    problem = first_cell_problem(w, net, cells, modes)
+def lay_piece(net: network.Network, link: dict, piece: Piece) -> List[int]:
+    source, cells, target = without_cells_in_new_rectangles(net, piece)
+    if not cells:
+        return []
+    problem = edge_problem(net.w, cells)
     if problem:
         raise DrawnLineProblem(problem)
-    rectangles = lay_rectangles(net, link, cells, modes, source)
-    finish_at_target(net, link, rectangles[-1], cells[-1])
-    link["mode"] = "sea" if all(mode == "sea" for mode in modes) else "land"
+    rectangles = lay_rectangles(net, link, cells, modes_along(net.w, cells), source)
+    if target is not None:
+        net._connect(rectangles[-1], ("multi", [target]), cells[-1], link, into=True)
+    else:
+        net.nodes[rectangles[-1]]["goal"] = list(cells[-1])
     return rectangles
 
 
-def resolved_link(w: World, net: network.Network, drawn: dict) -> dict:
-    source = network.node_for_ref(net, drawn.get("src_ref"))
-    if source is None:
-        raise DrawnLineProblem("the place this route starts on is gone")
-    link = dict(name=drawn["name"], kind="drawn", src=[(source, 0.0)], mode="land",
-                cells=cells_of_corners(corners_of_line(drawn["waypoints"], drawn.get("legs") or [])))
-    target_ref = drawn.get("dst_ref") or {}
-    if "landmark" in target_ref:
-        landmark = w.landmark(target_ref["landmark"])
-        if landmark is None:
-            raise DrawnLineProblem("the landmark this route ends at is gone")
-        link["landmark"] = landmark.id
-        return link
-    target = network.node_for_ref(net, target_ref)
-    if target is None or target == source:
-        raise DrawnLineProblem("finish the route on a different town or route")
-    link["dst"] = [(target, 0.0)]
-    return link
+def lay_drawn(net: network.Network, link: dict) -> Tuple[List[int], List[int]]:
+    """Lay every piece of the stroke; returns the new rectangles and the places it touched."""
+    pieces = anchored_pieces(stroke_pieces(net, link["cells"]))
+    first_new = len(net.nodes)
+    rectangles: List[int] = []
+    touched: List[int] = []
+    for piece in pieces:
+        rectangles.extend(lay_piece(net, link, piece))
+        touched.extend(k for k in (piece[0], piece[2]) if k is not None and k < first_new and k not in touched)
+    if not rectangles:
+        raise DrawnLineProblem("that stroke only runs over towns and routes that are already there")
+    link["mode"] = "sea" if all(net.nodes[k]["mode"] == "sea" for k in rectangles) else "land"
+    return rectangles, touched
 
 
-def link_record(net: network.Network, drawn: dict, link: dict, rectangles: List[int]) -> dict:
+def ref_of_node(net: network.Network, node_index: int) -> dict:
+    node = net.nodes[node_index]
+    if node["kind"] == "city":
+        return {"city": node["id"]}
+    return {"route": node["name"]}
+
+
+def link_record(net: network.Network, drawn: dict, link: dict, rectangles: List[int], touched: List[int]) -> dict:
+    touches = [ref_of_node(net, k) for k in touched]
     record = dict(name=drawn["name"], kind="drawn", mode=link["mode"],
-                  routes=[net.nodes[k]["name"] for k in rectangles], landmark=link.get("landmark"),
-                  src_ref=drawn.get("src_ref"), dst_ref=drawn.get("dst_ref"),
-                  waypoints=[[int(x), int(y)] for x, y in drawn["waypoints"]], legs=list(drawn.get("legs") or []))
+                  routes=[net.nodes[k]["name"] for k in rectangles], landmark=None,
+                  src_ref=touches[0] if touches else None, dst_ref=touches[-1] if len(touches) > 1 else None,
+                  touches=touches, waypoints=[[int(x), int(y)] for x, y in drawn["waypoints"]],
+                  legs=list(drawn.get("legs") or []))
     return record
 
 
-def add_drawn_line(w: World, drawn: dict) -> List[str]:
-    """Lay ``drawn`` (name, waypoints, legs, src_ref, dst_ref) with every route in
-    ``w.routes`` kept where it is. Returns the new route names."""
+def add_drawn_line(w: World, drawn: dict) -> Tuple[List[str], List[dict]]:
+    """Lay ``drawn`` (name, waypoints, legs) with every route in ``w.routes`` kept where
+    it is. Returns the new route names and refs of the towns and routes it touched."""
     net = network.Network(w)
     network.add_kept(w, net, list(w.routes), list(w.links))
-    link = resolved_link(w, net, drawn)
-    rectangles = lay_drawn(net, link)
+    cells = cells_of_corners(corners_of_line(drawn["waypoints"], drawn.get("legs") or []))
+    link = dict(name=drawn["name"], kind="drawn", mode="land", cells=cells)
+    rectangles, touched = lay_drawn(net, link)
     network.settle_routes(w, net)
-    w.links = list(w.links) + [link_record(net, drawn, link, rectangles)]
+    record = link_record(net, drawn, link, rectangles, touched)
+    w.links = list(w.links) + [record]
     w.routes = [network.route_json(w, net, n) for n in net.nodes if n["kind"] == "route"]
-    return [net.nodes[k]["name"] for k in rectangles]
+    return [net.nodes[k]["name"] for k in rectangles], record["touches"]
 
 
 def without_drawn_line(w: World, link_name: str) -> None:
@@ -246,4 +253,3 @@ def next_line_name(w: World) -> str:
     while f"Drawn line {number}" in taken:
         number += 1
     return f"Drawn line {number}"
-

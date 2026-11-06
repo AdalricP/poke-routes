@@ -658,7 +658,7 @@ def build_network(w: World, keep: Optional[List[dict]] = None, plan: Optional[Li
     for lk in links:
         d = dict(name=lk["name"], kind=lk["kind"], mode=lk.get("mode", "land"),
                  routes=[net.nodes[k]["name"] for k in lk.get("routes", [])], landmark=lk.get("landmark"))
-        for k in ("dropped", "src_ref", "dst_ref", "waypoints", "legs"):
+        for k in ("dropped", "src_ref", "dst_ref", "touches", "waypoints", "legs"):
             if lk.get(k):
                 d[k] = lk[k]
         w.links.append(d)
@@ -693,9 +693,9 @@ def towns_joined_by_drawn_lines(plan: List[dict]) -> List[Tuple[str, str]]:
     for drawn in plan:
         if drawn.get("kind") != "drawn" or drawn.get("dropped"):
             continue
-        source, target = drawn.get("src_ref") or {}, drawn.get("dst_ref") or {}
-        if "city" in source and "city" in target:
-            pairs.append((source["city"], target["city"]))
+        touches = drawn.get("touches") or [drawn.get("src_ref") or {}, drawn.get("dst_ref") or {}]
+        town_ids = [ref["city"] for ref in touches if ref and "city" in ref]
+        pairs.extend((town_ids[0], other_town_id) for other_town_id in town_ids[1:])
     return pairs
 
 

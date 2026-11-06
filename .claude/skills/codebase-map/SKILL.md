@@ -74,7 +74,7 @@ Walkable: `gptdhyvzqn`. Surfable: `wb`. Blocked: `frkul`.
   - `export.route_spec` turns each region route into a RouteSpec dict.
   - `export.write_all` writes `region_out/<seed>/routes/*.yaml`.
 - **Hand editing**: `edit.py`, used by the editor's recompute, add-route, draw-route and town actions (`recompute`, `add_route`, `draw_route`, `add_town`, `delete_town`, `generate_doc`, `save`, `load`).
-- **Drawn routes**: `drawn.py` (waypoints + legs → cells → route rects via `Network._grow`; `add_drawn_line`, `without_drawn_line`). `network.build_network` keeps drawn links (`kept_drawn_links`) and skips tree links between towns a drawn line joins (`TownGroups`).
+- **Drawn routes**: `drawn.py` (freehand stroke corners → cells → pieces between the towns/routes it touches → route rects via `Network._grow`; open-ground ends are dead ends; `add_drawn_line`, `without_drawn_line`). `network.build_network` keeps drawn links (`kept_drawn_links`) and skips tree links between towns a drawn line joins (`TownGroups`).
 - **CLI**: `python3 -m pokeroutes.region generate --seed N [--preset arklarna] [--geography KIND]` (`region/cli.py`, `generate`) writes `region_out/N/`.
 
 ## Web UI (`webui/`)

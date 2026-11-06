@@ -378,10 +378,23 @@ function place_of(doc, kind, id) {
   return { kind, id, obj };
 }
 
-test("drawn lines: a leg goes along the longer axis first, Shift flips it", () => {
-  assert.strictEqual(ED.leg_toward([0, 0], [5, 2], false), "h");
-  assert.strictEqual(ED.leg_toward([0, 0], [5, 2], true), "v");
-  assert.strictEqual(ED.leg_toward([0, 0], [1, 5], false), "v");
+function paint(cells) {
+  let stroke = ED.start_stroke(cells[0]);
+  for (const cell of cells.slice(1)) stroke = ED.extend_stroke(stroke, cell);
+  return ED.stroke_corners(stroke);
+}
+
+test("freehand strokes snap to straight runs and ignore a wobble of one cell", () => {
+  assert.deepStrictEqual(paint([[0, 0], [3, 1], [6, 0], [9, 1]]), [[0, 0], [9, 0]]);
+  assert.deepStrictEqual(paint([[0, 0], [1, 0], [5, 0], [5, 3], [5, 8]]), [[0, 0], [5, 0], [5, 8]]);
+  assert.deepStrictEqual(paint([[2, 2]]), [[2, 2]]);
+});
+
+test("freehand strokes turn where the pointer leaves the run, even on a fast jump", () => {
+  assert.deepStrictEqual(paint([[0, 0], [6, 0], [6, 6], [12, 6]]), [[0, 0], [6, 0], [6, 6], [12, 6]]);
+  assert.deepStrictEqual(paint([[0, 0], [8, 9]]), [[0, 0], [0, 9], [8, 9]]);
+  const cells = ED.cells_of_corners(paint([[0, 0], [6, 0], [6, 6], [12, 6]]));
+  for (let k = 1; k < cells.length; k++) assert.strictEqual(Math.abs(cells[k][0] - cells[k - 1][0]) + Math.abs(cells[k][1] - cells[k - 1][1]), 1);
 });
 
 test("drawn lines: waypoints and legs snap to right-angle corners", () => {
@@ -403,19 +416,14 @@ test("drawn lines: a town anchors at its centre, a route where it was clicked", 
   assert.deepStrictEqual(ED.anchor_of_place(place_of(d, "route", "Eins"), 12.6, 9.1), [12, 9]);
 });
 
-test("drawn lines: problems are lakes, the map edge and other places in the way", () => {
+test("freehand strokes: water and open ground are fine, a stroke has to touch a place and leave it", () => {
   const d = makeDoc();
-  const ahlen = place_of(d, "city", "a");
-  const down_and_across = (y) => ED.cells_of_corners(ED.corners_of_line([[7, 12], [7, y], [20, y]], ["v", "h"]));
-  assert.strictEqual(ED.drawn_line_problem(d, down_and_across(20), ahlen, null), "");
   d.grids.lake[18 * d.W + 7] = 1;
-  assert.match(ED.drawn_line_problem(d, down_and_across(20), ahlen, null), /lake/);
-  d.grids.lake[18 * d.W + 7] = 0;
-  assert.match(ED.drawn_line_problem(d, ED.cells_of_corners([[7, 12], [7, 28]]), ahlen, null), /map edge/);
-  const east = ED.cells_of_corners([[7, 12], [30, 12]]);
-  assert.strictEqual(ED.drawn_line_problem(d, east, ahlen, null), "crosses Eins");
-  assert.strictEqual(ED.drawn_line_problem(d, east, ahlen, place_of(d, "route", "Eins")), "");
-  assert.match(ED.drawn_line_problem(d, ED.cells_of_corners([[20, 20], [20, 22]]), ahlen, null), /start on/);
+  assert.strictEqual(ED.stroke_problem(d, ED.cells_of_corners([[7, 12], [7, 20], [20, 20]])), "");
+  assert.strictEqual(ED.stroke_problem(d, ED.cells_of_corners([[20, 20], [20, 22]])), "start or end the route on a town or a route");
+  assert.strictEqual(ED.stroke_problem(d, ED.cells_of_corners([[6, 11], [8, 11]])), "that stroke only runs over towns and routes that are already there");
+  assert.match(ED.stroke_problem(d, ED.cells_of_corners([[7, 12], [7, 28]])), /map edge/);
+  assert.strictEqual(ED.stroke_problem(d, ED.cells_of_corners([[0 + 20, 20], [30, 20], [30, 12]])), "");
 });
 
 function doc_with_drawn_line() {

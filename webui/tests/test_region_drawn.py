@@ -55,8 +55,8 @@ def flat_doc() -> dict:
     return doc
 
 
-def draw(doc, waypoints, legs, source, target, replace=None):
-    return edit.draw_route(doc, waypoints, legs, source, target, replace)
+def draw(doc, waypoints, legs=None, replace=None):
+    return edit.draw_route(doc, waypoints, legs, replace)
 
 
 def routes_of_line(doc, line_name):
@@ -82,7 +82,7 @@ def test_short_inner_sea_stretch_counts_as_land():
 
 
 def test_a_straight_line_between_two_towns_becomes_pinned_routes_with_specs():
-    out = draw(flat_doc(), [[11, 24], [45, 24]], ["h"], {"city": "ahlen"}, {"city": "bertsch"})
+    out = draw(flat_doc(), [[11, 24], [45, 24]], ["h"])
     routes = routes_of_line(out, out["line"])
     assert routes and [r["name"] for r in routes] == out["added"]
     assert all(r["pinned"] and r["drawn"] for r in routes)
@@ -97,43 +97,74 @@ def test_a_straight_line_between_two_towns_becomes_pinned_routes_with_specs():
 
 
 def test_an_l_shaped_line_bends_once():
-    out = draw(flat_doc(), [[11, 24], [11, 52]], ["v"], {"city": "ahlen"}, {"city": "dorn"})
+    out = draw(flat_doc(), [[11, 24], [11, 52]], ["v"])
     path = [tuple(c) for r in routes_of_line(out, out["line"]) for c in r["path"]]
     assert all(x == 11 for x, _ in path)
-    bent = draw(flat_doc(), [[11, 24], [30, 33], [11, 52]], ["h", "v"], {"city": "ahlen"}, {"city": "dorn"})
+    bent = draw(flat_doc(), [[11, 24], [30, 33], [11, 52]], ["h", "v"])
     assert len({tuple(c) for r in routes_of_line(bent, bent["line"]) for c in r["path"]}) > len(path)
 
 
 def test_a_line_over_the_sea_gets_a_sea_route():
-    out = draw(flat_doc(), [[45, 24], [77, 24]], ["h"], {"city": "bertsch"}, {"city": "corve"})
+    out = draw(flat_doc(), [[45, 24], [77, 24]], ["h"])
     modes = {r["mode"] for r in routes_of_line(out, out["line"])}
     assert "sea" in modes
 
 
-def test_a_line_through_a_lake_is_refused():
-    with pytest.raises(ValueError, match="lake"):
-        draw(flat_doc(), [[11, 24], [25, 52], [11, 52]], ["h", "h"], {"city": "ahlen"}, {"city": "dorn"})
+def test_a_line_over_a_lake_surfs_across_it():
+    out = draw(flat_doc(), [[11, 24], [25, 52], [11, 52]], ["h", "h"])
+    routes = routes_of_line(out, out["line"])
+    assert "sea" in {r["mode"] for r in routes} and "land" in {r["mode"] for r in routes}
 
 
-def test_a_line_through_another_town_is_refused():
-    with pytest.raises(ValueError, match="Bertsch"):
-        draw(flat_doc(), [[11, 24], [77, 24]], ["h"], {"city": "ahlen"}, {"city": "corve"})
+def test_a_line_through_another_town_joins_it_on_the_way():
+    out = draw(flat_doc(), [[11, 24], [77, 24]], ["h"])
+    exits_to = [e["to"] for r in routes_of_line(out, out["line"]) for e in r["exits"]]
+    assert exits_to.count("Bertsch") == 2 and "Ahlen" in exits_to and "Corve" in exits_to
+    line = next(l for l in out["links"] if l["name"] == out["line"])
+    assert [ref["city"] for ref in line["touches"]] == ["ahlen", "bertsch", "corve"]
+
+
+def test_a_line_ending_on_open_ground_is_a_dead_end():
+    out = draw(flat_doc(), [[11, 24], [11, 40]])
+    routes = routes_of_line(out, out["line"])
+    assert routes[-1]["role"] == "dead_end" and routes[-1]["goal"] == [11, 40]
+    assert all("error" not in r["spec"] for r in routes)
+
+
+def test_a_line_starting_on_open_ground_grows_out_of_the_town_it_reaches():
+    out = draw(flat_doc(), [[30, 40], [30, 24], [45, 24]])
+    routes = routes_of_line(out, out["line"])
+    assert any(e["to"] == "Bertsch" for e in routes[0]["exits"])
+    assert routes[-1]["goal"] == [30, 40]
+
+
+def test_a_line_touching_no_place_is_refused():
+    with pytest.raises(ValueError, match="start or end"):
+        draw(flat_doc(), [[30, 8], [30, 16]])
+
+
+def test_a_line_crossing_a_route_makes_it_a_crossroads():
+    first = draw(flat_doc(), [[11, 24], [45, 24]])
+    crossed = next(r for r in routes_of_line(first, first["line"]) if r["rect"][0] <= 30 < r["rect"][2])
+    out = draw(first, [[11, 52], [30, 52], [30, 6]])
+    after = next(r for r in out["routes"] if r["name"] == crossed["name"])
+    assert after["role"] == "crossroads" and after["pinned"]
+    assert sum(1 for e in after["exits"] if e["to"] in out["added"]) == 2
 
 
 def test_a_line_can_end_on_a_route():
-    first = draw(flat_doc(), [[11, 24], [45, 24]], ["h"], {"city": "ahlen"}, {"city": "bertsch"})
+    first = draw(flat_doc(), [[11, 24], [45, 24]], ["h"])
     route = routes_of_line(first, first["line"])[0]
     x0, y0, x1, y1 = route["rect"]
     middle_x = (x0 + x1) // 2
-    out = draw(first, [[11, 52], [middle_x, 52], [middle_x, (y0 + y1) // 2]], ["h", "v"],
-               {"city": "dorn"}, {"route": route["name"]})
+    out = draw(first, [[11, 52], [middle_x, 52], [middle_x, (y0 + y1) // 2]], ["h", "v"])
     joined = next(r for r in out["routes"] if r["name"] == route["name"])
     assert any(e["to"] in out["added"] for e in joined["exits"])
 
 
 def test_redrawing_a_line_replaces_its_routes():
-    first = draw(flat_doc(), [[11, 24], [45, 24]], ["h"], {"city": "ahlen"}, {"city": "bertsch"})
-    again = draw(first, [[11, 24], [28, 12], [45, 24]], ["v", "v"], {"city": "ahlen"}, {"city": "bertsch"},
+    first = draw(flat_doc(), [[11, 24], [45, 24]], ["h"])
+    again = draw(first, [[11, 24], [28, 12], [45, 24]], ["v", "v"],
                  replace=first["line"])
     assert again["line"] == first["line"]
     assert len([l for l in again["links"] if l["name"] == first["line"]]) == 1
@@ -141,7 +172,7 @@ def test_redrawing_a_line_replaces_its_routes():
 
 
 def test_recompute_keeps_drawn_routes_and_lays_no_second_road_between_the_same_towns():
-    out = draw(flat_doc(), [[11, 24], [45, 24]], ["h"], {"city": "ahlen"}, {"city": "bertsch"})
+    out = draw(flat_doc(), [[11, 24], [45, 24]], ["h"])
     again = edit.recompute(out, ["routes"])
     kept = routes_of_line(again, out["line"])
     assert [r["rect"] for r in kept] == [r["rect"] for r in routes_of_line(out, out["line"])]
@@ -170,8 +201,7 @@ def call_api(path: str, body: dict):
 
 def test_drawn_route_saves_and_loads_through_the_editor_api(tmp_path, monkeypatch):
     monkeypatch.setattr(editor_api, "OUT", tmp_path)
-    out = call_api("/api/editor/draw-route", {"doc": flat_doc(), "waypoints": [[11, 24], [45, 24]], "legs": ["h"],
-                                              "src": {"city": "ahlen"}, "dst": {"city": "bertsch"}})
+    out = call_api("/api/editor/draw-route", {"doc": flat_doc(), "waypoints": [[11, 24], [45, 24]], "legs": ["h"]})
     call_api("/api/editor/save", {"doc": out, "name": "drawn-test"})
     assert list((tmp_path / "drawn-test" / "routes").glob("*.yaml"))
     loaded = call_api("/api/editor/load", {"name": "drawn-test"})
@@ -182,8 +212,7 @@ def test_drawn_route_saves_and_loads_through_the_editor_api(tmp_path, monkeypatc
 
 
 def test_drawn_route_problems_come_back_as_api_errors():
-    request = FakeRequest({"doc": flat_doc(), "waypoints": [[11, 24], [25, 52], [11, 52]], "legs": ["h", "h"],
-                           "src": {"city": "ahlen"}, "dst": {"city": "dorn"}})
+    request = FakeRequest({"doc": flat_doc(), "waypoints": [[30, 8], [30, 16]]})
     editor_api.post(request, urlparse("/api/editor/draw-route"), None)
     status, value = request.reply
-    assert status == 400 and "lake" in value["error"]
+    assert status == 400 and "start or end" in value["error"]

@@ -732,9 +732,27 @@
   }
 
   // ------------------------------------------------------------ routes drawn by hand (pokeroutes/region/drawn.py)
-  function leg_toward(from_cell, to_cell, flipped) {
-    const goes_across_first = Math.abs(to_cell[0] - from_cell[0]) >= Math.abs(to_cell[1] - from_cell[1]);
-    return goes_across_first !== !!flipped ? "h" : "v";
+  // a freehand stroke snapped to straight runs: it keeps to one axis until the pointer
+  // strays STROKE_TURN cells off it, then turns there
+  const STROKE_TURN = 2;
+  function start_stroke(cell) { return { corners: [[cell[0], cell[1]]], axis: null, end: [cell[0], cell[1]] }; }
+  function other_axis(axis) { return axis === "h" ? "v" : "h"; }
+  function extend_stroke(stroke, cell) {
+    const anchor = stroke.corners[stroke.corners.length - 1];
+    const dx = cell[0] - anchor[0], dy = cell[1] - anchor[1];
+    if (!dx && !dy) return { corners: stroke.corners, axis: stroke.axis, end: anchor.slice() };
+    const axis = stroke.axis || (Math.abs(dx) >= Math.abs(dy) ? "h" : "v");
+    const off_axis = axis === "h" ? dy : dx;
+    const end = axis === "h" ? [cell[0], anchor[1]] : [anchor[0], cell[1]];
+    if (Math.abs(off_axis) < STROKE_TURN) return { corners: stroke.corners, axis, end };
+    const turned_at_anchor = end[0] === anchor[0] && end[1] === anchor[1];
+    const corners = turned_at_anchor ? stroke.corners : stroke.corners.concat([end]);
+    return extend_stroke({ corners, axis: other_axis(axis), end }, cell);
+  }
+  function stroke_corners(stroke) {
+    const last = stroke.corners[stroke.corners.length - 1];
+    if (last[0] === stroke.end[0] && last[1] === stroke.end[1]) return stroke.corners.map((c) => c.slice());
+    return stroke.corners.map((c) => c.slice()).concat([stroke.end.slice()]);
   }
   function corners_of_line(waypoints, legs) {
     const corners = [[waypoints[0][0], waypoints[0][1]]];
@@ -762,27 +780,12 @@
     if (place.kind === "landmark") return [place.obj.x, place.obj.y];
     return [Math.floor(fx), Math.floor(fy)];
   }
-  function inside_rect(rect, x, y) { return x >= rect[0] && x < rect[2] && y >= rect[1] && y < rect[3]; }
-  function is_inside_place(place, cell) { return !!place && !!place.obj.rect && inside_rect(place.obj.rect, cell[0], cell[1]); }
-  function drawn_cell_problem(doc, x, y) {
-    if (x < 2 || y < 2 || x >= doc.W - 2 || y >= doc.H - 2) return "too close to the map edge";
-    const i = y * doc.W + x, g = doc.grids;
-    if (g.lake[i]) return "crosses a lake; Surf routes only run over the sea";
-    if (g.land[i] && String.fromCharCode(g.biome[i]) === "l") return "crosses lava";
-    const place = placeAt(doc, x + 0.5, y + 0.5, { noLandmarks: true });
-    if (place) return "crosses " + place.obj.name;
-    return "";
-  }
-  // what the server would refuse, checked while drawing: the cells between leaving the start and reaching the end
-  function drawn_line_problem(doc, cells, source, target) {
-    let start = 0;
-    while (start < cells.length && is_inside_place(source, cells[start])) start++;
-    if (start === 0) return "start on a town or a route";
-    for (const cell of cells.slice(start)) {
-      if (is_inside_place(target, cell)) return "";
-      const problem = drawn_cell_problem(doc, cell[0], cell[1]);
-      if (problem) return problem;
-    }
+  // what the server would refuse, checked while painting
+  function stroke_problem(doc, cells) {
+    if (cells.some(([x, y]) => x < 2 || y < 2 || x >= doc.W - 2 || y >= doc.H - 2)) return "too close to the map edge";
+    const in_a_place = cells.map(([x, y]) => !!placeAt(doc, x + 0.5, y + 0.5, { noLandmarks: true }));
+    if (!in_a_place.includes(true)) return "start or end the route on a town or a route";
+    if (!in_a_place.includes(false)) return "that stroke only runs over towns and routes that are already there";
     return "";
   }
   function drawn_line_of_route(doc, route) {
@@ -982,7 +985,7 @@
     TOWN_SIZE, next_town_name, town_spot_problem,
     exitAlong, sideRange, edgeCell, mirrorExit, moveExit, sizeOk, resizeRoute, deleteRoute, routeWarnings,
     setSpecField, benchParams, HMS, routeNeeds, reachableAt, storyWarnings, moveBeat, removeBeat,
-    leg_toward, corners_of_line, cells_of_corners, anchor_of_place, drawn_line_problem, drawn_line_of_route,
+    start_stroke, extend_stroke, stroke_corners, corners_of_line, cells_of_corners, anchor_of_place, stroke_problem, drawn_line_of_route,
     with_waypoint_moved, delete_drawn_line, without_straight_runs, town_map_route_lines, point_halfway_along,
     TOWN_MAP_RGB, sea_distance_to_land, town_map_cell_color, renderTownMap,
   };

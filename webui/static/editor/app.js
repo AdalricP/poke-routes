@@ -126,7 +126,7 @@
       <dt>B W</dt><dd>paint biome, coast (land / sea / lake)</dd>
       <dt>A</dt><dd>add route: drag from one place to another</dd>
       <dt>T</dt><dd>add town: click on land</dd>
-      <dt>D</dt><dd>draw route: press on a town or route, click to bend, click a town, route or landmark to finish; Shift flips the corner, Backspace drops the last bend, Esc cancels</dd>
+      <dt>D</dt><dd>draw route: drag to paint it (open ground = dead end, through a town or route = joins it); Alt + drag erases drawn routes; Esc cancels</dd>
       <dt>[ ]</dt><dd>brush smaller / bigger</dd>
       <dt>Alt + drag</dt><dd>raise lowers, lower raises</dd>
       <dt>Space + drag</dt><dd>pan (right or middle drag too)</dd>
@@ -212,7 +212,6 @@
     mode: null, tool: "select", brush: 4, strength: 0.03, biome: "f", water: "sea",
     layers: { height: true, biome: true, water: true, routes: true, labels: true, townmap: true },
     sel: null, hover: null, drag: null, space: false, busy: false, unsaved: false, cursor: null,
-    line: null, // the route being drawn: {source, waypoints, legs, cursor, target, flipped}
   };
   const cv = $("cv"), ctx = cv.getContext("2d"), wrap = $("wrap");
   const base = document.createElement("canvas"), bctx = base.getContext("2d");
@@ -950,57 +949,14 @@
     }
     if (st.cursor && st.tool === "town" && !st.space) draw_town_ghost(d, X, Y, z);
     if (st.drag && st.drag.kind === "bend" && st.drag.changed) draw_bend_drag_preview(d, X, Y, z);
-    if (st.line && st.line.cursor) draw_line_preview(d, X, Y, z);
-    else if (st.cursor && st.tool === "draw" && st.hover && st.hover.place) {
-      town_map_label("draw from " + (st.hover.place.obj.name || st.hover.id), X(st.cursor.fx), Y(st.cursor.fy) - 16, 13);
-    }
+    if (st.drag && st.drag.kind === "stroke") draw_stroke_preview(d, X, Y, z);
+    if (st.drag && st.drag.kind === "erase") draw_erase_preview(d, X, Y, z);
   }
-  // ------------------------------------------------------------ drawing a route by hand (Mini Metro style)
+  // ------------------------------------------------------------ painting a route freehand
   function cell_of(c) { return [Math.floor(c.fx), Math.floor(c.fy)]; }
-  function same_place(a, b) { return !!a && !!b && a.kind === b.kind && a.id === b.id; }
-  function start_line(place, c) {
-    st.line = { source: place, waypoints: [ED.anchor_of_place(place, c.fx, c.fy)], legs: [], cursor: c, target: null, flipped: false, press: null };
-  }
-  function line_target_at(c) {
-    const place = ED.placeAt(st.doc, c.fx, c.fy);
-    return place && !same_place(place, st.line.source) ? place : null;
-  }
-  function update_line_cursor(c, flipped) {
-    st.line.cursor = c;
-    st.line.target = line_target_at(c);
-    st.line.flipped = !!flipped;
-  }
-  function line_end(line) {
-    return line.target ? ED.anchor_of_place(line.target, line.cursor.fx, line.cursor.fy) : cell_of(line.cursor);
-  }
-  function line_preview(line) {
-    const waypoints = line.waypoints.slice(), legs = line.legs.slice();
-    const end = line_end(line), last = waypoints[waypoints.length - 1];
-    if (end[0] !== last[0] || end[1] !== last[1]) {
-      legs.push(ED.leg_toward(last, end, line.flipped));
-      waypoints.push(end);
-    }
-    const corners = ED.corners_of_line(waypoints, legs);
-    const problem = ED.drawn_line_problem(st.doc, ED.cells_of_corners(corners), line.source, line.target);
-    return { waypoints, legs, corners, problem };
-  }
-  function add_line_bend() {
-    const line = st.line, end = cell_of(line.cursor), last = line.waypoints[line.waypoints.length - 1];
-    if (end[0] === last[0] && end[1] === last[1]) return;
-    line.legs.push(ED.leg_toward(last, end, line.flipped));
-    line.waypoints.push(end);
-  }
-  function drop_last_bend() {
-    if (st.line.waypoints.length <= 1) { st.line = null; return; }
-    st.line.waypoints.pop();
-    st.line.legs.pop();
-  }
-  async function finish_line() {
-    const line = st.line, preview = line_preview(line);
-    if (preview.problem) { toast(preview.problem, true); return; }
-    const body = { waypoints: preview.waypoints, legs: preview.legs, src: ED.refOf(line.source), dst: ED.refOf(line.target) };
-    if (await send_drawn_line(body, "draw route")) st.line = null;
-    draw();
+  function stroke_start_cell(c) {
+    const place = ED.placeAt(st.doc, c.fx, c.fy, { noLandmarks: true });
+    return place && place.kind === "city" ? ED.anchor_of_place(place, c.fx, c.fy) : cell_of(c);
   }
   async function send_drawn_line(body, label) {
     const laid = await busy("laying the drawn route", async () => {
@@ -1016,35 +972,57 @@
     });
     return !!laid;
   }
-  function on_draw_pointer_down(c, sx, sy) {
-    if (st.line) { st.line.press = cell_of(c); st.drag = { kind: "line" }; return; }
-    const place = ED.placeAt(st.doc, c.fx, c.fy, { noLandmarks: true });
-    if (!place) { st.drag = { kind: "pan", sx, sy, ox: st.view.ox, oy: st.view.oy }; return; }
-    start_line(place, c);
-    st.line.press = cell_of(c);
-    st.line.fresh = true;
-    st.drag = { kind: "line" };
+  function start_stroke(c, alt) {
+    if (alt) { st.drag = { kind: "erase", names: new Set() }; erase_under(c); return; }
+    st.drag = { kind: "stroke", stroke: ED.start_stroke(stroke_start_cell(c)) };
     draw();
   }
-  function on_draw_pointer_up() {
-    const line = st.line;
-    if (!line || !line.cursor) return;
-    const [x, y] = cell_of(line.cursor);
-    const stayed = line.press && line.press[0] === x && line.press[1] === y;
-    const was_fresh = line.fresh;
-    line.fresh = false;
-    if (line.target) { finish_line(); return; }
-    if (was_fresh && stayed) return;
-    if (same_place(ED.placeAt(st.doc, line.cursor.fx, line.cursor.fy, { noLandmarks: true }), line.source)) return;
-    add_line_bend();
+  function erase_under(c) {
+    const [x, y] = cell_of(c);
+    for (const r of st.doc.routes) {
+      if (!r.drawn || x < r.rect[0] || x >= r.rect[2] || y < r.rect[1] || y >= r.rect[3]) continue;
+      st.drag.names.add(r.name);
+    }
     draw();
   }
-  function handle_line_key(ev) {
-    if (ev.key === "Escape") { st.line = null; draw(); return true; }
-    if (ev.key === "Backspace" || ev.key === "Delete") { ev.preventDefault(); drop_last_bend(); draw(); return true; }
-    if (ev.key === "Enter" && st.line.target) { finish_line(); return true; }
-    if (ev.key === "Shift") { st.line.flipped = true; draw(); return true; }
-    return false;
+  function finish_erase(dr) {
+    if (!dr.names.size) return;
+    const names = [...dr.names];
+    edit("erase drawn routes", () => { for (const name of names) ED.deleteRoute(st.doc, name); });
+    st.sel = null;
+    refreshInspector();
+    toast("erased " + names.join(", "));
+  }
+  function finish_stroke(dr) {
+    const corners = ED.stroke_corners(dr.stroke);
+    if (corners.length < 2) return;
+    const problem = ED.stroke_problem(st.doc, ED.cells_of_corners(corners));
+    if (problem) { toast(problem, true); return; }
+    send_drawn_line({ waypoints: corners, legs: [] }, "draw route");
+  }
+  function stroke_hint(cells, problem) {
+    if (problem) return problem;
+    const last = cells[cells.length - 1];
+    const place = ED.placeAt(st.doc, last[0] + 0.5, last[1] + 0.5, { noLandmarks: true });
+    return place ? "to " + (place.obj.name || place.id) : "dead end here";
+  }
+  function draw_stroke_preview(d, X, Y, z) {
+    const corners = ED.stroke_corners(st.drag.stroke);
+    if (corners.length < 2) return;
+    const cells = ED.cells_of_corners(corners);
+    const problem = ED.stroke_problem(d, cells);
+    draw_line_band(corners, X, Y, z, problem);
+    const [ex, ey] = corners[corners.length - 1];
+    town_map_label(stroke_hint(cells, problem), X(ex + 0.5), Y(ey + 0.5) - 18, 13, problem ? "#962820" : TOWN_MAP_INK);
+  }
+  function draw_erase_preview(d, X, Y, z) {
+    ctx.strokeStyle = "rgba(200,40,32,0.9)";
+    ctx.lineWidth = 2.5;
+    for (const name of st.drag.names) {
+      const r = ED.routeByName(d, name);
+      if (!r) continue;
+      ctx.strokeRect(X(r.rect[0]), Y(r.rect[1]), (r.rect[2] - r.rect[0]) * z, (r.rect[3] - r.rect[1]) * z);
+    }
   }
   function bend_at(r, fx, fy, z) {
     const line = ED.drawn_line_of_route(st.doc, r);
@@ -1069,7 +1047,7 @@
   }
   function finish_bend_drag(dr) {
     if (!dr.changed) return;
-    send_drawn_line({ waypoints: dr.waypoints, legs: dr.line.legs, src: dr.line.src_ref, dst: dr.line.dst_ref, replace: dr.line.name }, "move bend");
+    send_drawn_line({ waypoints: dr.waypoints, legs: dr.line.legs, replace: dr.line.name }, "move bend");
   }
   function draw_line_band(corners, X, Y, z, problem) {
     const band = town_map_band_width(z);
@@ -1089,22 +1067,6 @@
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.lineCap = "butt";
-  }
-  function draw_line_preview(d, X, Y, z) {
-    const line = st.line, preview = line_preview(line);
-    draw_line_band(preview.corners, X, Y, z, preview.problem);
-    for (const [x, y] of line.waypoints) {
-      ctx.fillStyle = "#ffffff";
-      ctx.strokeStyle = "#141414";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(X(x + 0.5), Y(y + 0.5), Math.max(3.5, Math.min(7, z * 0.7)), 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    }
-    const hint = preview.problem || (line.target ? "to " + (line.target.obj.name || line.target.id) : "click to bend, click a place to finish");
-    const [ex, ey] = line_end(line);
-    town_map_label(hint, X(ex + 0.5), Y(ey + 0.5) - 18, 13, preview.problem ? "#962820" : TOWN_MAP_INK);
   }
   function draw_bend_drag_preview(d, X, Y, z) {
     const dr = st.drag;
@@ -1182,7 +1144,7 @@
       return;
     }
     if (st.tool === "draw") {
-      on_draw_pointer_down(c, sx, sy);
+      start_stroke(c, ev.altKey);
       return;
     }
     if (st.tool === "route") {
@@ -1222,7 +1184,6 @@
     const c = toCell(sx, sy);
     st.cursor = c;
     const dr = st.drag;
-    if (st.line) update_line_cursor(c, ev.shiftKey);
     if (dr && dr.kind === "pan") {
       st.view.ox = dr.ox + sx - dr.sx;
       st.view.oy = dr.oy + sy - dr.sy;
@@ -1242,9 +1203,14 @@
       move_bend(dr, c);
       return;
     }
-    if (st.line) {
+    if (dr && dr.kind === "stroke") {
+      dr.stroke = ED.extend_stroke(dr.stroke, cell_of(c));
       status(c);
       draw();
+      return;
+    }
+    if (dr && dr.kind === "erase") {
+      erase_under(c);
       return;
     }
     if (dr && dr.kind === "link") {
@@ -1309,7 +1275,8 @@
       if (dr.target) addRoute(dr.src, dr.target);
       return;
     }
-    if (dr.kind === "line") { on_draw_pointer_up(); return; }
+    if (dr.kind === "stroke") { draw(); finish_stroke(dr); return; }
+    if (dr.kind === "erase") { draw(); finish_erase(dr); return; }
     if (dr.kind === "bend") { finish_bend_drag(dr); draw(); return; }
     if (dr.kind === "move" || dr.kind === "exit" || dr.kind === "edge") {
       if (dr.s && !dr.changed) { st.hist.cancel(); return; }
@@ -1446,7 +1413,7 @@
       return;
     }
     if (st.tool === "draw") {
-      add('<p class="hint">Press on a town or a route, then click to add bends: the line runs across and then up or down (Shift flips the corner). Click another town, route or landmark to finish. Backspace drops the last bend, Esc cancels. Sea stretches become Surf routes; lakes, lava and other routes are refused. Drawn routes come back pinned; select one to drag its bends.</p>');
+      add('<p class="hint">Drag to paint a route: it snaps to straight runs and turns where you turn. Start or end anywhere: on a town or route it joins it, on open ground it is a dead end, and every town or route it passes through joins in (a crossroads). Water is fine: sea and lake stretches become Surf routes. Alt + drag erases drawn routes, Esc cancels a stroke. Select a drawn route to drag its bends.</p>');
       return;
     }
     const d = add(`<div class="slider"><label for="ed-bsz"><span>Brush size</span><output>${st.brush}</output></label><input type="range" id="ed-bsz" min="1" max="16" step="1" value="${st.brush}"></div>`);
@@ -1807,7 +1774,6 @@
     $$('[data-layer="townmap"]')[0].hidden = st.mode === "geography";
     st.layers.routes = st.mode !== "geography";
     st.layers.townmap = st.mode !== "geography";
-    st.line = null;
     $$("[data-layer]").forEach((b) => b.classList.toggle("on", st.layers[b.dataset.layer]));
     if (!is_tool_available_in_current_mode(st.tool)) st.tool = "select";
     if (st.sel && !is_place_kind_selectable_in_current_mode(st.sel.kind)) st.sel = null;
@@ -1953,7 +1919,6 @@
   // ------------------------------------------------------------ toolbar + keys
   function setTool(t) {
     st.tool = t;
-    st.line = null;
     st.hover = null;
     refreshTool();
     draw();
@@ -1994,7 +1959,7 @@
     if (mod && ev.key.toLowerCase() === "y") { ev.preventDefault(); redo(); return; }
     if (mod || ev.altKey && ev.key !== "Alt") return;
     if (ev.key === " ") { ev.preventDefault(); st.space = true; wrap.style.cursor = "grab"; return; }
-    if (st.line && handle_line_key(ev)) return;
+    if (ev.key === "Escape" && st.drag && (st.drag.kind === "stroke" || st.drag.kind === "erase")) { st.drag = null; draw(); return; }
     if (ev.key === "?") { $("help").hidden = !$("help").hidden; return; }
     if (ev.key === "Escape") { $("help").hidden = true; st.sel = null; refreshInspector(); draw(); return; }
     if (!st.doc) return;
