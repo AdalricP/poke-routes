@@ -485,6 +485,13 @@ def stage_shores(route: Route) -> None:
     route.snap("shores")
 
 
+def stage_ledge_ends(route: Route) -> None:
+    from .stepped_terraces import tidy_ledges_after_every_stage
+    from .walkability_guard import run_keeping_walkability
+
+    run_keeping_walkability(route, "ledge ends", tidy_ledges_after_every_stage)
+
+
 STAGES: List[Tuple[str, Callable[[Route], None]]] = [
     ("base", stage_base),
     ("skeleton", stage_skeleton),
@@ -520,6 +527,7 @@ STAGES: List[Tuple[str, Callable[[Route], None]]] = [
     ("small details", stage_small_details),
     ("river ends", stage_river_ends),
     ("shores", stage_shores),
+    ("ledge ends", stage_ledge_ends),
 ]
 
 

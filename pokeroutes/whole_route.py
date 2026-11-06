@@ -22,6 +22,7 @@ whole_routes_lock = threading.Lock()
 
 
 VOID_BORDER_DEPTH_IN_METATILES = 2
+SAME_ROUTE_EDGE_KEPT_AS_CUT_IN_METATILES = 3
 
 
 def void_and_its_border_mask(route) -> np.ndarray:
@@ -241,8 +242,19 @@ def cells_of_open_edge(route, open_edge: dict, depth_in_metatiles: int) -> List[
     return open_cells
 
 
+def tidy_ledges_of_slice(route) -> None:
+    from .stepped_terraces import seam_band_cells, tidy_ledge_joins
+
+    frozen_cells = seam_band_cells(route)
+    for open_edge in route.__dict__[EDGES_OPEN_TO_THE_SAME_ROUTE_KEY]:
+        for cell in cells_of_open_edge(route, open_edge, SAME_ROUTE_EDGE_KEPT_AS_CUT_IN_METATILES):
+            frozen_cells[cell] = True
+    tidy_ledge_joins(route, frozen_cells)
+
+
 def slice_of_whole_route(whole_route, chain_spec, square, all_squares):
     from .generate import Route, density
+    from .walkability_guard import run_keeping_walkability
 
     route = Route(chain_spec, grid_slice(whole_route.cls, square), np.random.default_rng(chain_spec.seed))
     route.zones = sliced_zones(whole_route, square)
@@ -263,6 +275,7 @@ def slice_of_whole_route(whole_route, chain_spec, square, all_squares):
     route.exits = exits_of_chain_map(route)
     open_exits_to_other_maps(route)
     stamp_between_route_seams(route)
+    run_keeping_walkability(route, "ledge ends after the cut", tidy_ledges_of_slice)
     route.snap("cut from the whole route")
     route.stats = density(route)
     return route
