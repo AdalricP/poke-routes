@@ -458,13 +458,29 @@ def with_specs(w: World) -> List[dict]:
         except Exception as e:  # a hand-broken route still shows up
             r["spec"] = {"error": f"{type(e).__name__}: {e}"}
         out.append(r)
+    attach_chain_summaries(w, out)
     return out
 
 
+def attach_chain_summaries(w: World, routes_for_inspector: List[dict]) -> None:
+    from .route_chain import chain_maps_of_world, chain_summary
+
+    try:
+        chain_maps = chain_maps_of_world(w)
+    except Exception as chain_error:
+        w.log.append(f"route chains unavailable: {type(chain_error).__name__}: {chain_error}")
+        return
+    for route in routes_for_inspector:
+        route["chain"] = chain_summary(chain_maps, route["name"])
+
+
 def full_spec(doc: dict, rid: str) -> Optional[dict]:
-    from .export import route_spec
+    from .export import chain_map_specs, route_spec
 
     w = doc_to_world(doc)
+    spec_of_chain_map = next((spec for spec in chain_map_specs(w) if rid in (spec["id"], spec["name"])), None)
+    if spec_of_chain_map is not None:
+        return spec_of_chain_map
     for i, r in enumerate(w.routes):
         if r["id"] == rid or r["name"] == rid:
             return route_spec(w, r, i)
