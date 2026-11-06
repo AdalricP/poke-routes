@@ -212,7 +212,8 @@
   const LAYOUT_KEY = "pokeroutes-shell-layout-v1";
   const CHROME = { menu: 26, toolbar: 34, status: 22, collapsed: 24, head: 26, splitter: 4 };
   const BOTTOM_TABS = ["console", "improve", "agent"];
-  const CENTER_TABS = ["scene", "geography", "region", "story", "gates"];
+  const CENTER_TABS = ["scene", "geography", "region", "story"];
+  const RETIRED_CENTER_TABS = { gates: "region" };
   const DEFAULT_LAYOUT = {
     v: 1,
     left: { size: 240, open: true, float: null },
@@ -241,8 +242,9 @@
       d[k].float = sanitizeFloat(s.float);
     }
     if (x.bottom && BOTTOM_TABS.includes(x.bottom.tab)) d.bottom.tab = x.bottom.tab;
-    if (CENTER_TABS.includes(x.center)) d.center = x.center;
-    d.centerOrder = sanitizeOrder(x.centerOrder, CENTER_TABS);
+    const center = RETIRED_CENTER_TABS[x.center] || x.center;
+    if (CENTER_TABS.includes(center)) d.center = center;
+    d.centerOrder = sanitizeOrder(without_retired_tabs(x.centerOrder), CENTER_TABS);
     d.bottomOrder = sanitizeOrder(x.bottomOrder, BOTTOM_TABS);
     if (x.inspector && typeof x.inspector === "object") {
       for (const [k, v] of Object.entries(x.inspector)) if (typeof v === "boolean" && /^[\w-]{1,40}$/.test(k)) d.inspector[k] = v;
@@ -254,6 +256,11 @@
       }
     }
     return d;
+  }
+
+  function without_retired_tabs(order) {
+    if (!Array.isArray(order)) return order;
+    return order.filter((tab) => !(tab in RETIRED_CENTER_TABS));
   }
 
   // A dragged-and-dropped tab order: keep it only if it's a reordering of the same set.

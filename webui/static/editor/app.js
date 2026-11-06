@@ -6,10 +6,10 @@
    and returns its actions (undo, redo, save, load, generate, exportSpecs,
    recompute, setTool, toggleLayer, fit, openInBench, set_editor_mode, set_route_opener,
    getDoc, destroy), so a host page or shell can drive it from its own menus.
-   opts: {seed, load, keys: true, mode: "geography" | "region" | "story" | "gates" (default: every tool), onOpenRoute}.
+   opts: {seed, load, keys: true, mode: "geography" | "region" | "story" (default: every tool), onOpenRoute}.
    The modes are the steps of laying out a game: geography -> route design A (region: towns and
    routes on the terrain) -> story (beats by hand: what happens where, which field move it gives)
-   -> route design B (gates: what each route needs, and where you can go at each beat). */
+   -> back on the map, each route's gate (what it needs, which beat opens it) in its inspector. */
 (function (global) {
   "use strict";
   const ED = global.ED;
@@ -194,16 +194,14 @@
     geography: ["select", "raise", "lower", "flatten", "smooth", "biome", "water"],
     region: ["select", "route", "draw", "town"],
     story: ["select"],
-    gates: ["select"],
   };
-  const place_kinds_selectable_in_each_editor_mode = { geography: ["landmark"], region: ["city", "route"], story: ["city", "route"], gates: ["city", "route"] };
-  const editor_title_for_each_mode = { geography: "geography editor", region: "route design A", story: "story", gates: "route design B" };
+  const place_kinds_selectable_in_each_editor_mode = { geography: ["landmark"], region: ["city", "route"], story: ["city", "route"] };
+  const editor_title_for_each_mode = { geography: "geography editor", region: "map", story: "story" };
   const modes_that_move_places = new Set([null, "geography", "region"]);
   const select_tool_hint_for_each_mode = {
     geography: "Click a landmark (legendary spot) to select it, drag it to move it. Towns and routes live in the region editor.",
     region: "Click to select. Drag towns; add one with the Add town tool (T). On a selected route, drag an edge or an exit. Pick a route in the Routes list to fly to it. Double-click a route to open it in the bench.",
     story: "Click a town or route, then add a beat there. Beats are played in order; the first one is where the game starts.",
-    gates: "Click a route to set what it needs. Drag the story step to see where you can go at that point.",
   };
   const HM_LABEL = { "": "nothing", cut: "Cut", surf: "Surf", strength: "Strength", rock_smash: "Rock Smash", waterfall: "Waterfall", dive: "Dive" };
   const margin_around_framed_route_in_cells = 6;
@@ -214,7 +212,6 @@
     mode: null, tool: "select", brush: 4, strength: 0.03, biome: "f", water: "sea",
     layers: { height: true, biome: true, water: true, routes: true, labels: true, townmap: true },
     sel: null, hover: null, drag: null, space: false, busy: false, unsaved: false, cursor: null,
-    step: -1, // route design B: beats done so far (-1 = new game)
     line: null, // the route being drawn: {source, waypoints, legs, cursor, target, flipped}
   };
   const cv = $("cv"), ctx = cv.getContext("2d"), wrap = $("wrap");
@@ -539,7 +536,7 @@
     (town_map ? draw_town_map_landmarks : drawLandmarks)(d, X, Y, z);
     if (st.mode !== "geography") (town_map ? draw_town_map_towns : drawCities)(d, X, Y, z);
     if (st.layers.labels) (town_map ? draw_town_map_labels : drawLabels)(d, X, Y, z);
-    if (st.mode === "story" || st.mode === "gates") drawBeats(d, X, Y, z);
+    if (st.mode === "story") drawBeats(d, X, Y, z);
     drawToolOverlay(d, X, Y, z);
   }
 
@@ -549,7 +546,7 @@
     const r = ED.routeByName(d, name);
     return r ? r.rect : null;
   }
-  // numbered story beats on their places; in route design B the ones not done yet are dimmed
+  // numbered story beats on their places
   function drawBeats(d, X, Y, z) {
     const fs = Math.round(Math.max(10, Math.min(16, z * 1.5)));
     const stacked = {};
@@ -558,8 +555,7 @@
       if (!rect) return;
       const k = stacked[b.at] = (stacked[b.at] || 0) + 1;
       const cx = X(rect[0]) + fs * (1.1 * k), cy = Y(rect[1]) + fs * 0.2;
-      const done = st.mode !== "gates" || i <= st.step;
-      ctx.fillStyle = done ? "#ffd65c" : "rgba(120,120,120,0.9)";
+      ctx.fillStyle = "#ffd65c";
       ctx.strokeStyle = "#141414";
       ctx.lineWidth = 1.5;
       ctx.beginPath();
@@ -577,10 +573,9 @@
   function drawRoutes(d, X, Y, z) {
     const selR = st.sel && st.sel.kind === "route" ? st.sel.id : null;
     const hovR = st.hover && st.hover.kind === "route" ? st.hover.id : null;
-    const reach = st.mode === "gates" ? ED.reachableAt(d, st.step) : null;
     for (const r of d.routes) {
       const [x0, y0, x1, y1] = r.rect;
-      const c = reach ? (reach.has(r.name) ? [110, 230, 120] : [230, 80, 70]) : ED.ROLE_RGB[r.role] || [255, 255, 255];
+      const c = ED.ROLE_RGB[r.role] || [255, 255, 255];
       const on = r.name === selR, hov = r.name === hovR;
       ctx.fillStyle = rgb(c, on ? 0.24 : hov ? 0.18 : 0.12);
       ctx.fillRect(X(x0), Y(y0), (x1 - x0) * z, (y1 - y0) * z);
@@ -680,34 +675,32 @@
     ctx.arcTo(x, y, x + width, y, r);
     ctx.closePath();
   }
-  function town_map_band_colors(r, reach) {
-    if (reach && !reach.has(r.name)) return { fill: "rgb(208,176,168)", edge: "rgb(150,104,96)" };
+  function town_map_band_colors(r) {
     if (r.mode === "sea") return { fill: "rgb(212,240,252)", edge: "rgb(92,148,206)" };
     return { fill: "rgb(248,202,140)", edge: "rgb(204,134,76)" };
   }
-  function stroke_route_bands(lines, X, Y, reach, band, rim, selected_name, hovered_name) {
+  function stroke_route_bands(lines, X, Y, band, rim, selected_name, hovered_name) {
     for (const line of lines) {
       const is_selected = line.route.name === selected_name, is_hovered = line.route.name === hovered_name;
-      ctx.strokeStyle = is_selected ? "#ffd65c" : is_hovered ? "#fff6d8" : town_map_band_colors(line.route, reach).edge;
+      ctx.strokeStyle = is_selected ? "#ffd65c" : is_hovered ? "#fff6d8" : town_map_band_colors(line.route).edge;
       ctx.lineWidth = band + 2 * rim + (is_selected ? 3 : 0);
       trace_polyline(line.points, X, Y);
       ctx.stroke();
     }
     for (const line of lines) {
-      ctx.strokeStyle = town_map_band_colors(line.route, reach).fill;
+      ctx.strokeStyle = town_map_band_colors(line.route).fill;
       ctx.lineWidth = band;
       trace_polyline(line.points, X, Y);
       ctx.stroke();
     }
   }
   function draw_town_map_routes(d, X, Y, z) {
-    const reach = st.mode === "gates" ? ED.reachableAt(d, st.step) : null;
     const selected_name = st.sel && st.sel.kind === "route" ? st.sel.id : null;
     const hovered_name = st.hover && st.hover.kind === "route" ? st.hover.id : null;
     const band = town_map_band_width(z);
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
-    stroke_route_bands(ED.town_map_route_lines(d), X, Y, reach, band, Math.max(1.5, band * 0.2), selected_name, hovered_name);
+    stroke_route_bands(ED.town_map_route_lines(d), X, Y, band, Math.max(1.5, band * 0.2), selected_name, hovered_name);
     ctx.lineCap = "butt";
     const r = selected_name && ED.routeByName(d, selected_name);
     if (r) draw_selected_town_map_route(d, r, X, Y, z);
@@ -830,9 +823,9 @@
     const crowds_a_town_name = st.doc.cities.some((c) => mx > c.rect[0] - 3 && mx < c.rect[2] + 3 && my > c.rect[1] - 3 && my < c.rect[3] + 3);
     if (crowds_a_town_name && !is_selected) return;
     town_map_label(r.name, X(mx), Y(my) - band / 2 - size * 0.7, size);
-    if (st.mode === "gates") {
-      const why = route_gate_summary(r);
-      town_map_label(why, X(mx), below, Math.round(size * 0.85), why === "open" ? "#2c6c34" : "#963228");
+    const gate = route_gate_summary(r);
+    if (gate !== "open") {
+      town_map_label(gate, X(mx), below, Math.round(size * 0.85), "#963228");
       return;
     }
     if (!is_selected) return;
@@ -903,10 +896,9 @@
         const [x0, y0, x1, y1] = r.rect;
         const cx = X((x0 + x1) / 2), cy = Y((y0 + y1) / 2);
         label(r.name, cx, cy - fs * 0.55, fs);
-        if (st.mode === "gates") {
-          const n = ED.routeNeeds(r), after = (r.gate || {}).after;
-          const why = [n ? "needs " + HM_LABEL[n] : "", after != null ? "after beat " + (after + 1) : ""].filter(Boolean).join(" · ") || "open";
-          label(why, cx, cy + fs * 0.55, Math.round(fs * 0.78), why === "open" ? "#b4f0b4" : "#ffb0a0");
+        const gate = route_gate_summary(r);
+        if (gate !== "open") {
+          label(gate, cx, cy + fs * 0.55, Math.round(fs * 0.78), "#ffb0a0");
         } else {
           label(r.role.replace(/_/g, " ") + (r.pinned ? " · pinned" : ""), cx, cy + fs * 0.55, Math.round(fs * 0.78), rgb(ED.ROLE_RGB[r.role] || [255, 255, 255]));
         }
@@ -1522,7 +1514,6 @@
     show_selection_panel_for(o);
     if (!o) { box.innerHTML = empty_selection_hint(); return; }
     if (st.mode === "story") return inspect_place_for_story(box, o);
-    if (st.sel.kind === "route" && st.mode === "gates") return inspect_route_gate(box, o);
     if (st.sel.kind === "route") return inspectRoute(box, o);
     const isCity = st.sel.kind === "city";
     box.append(el("h3", {}, o.name));
@@ -1615,6 +1606,9 @@
     wsel.onchange = () => edit("set weather", () => ED.setSpecField(r, "weather", wsel.value));
     box.append(row("Weather", wsel, "weather" in ov, () => edit("reset weather", () => ED.setSpecField(r, "weather", undefined))));
 
+    box.append(el("h2", { style: "margin-top:12px" }, "Gate"));
+    append_route_gate_controls(box, r);
+
     box.append(el("h2", { style: "margin-top:12px" }, "Exits"));
     const ul = el("ul", { class: "exits2" });
     r.exits.forEach((e, k) => {
@@ -1642,7 +1636,7 @@
     if (spec.error) box.append(el("p", { class: "warns" }, "spec: " + spec.error));
   }
 
-  // ------------------------------------------------------------ story + route design B
+  // ------------------------------------------------------------ story and route gates
   function hm_select(value, with_derived) {
     const s = el("select");
     if (with_derived) s.append(el("option", { value: "derived" }, "derived"));
@@ -1685,24 +1679,6 @@
     const box = $("storyBody");
     box.innerHTML = "";
     const story = st.doc.story || [];
-    st.step = Math.max(-1, Math.min(story.length - 1, st.step));
-    if (st.mode === "gates") {
-      $("storyTitle").textContent = "Where can you go";
-      const now = st.step < 0 ? "new game" : `after ${st.step + 1} ${story[st.step].name}`;
-      const d = el("div", { class: "slider" });
-      d.innerHTML = `<label for="ed-step"><span>Story step</span><output></output></label><input type="range" id="ed-step" min="-1" step="1">`;
-      d.querySelector("output").textContent = now;
-      const inp = d.querySelector("input");
-      inp.max = String(story.length - 1);
-      inp.value = String(st.step);
-      inp.oninput = () => { st.step = +inp.value; refresh_story(); draw(); };
-      box.append(d);
-      const reach = ED.reachableAt(st.doc, st.step);
-      const open = st.doc.routes.filter((r) => reach.has(r.name)).length;
-      box.append(el("p", { class: "sub" }, `${open} of ${st.doc.routes.length} routes reachable (green); red ones are gated or cut off behind a gate`));
-      if (!story.length) box.append(el("p", { class: "hint" }, "No story yet: everything counts from the first town. Write beats in the Story tab."));
-      return;
-    }
     $("storyTitle").textContent = "Story beats";
     if (!story.length) box.append(el("p", { class: "hint" }, "No beats yet. Pick a town or route on the map and add one. Beat 1 is where the game starts."));
     const ol = el("ol", { class: "beats" });
@@ -1732,9 +1708,7 @@
       box.append(wl);
     }
   }
-  function inspect_route_gate(box, r) {
-    box.append(el("h3", {}, r.name));
-    box.append(el("p", { class: "sub" }, `${r.mode} · ${r.role.replace(/_/g, " ")} · link ${r.link || "-"}`));
+  function append_route_gate_controls(box, r) {
     const g = r.gate || {};
     const hm = hm_select(g.needs != null ? g.needs : "derived", true);
     hm.querySelector('option[value="derived"]').textContent = "derived (" + HM_LABEL[r.mode === "sea" ? "surf" : ""] + ")";
@@ -1744,7 +1718,6 @@
     after.onchange = () => edit("set route opens", () => set_gate(r, "after", after.value === "" ? undefined : +after.value));
     box.append(row("Opens after", after, g.after != null, () => edit("reset gate", () => set_gate(r, "after", undefined))));
     box.append(el("p", { class: "hint" }, "Needs: the field move to get onto the route at all. Opens after: a story block (someone in the way until that beat). Setting either pins the route."));
-    box.append(el("p", { class: "sub" }, ED.reachableAt(st.doc, st.step).has(r.name) ? "reachable at this story step" : "not reachable at this story step"));
   }
   function set_gate(r, k, v) {
     r.gate = Object.assign({}, r.gate);
@@ -1776,7 +1749,7 @@
   function refresh_route_list() {
     const route_list_box = $("routeList");
     route_list_box.innerHTML = "";
-    if ((st.mode !== "region" && st.mode !== "gates") || !st.doc) return;
+    if (st.mode !== "region" || !st.doc) return;
     for (const route of st.doc.routes) route_list_box.append(make_route_list_button(route));
   }
   function make_route_list_button(route) {
@@ -1821,10 +1794,11 @@
     return is_rail_element_shown;
   }
   function set_editor_mode(mode_name) {
+    if (mode_name === "gates") mode_name = "region";
     st.mode = tools_shown_in_each_editor_mode[mode_name] ? mode_name : null;
     for (const rail_element of $$(".rail > *, .ed-tools > *")) rail_element.hidden = !is_rail_element_shown_in_current_mode(rail_element);
     $("title").textContent = editor_title_for_each_mode[st.mode] || "region editor";
-    $("routeListSection").hidden = st.mode !== "region" && st.mode !== "gates";
+    $("routeListSection").hidden = st.mode !== "region";
     $$('[data-layer="routes"]')[0].hidden = st.mode === "geography";
     $$('[data-layer="townmap"]')[0].hidden = st.mode === "geography";
     st.layers.routes = st.mode !== "geography";
