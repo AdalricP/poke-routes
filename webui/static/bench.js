@@ -1551,8 +1551,25 @@
     if (tab === "scene") updateTitle();
     $("tbStageGroup").hidden = tab !== "scene";
     $("tbTilerGroup").hidden = tab !== "scene";
-    $("tbGenerate").title = "Generate";
+    $("tbGenerate").textContent = generate_button_label_for_view(tab);
+    $("tbGenerate").title = generate_button_label_for_view(tab);
     syncNonSceneToolbar();
+  }
+  function generate_button_label_for_view(center_tab) {
+    switch (center_tab) {
+      case "geography":
+        return "Generate geography";
+      case "region":
+      case "story":
+      case "gates":
+        return "Generate routes";
+      default:
+        return "Generate";
+    }
+  }
+  function is_routes_view() {
+    const routes_view_is_open = ["region", "story", "gates"].includes(Shell.layout.center);
+    return routes_view_is_open;
   }
   function syncNonSceneToolbar() {
     if (isScene()) return;
@@ -1568,7 +1585,9 @@
   function doGenerate() {
     if (isScene()) { generate(); return; }
     const ea = region_editor();
-    if (ea) ea.generate();
+    if (!ea) return;
+    if (is_routes_view()) { ea.recompute("routes"); return; }
+    ea.generate();
   }
   function doRegenerate() {
     if (isScene()) { regenerate(); return; }
