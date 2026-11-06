@@ -2074,8 +2074,9 @@
     { id: "x-zout", label: "Zoom out", group: "Scene view", enabled: sceneRoute, run: () => zoomBy(-1) },
     { id: "x-zfit", label: "Fit to view", group: "Scene view", enabled: sceneRoute, run: fit },
     { id: "x-help", label: "Keyboard shortcuts", group: "Help", enabled: isScene, run: () => Shell.showShortcuts() },
-    { id: "x-ledge-rot", label: "Rotate ledge direction", group: "Scene tools",
-      enabled: () => isScene() && state.tool === "paint" && state.brush === LEDGE_BRUSH, run: rotateLedgeDir },
+    { id: "x-ledge-rot", label: "Rotate ledge or fence", group: "Scene tools",
+      enabled: () => isScene() && state.tool === "paint" && (state.brush === LEDGE_BRUSH || is_rotatable_object_selected()),
+      run: () => (state.brush === LEDGE_BRUSH ? rotateLedgeDir() : rotate_selected_object()) },
   ];
 
   // ------------------------------------------------------------ wiring
@@ -2356,21 +2357,66 @@
 
   function terrain_buttons(group_name) {
     const painting = state.tool === "paint";
-    return state.palette.terrain.filter((entry) => entry.group === group_name).map((entry) => {
-      if (group_name === "ledges") {
-        const is_on = painting && state.brush === LEDGE_BRUSH && state.ledgeDir === entry.code;
-        return palette_button(LEDGE_BRUSH, entry.name, `Paint ${entry.name} (R turns the ledge)`, sample_rows(entry), is_on, () => choose_ledge(entry.code));
-      }
-      return palette_button(entry.code, entry.name, `Paint ${entry.name}`, sample_rows(entry), painting && state.brush === entry.code, () => choose_brush(entry.code));
-    });
+    const entries_in_group = state.palette.terrain.filter((entry) => entry.group === group_name);
+    if (group_name === "ledges") return single_ledge_button(entries_in_group, painting);
+    return entries_in_group.map((entry) => palette_button(entry.code, entry.name, `Paint ${entry.name}`, sample_rows(entry), painting && state.brush === entry.code, () => choose_brush(entry.code)));
+  }
+
+  function single_ledge_button(ledge_entries, painting) {
+    if (!ledge_entries.length) return [];
+    const current_ledge = ledge_entries.find((entry) => entry.code === state.ledgeDir) || ledge_entries[0];
+    const ledge_is_selected = painting && state.brush === LEDGE_BRUSH;
+    const ledge_button = palette_button(LEDGE_BRUSH, current_ledge.name, `Paint ${current_ledge.name}; click again or press R to turn it`, sample_rows(current_ledge), ledge_is_selected,
+      () => (ledge_is_selected ? rotateLedgeDir() : choose_ledge(current_ledge.code)));
+    return [ledge_button];
+  }
+
+  const rotatable_object_suffixes = ["_h", "_v"];
+
+  function rotatable_object_base(object_id) {
+    const suffix = rotatable_object_suffixes.find((candidate_suffix) => object_id.endsWith(candidate_suffix));
+    const object_base = suffix ? object_id.slice(0, -suffix.length) : null;
+    return object_base;
+  }
+
+  function is_rotatable_object_group(object_base) {
+    const ids = state.palette.objects.map((entry) => entry.id);
+    const group_has_both_orientations = rotatable_object_suffixes.every((suffix) => ids.includes(object_base + suffix));
+    return group_has_both_orientations;
+  }
+
+  function rotate_selected_object() {
+    const object_id = state.brush.startsWith("object:") ? state.brush.slice("object:".length) : "";
+    const object_base = rotatable_object_base(object_id);
+    if (!object_base || !is_rotatable_object_group(object_base)) return;
+    const next_suffix = object_id.endsWith("_h") ? "_v" : "_h";
+    choose_brush("object:" + object_base + next_suffix);
+  }
+
+  function is_rotatable_object_selected() {
+    const object_id = state.brush.startsWith("object:") ? state.brush.slice("object:".length) : "";
+    const object_base = rotatable_object_base(object_id);
+    return !!object_base && is_rotatable_object_group(object_base);
+  }
+
+  function object_button(entry, painting) {
+    const brush = "object:" + entry.id, size = `${entry.cells[0].length}×${entry.cells.length}`;
+    const object_base = rotatable_object_base(entry.id);
+    const is_rotatable = !!object_base && is_rotatable_object_group(object_base);
+    if (!is_rotatable) return palette_button(brush, entry.name, `Place ${entry.name} (${size}, exact tiles with their own collision)`, entry.cells, painting && state.brush === brush, () => choose_brush(brush));
+    const selected_variant = state.brush.startsWith("object:" + object_base + "_") ? state.brush.slice("object:".length) : object_base + "_h";
+    const shown_entry = state.palette.objects.find((candidate) => candidate.id === selected_variant) || entry;
+    const group_is_selected = painting && state.brush === "object:" + shown_entry.id;
+    const group_name = object_base.replace(/_/g, " ");
+    const direction_name = shown_entry.id.endsWith("_v") ? "down" : "across";
+    return palette_button("object:" + shown_entry.id, `${group_name} (${direction_name})`, `Place ${group_name}; click again or press R to switch across/down`, shown_entry.cells, group_is_selected,
+      () => (group_is_selected ? rotate_selected_object() : choose_brush("object:" + shown_entry.id)));
   }
 
   function object_buttons() {
     const painting = state.tool === "paint";
-    const objects = state.palette.objects.map((entry) => {
-      const brush = "object:" + entry.id, size = `${entry.cells[0].length}×${entry.cells.length}`;
-      return palette_button(brush, entry.name, `Place ${entry.name} (${size}, exact tiles with their own collision)`, entry.cells, painting && state.brush === brush, () => choose_brush(brush));
-    });
+    const shown_object_entries = state.palette.objects.filter((entry) => !(entry.id.endsWith("_v") && is_rotatable_object_group(rotatable_object_base(entry.id))));
+    const objects = shown_object_entries.map((entry) => object_button(entry, painting));
     if (state.palette.tiler !== "learned") return objects;
     const stamps = Object.entries(SL.STAMPS).map(([stamp_name, stamp]) => {
       const brush = "stamp:" + stamp_name;
