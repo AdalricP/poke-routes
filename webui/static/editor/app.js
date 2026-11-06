@@ -206,9 +206,58 @@
     sel: null, hover: null, drag: null, space: false, busy: false, unsaved: false, cursor: null,
     open_route: null,
   };
-  const cv = $("cv"), ctx = cv.getContext("2d"), wrap = $("wrap");
-  const base = document.createElement("canvas"), bctx = base.getContext("2d");
-  let baseImg = null, shade = null, riverSegs = null, sea_distance = null, town_map_river_segments = null;
+  let cv = null, ctx = null, wrap = null, base = null, bctx = null, baseImg = null;
+  let shade = null, riverSegs = null, sea_distance = null, town_map_river_segments = null;
+  const BESIDE_VIEW_MARKUP = '<div class="ed docked"><main class="ed-map"><canvas></canvas><div class="status"></div></main></div>';
+  function make_render_target(map_element, canvas_element, status_element) {
+    const base_canvas = document.createElement("canvas");
+    const render_target = {
+      wrap: map_element, canvas: canvas_element, context: canvas_element.getContext("2d"), status_element,
+      base_canvas, base_context: base_canvas.getContext("2d"), base_image: null,
+      is_shown: true, mode: st.mode, camera: Object.assign({}, st.view), layers: Object.assign({}, st.layers), tool: st.tool,
+    };
+    return render_target;
+  }
+  function make_beside_render_target(beside_view_element) {
+    beside_view_element.innerHTML = BESIDE_VIEW_MARKUP;
+    const beside_map_element = beside_view_element.querySelector(".ed-map");
+    const beside_render_target = make_render_target(beside_map_element, beside_map_element.querySelector("canvas"), beside_map_element.querySelector(".status"));
+    beside_render_target.is_shown = false;
+    return beside_render_target;
+  }
+  const main_render_target = make_render_target($("wrap"), $("cv"), $("status"));
+  const beside_render_target = host && host.beside_view ? make_beside_render_target(host.beside_view) : null;
+  const render_targets = [main_render_target, beside_render_target].filter(Boolean);
+  let bound_render_target = null;
+  let focused_render_target = main_render_target;
+  let pointer_down_only_moved_focus = false;
+  function store_state_of_bound_render_target() {
+    Object.assign(bound_render_target, { camera: st.view, layers: st.layers, mode: st.mode, tool: st.tool, base_image: baseImg });
+  }
+  function bind_render_target(render_target) {
+    if (bound_render_target) store_state_of_bound_render_target();
+    bound_render_target = render_target;
+    cv = render_target.canvas;
+    ctx = render_target.context;
+    wrap = render_target.wrap;
+    base = render_target.base_canvas;
+    bctx = render_target.base_context;
+    baseImg = render_target.base_image;
+    Object.assign(st, { view: render_target.camera, layers: render_target.layers, mode: render_target.mode, tool: render_target.tool });
+  }
+  function with_render_target(render_target, action) {
+    const previously_bound_render_target = bound_render_target;
+    bind_render_target(render_target);
+    try { return action(); } finally { bind_render_target(previously_bound_render_target); }
+  }
+  function shown_render_targets() {
+    const targets_on_screen = render_targets.filter((render_target) => render_target.is_shown);
+    return targets_on_screen;
+  }
+  function for_each_shown_render_target(action) {
+    for (const render_target of shown_render_targets()) with_render_target(render_target, action);
+  }
+  bind_render_target(main_render_target);
   const RELIEF_EXAGGERATION = 14;
 
   // ------------------------------------------------------------ server
@@ -396,27 +445,36 @@
   // ------------------------------------------------------------ base raster
   function rebuildBase() {
     const d = st.doc;
+    shade = ED.shadeGrid(d.grids.height, d.W, d.H, RELIEF_EXAGGERATION);
+    riverSegs = null;
+    for_each_shown_render_target(rebuild_base_of_bound_view);
+    draw();
+  }
+  function rebuild_base_of_bound_view() {
+    const d = st.doc;
     base.width = d.W * S;
     base.height = d.H * S;
     baseImg = bctx.createImageData(base.width, base.height);
-    shade = ED.shadeGrid(d.grids.height, d.W, d.H, RELIEF_EXAGGERATION);
     sea_distance = town_map_shown() ? ED.sea_distance_to_land(d, 3) : null;
     town_map_river_segments = town_map_shown() ? ED.river_segments_by_cell(d) : null;
     paint_base_cells(d, null);
     bctx.putImageData(baseImg, 0, 0);
-    riverSegs = null;
-    draw();
   }
   function updateBase(rect) {
     const d = st.doc;
     const r = [Math.max(0, rect[0] - 2), Math.max(0, rect[1] - 2), Math.min(d.W, rect[2] + 2), Math.min(d.H, rect[3] + 2)];
     shade = ED.shadeGrid(d.grids.height, d.W, d.H, RELIEF_EXAGGERATION);
+    riverSegs = null;
+    for_each_shown_render_target(() => update_base_of_bound_view(r));
+    draw();
+  }
+  function update_base_of_bound_view(cell_rect) {
+    const d = st.doc;
+    if (!baseImg) { rebuild_base_of_bound_view(); return; }
     if (town_map_shown()) sea_distance = ED.sea_distance_to_land(d, 3);
     if (town_map_shown()) town_map_river_segments = ED.river_segments_by_cell(d);
-    paint_base_cells(d, r);
-    bctx.putImageData(baseImg, 0, 0, r[0] * S, r[1] * S, (r[2] - r[0]) * S, (r[3] - r[1]) * S);
-    riverSegs = null;
-    draw();
+    paint_base_cells(d, cell_rect);
+    bctx.putImageData(baseImg, 0, 0, cell_rect[0] * S, cell_rect[1] * S, (cell_rect[2] - cell_rect[0]) * S, (cell_rect[3] - cell_rect[1]) * S);
   }
   function town_map_shown() { return !!st.layers.townmap && st.mode !== "geography"; }
   function paint_base_cells(d, cell_rect) {
@@ -452,11 +510,17 @@
 
   // ------------------------------------------------------------ view
   function resize() {
+    render_targets.forEach((render_target) => with_render_target(render_target, resize_bound_view_canvas));
+    draw();
+  }
+  function resize_bound_view_canvas() {
     const dpr = window.devicePixelRatio || 1;
     const r = wrap.getBoundingClientRect();
     cv.width = Math.max(1, Math.round(r.width * dpr));
     cv.height = Math.max(1, Math.round(r.height * dpr));
-    draw();
+  }
+  function fit_every_view() {
+    for_each_shown_render_target(fit);
   }
   function fit() {
     if (!st.doc) return;
@@ -478,15 +542,16 @@
 
   // ------------------------------------------------------------ drawing
   let raf = 0;
-  function draw() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; paint(); }); }
+  function draw() { if (!raf) raf = requestAnimationFrame(() => { raf = 0; for_each_shown_render_target(paint); }); }
+  function is_bound_view_focused() { return bound_render_target === focused_render_target; }
   function rgb(c, a) { return a == null ? `rgb(${c[0]},${c[1]},${c[2]})` : `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
 
   function paint() {
     const dpr = window.devicePixelRatio || 1;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, cv.width, cv.height);
-    $("zLbl").textContent = `${(st.view.z / 6).toFixed(st.view.z < 6 ? 2 : 1)}x`;
-    if (host && host.onView) host.onView();
+    if (is_bound_view_focused()) $("zLbl").textContent = `${(st.view.z / 6).toFixed(st.view.z < 6 ? 2 : 1)}x`;
+    if (is_bound_view_focused() && host && host.onView) host.onView();
     const d = st.doc;
     if (!d) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -515,8 +580,44 @@
     if (st.mode !== "geography") (town_map ? draw_town_map_towns : drawCities)(d, X, Y, z);
     if (st.layers.labels) (town_map ? draw_town_map_labels : drawLabels)(d, X, Y, z);
     if (st.mode === "story") drawBeats(d, X, Y, z);
-    if (st.mode !== "geography") draw_route_open_in_routes_view(d, X, Y, z);
-    drawToolOverlay(d, X, Y, z);
+    if (st.mode === "geography") draw_map_selection_on_geography(d, X, Y, z);
+    draw_route_open_in_routes_view(d, X, Y, z);
+    if (is_bound_view_focused()) drawToolOverlay(d, X, Y, z);
+  }
+
+  function draw_map_selection_on_geography(d, X, Y, z) {
+    const selected_place = findSel(st.sel);
+    if (!selected_place) return;
+    if (st.sel.kind === "route") draw_selected_route_line_on_geography(selected_place, X, Y, z);
+    if (st.sel.kind === "city") draw_selected_town_outline_on_geography(selected_place, X, Y, z);
+  }
+  function draw_selected_route_line_on_geography(route, X, Y, z) {
+    const grid = map_grid();
+    const route_lines = MAP_GRID.metro_lines_of_route(grid, route).filter((line) => line.length > 1);
+    const line_width_in_pixels = Math.max(2, metro_line_width(z) * 0.5);
+    ctx.save();
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    for (const [stroke_colour, stroke_width] of [["rgba(20,20,20,0.6)", line_width_in_pixels + 3], ["#ffd65c", line_width_in_pixels]]) {
+      ctx.strokeStyle = stroke_colour;
+      ctx.lineWidth = stroke_width;
+      for (const line of route_lines) { trace_metro_line(line, X, Y, line_width_in_pixels * 1.6); ctx.stroke(); }
+    }
+    ctx.restore();
+  }
+  function draw_selected_town_outline_on_geography(town, X, Y, z) {
+    const grid = map_grid();
+    const pieces = MAP_GRID.station_pieces_of_town(grid, town, station_inset(grid));
+    if (!pieces.length) return;
+    ctx.save();
+    trace_station_pieces(pieces, X, Y, z, 0);
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "rgba(20,20,20,0.6)";
+    ctx.stroke();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = "#ffd65c";
+    ctx.stroke();
+    ctx.restore();
   }
 
   // the route the Routes view has open: a bright frame and its name, so it can be found while walking exits
@@ -555,8 +656,11 @@
   function set_open_route(route_name) {
     st.open_route = route_name || null;
     const open_route = st.doc && st.open_route && ED.routeByName(st.doc, st.open_route);
-    if (open_route && wrap.getBoundingClientRect().width && !is_cell_rect_in_view(open_route.rect)) center_cell_rect_in_view(open_route.rect);
+    if (open_route) for_each_shown_render_target(() => bring_cell_rect_into_bound_view(open_route.rect));
     draw();
+  }
+  function bring_cell_rect_into_bound_view(cell_rect) {
+    if (wrap.getBoundingClientRect().width && !is_cell_rect_in_view(cell_rect)) center_cell_rect_in_view(cell_rect);
   }
 
   function place_rect_by_name(d, name) {
@@ -1012,8 +1116,7 @@
   }
 
   // ------------------------------------------------------------ pointer input
-  wrap.addEventListener("contextmenu", (e) => e.preventDefault());
-  wrap.addEventListener("pointerdown", (ev) => {
+  function start_pointer_gesture(ev) {
     if (!st.doc || st.busy || (ev.target.closest && ev.target.closest(".toolbar"))) return;
     const [sx, sy] = local(ev);
     wrap.setPointerCapture(ev.pointerId);
@@ -1038,7 +1141,7 @@
     // select tool
     const h = hitSelect(sx, sy);
     if (!h) {
-      st.sel = null;
+      if (!pointer_down_only_moved_focus) st.sel = null;
       refreshInspector();
       st.drag = { kind: "pan", sx, sy, ox: st.view.ox, oy: st.view.oy, click: true };
       draw();
@@ -1050,9 +1153,9 @@
       st.drag = { kind: "move", sel: st.sel, cx: Math.floor(c.fx), cy: Math.floor(c.fy), s: null };
     }
     draw();
-  });
+  }
 
-  wrap.addEventListener("pointermove", (ev) => {
+  function follow_pointer(ev) {
     if (!st.doc) return;
     const [sx, sy] = local(ev);
     const c = toCell(sx, sy);
@@ -1098,7 +1201,7 @@
     wrap.style.cursor = st.space ? "grab" : is_painting_tool ? "crosshair" :
       h && h.kind === "landmark" && modes_that_move_places.has(st.mode) ? "move" : h ? "pointer" : "default";
     status(c);
-  });
+  }
 
   function endDrag() {
     const dr = st.drag;
@@ -1117,21 +1220,40 @@
       if (dr.changed) commit("move " + dr.sel.kind, "places");
     }
   }
-  wrap.addEventListener("pointerup", endDrag);
-  wrap.addEventListener("pointercancel", endDrag);
-  wrap.addEventListener("pointerleave", () => { st.cursor = null; st.hover = null; $("status").textContent = ""; draw(); });
-  wrap.addEventListener("wheel", (ev) => {
+  function forget_pointer() {
+    st.cursor = null;
+    st.hover = null;
+    focused_render_target.status_element.textContent = "";
+    draw();
+  }
+  function zoom_view_under_wheel(render_target, ev) {
     ev.preventDefault();
-    const [sx, sy] = local(ev);
-    zoomAt(Math.exp(-ev.deltaY * 0.0015), sx, sy);
-  }, { passive: false });
-  wrap.addEventListener("dblclick", (ev) => {
+    with_render_target(render_target, () => zoomAt(Math.exp(-ev.deltaY * 0.0015), ...local(ev)));
+  }
+  function open_route_under_pointer(ev) {
     if (!st.doc || st.tool !== "select" || !is_place_kind_selectable_in_current_mode("route")) return;
     const [sx, sy] = local(ev);
     const { fx, fy } = toCell(sx, sy);
     const p = ED.placeAt(st.doc, fx, fy, { noLandmarks: true });
     if (p && p.kind === "route") openInBench(p.obj);
-  });
+  }
+  function start_pointer_gesture_in_focused_view(ev) {
+    start_pointer_gesture(ev);
+    pointer_down_only_moved_focus = false;
+  }
+  function listen_for_pointer_input_on(render_target) {
+    const only_while_focused = (handler) => (ev) => { if (render_target === focused_render_target) handler(ev); };
+    const map_element = render_target.wrap;
+    map_element.addEventListener("contextmenu", (ev) => ev.preventDefault());
+    map_element.addEventListener("pointerdown", only_while_focused(start_pointer_gesture_in_focused_view));
+    map_element.addEventListener("pointermove", only_while_focused(follow_pointer));
+    map_element.addEventListener("pointerup", only_while_focused(endDrag));
+    map_element.addEventListener("pointercancel", only_while_focused(endDrag));
+    map_element.addEventListener("pointerleave", only_while_focused(forget_pointer));
+    map_element.addEventListener("wheel", (ev) => zoom_view_under_wheel(render_target, ev), { passive: false });
+    map_element.addEventListener("dblclick", only_while_focused(open_route_under_pointer));
+  }
+  render_targets.forEach(listen_for_pointer_input_on);
 
   function dab(fx, fy, moving) {
     const d = st.doc, dr = st.drag;
@@ -1155,14 +1277,14 @@
   function status(c) {
     const d = st.doc;
     const x = Math.floor(c.fx), y = Math.floor(c.fy);
-    if (x < 0 || y < 0 || x >= d.W || y >= d.H) { $("status").textContent = ""; return; }
+    if (x < 0 || y < 0 || x >= d.W || y >= d.H) { focused_render_target.status_element.textContent = ""; return; }
     const i = y * d.W + x, g = d.grids;
     const b = String.fromCharCode(g.biome[i]);
     const bits = [`x ${x}  y ${y}`, `h ${g.height[i].toFixed(3)}`, ED.BIOME_NAMES[b] || b];
     if (g.tiers) bits.push(`tier ${g.tiers[i]}`);
     if (g.river[i]) bits.push("river");
     if (g.paint_biome[i] || g.paint_water[i]) bits.push("hand-painted");
-    $("status").textContent = bits.join("  ·  ");
+    focused_render_target.status_element.textContent = bits.join("  ·  ");
   }
 
   // ------------------------------------------------------------ bench drill-down
@@ -1285,7 +1407,7 @@
     refresh_tree();
     const box = $("insp");
     box.innerHTML = "";
-    const o = findSel(st.sel);
+    const o = inspected_place();
     show_selection_panel_for(o);
     focus_side_folds();
     if (!o) return;
@@ -1303,6 +1425,11 @@
     box.append(el("p", { class: "sub" }, pos));
     if (o.story || o.note) box.append(el("p", { class: "story" }, o.story || o.note));
   }
+  function inspected_place() {
+    const selected_place = findSel(st.sel);
+    if (!selected_place || !is_place_kind_selectable_in_current_mode(st.sel.kind)) return null;
+    return selected_place;
+  }
   function show_selection_panel_for(selected_object) {
     const selection_title = selected_object ? ({ route: "Route", city: "Town", landmark: "Landmark" }[st.sel.kind] || "Selection") : "Selection";
     const title_element = $("inspTitle");
@@ -1317,7 +1444,7 @@
   function focus_side_folds() {
     if (!host || !host.side.childElementCount) return;
     const brush_in_hand = BRUSH_TOOLS.has(st.tool);
-    const has_selection = !!findSel(st.sel);
+    const has_selection = !!inspected_place();
     const has_stale_stage = !!st.doc && st.doc.stale.some(is_stage_shown_in_current_mode);
     const visible_folds = { region: !brush_in_hand && !has_selection, selection: !brush_in_hand && has_selection, tool: brush_in_hand, story: false, stages: has_stale_stage };
     for (const [fold_name, is_visible] of Object.entries(visible_folds)) {
@@ -1548,20 +1675,53 @@
     const is_rail_element_shown = (rail_element.dataset.modes || "").split(" ").includes(st.mode);
     return is_rail_element_shown;
   }
+  function editor_mode_named(mode_name) {
+    const known_mode_name = mode_name === "gates" ? "region" : mode_name;
+    const editor_mode = tools_shown_in_each_editor_mode[known_mode_name] ? known_mode_name : null;
+    return editor_mode;
+  }
+  function set_mode_of_bound_view(mode_name) {
+    const editor_mode = editor_mode_named(mode_name);
+    if (editor_mode === st.mode) return;
+    st.mode = editor_mode;
+    st.layers.routes = st.mode !== "geography";
+    st.layers.townmap = st.mode !== "geography";
+    if (!is_tool_available_in_current_mode(st.tool)) st.tool = "select";
+  }
+  function focus_render_target(render_target) {
+    if (render_target === focused_render_target) return;
+    focused_render_target = render_target;
+    pointer_down_only_moved_focus = true;
+    bind_render_target(render_target);
+    st.cursor = null;
+    st.drag = null;
+  }
+  function is_place_kind_selectable_in_a_shown_view(place_kind) {
+    const is_selectable_somewhere = shown_render_targets().some((render_target) => !render_target.mode || place_kinds_selectable_in_each_editor_mode[render_target.mode].includes(place_kind));
+    return is_selectable_somewhere;
+  }
+  function set_view_modes(main_view_mode, beside_view_mode, focused_view_mode) {
+    with_render_target(main_render_target, () => set_mode_of_bound_view(main_view_mode));
+    if (beside_render_target) {
+      beside_render_target.is_shown = !!editor_mode_named(beside_view_mode);
+      with_render_target(beside_render_target, () => set_mode_of_bound_view(beside_view_mode));
+    }
+    const is_beside_view_focused = !!beside_render_target && beside_render_target.is_shown && editor_mode_named(focused_view_mode) === beside_render_target.mode;
+    focus_render_target(is_beside_view_focused ? beside_render_target : main_render_target);
+    show_tools_and_panels_of_focused_view();
+  }
   function set_editor_mode(mode_name) {
-    if (mode_name === "gates") mode_name = "region";
-    st.mode = tools_shown_in_each_editor_mode[mode_name] ? mode_name : null;
+    set_view_modes(mode_name, null, mode_name);
+  }
+  function show_tools_and_panels_of_focused_view() {
     for (const rail_element of $$(".rail > *, .ed-tools > *")) rail_element.hidden = !is_rail_element_shown_in_current_mode(rail_element);
     $("title").textContent = editor_title_for_each_mode[st.mode] || "region editor";
     $("routeListSection").hidden = st.mode !== "region";
     for (const geography_only_row of document.querySelectorAll("[data-geography-only]")) geography_only_row.hidden = st.mode !== "geography" && st.mode !== null;
     $$('[data-layer="routes"]')[0].hidden = st.mode === "geography";
     $$('[data-layer="townmap"]')[0].hidden = st.mode === "geography";
-    st.layers.routes = st.mode !== "geography";
-    st.layers.townmap = st.mode !== "geography";
     $$("[data-layer]").forEach((b) => b.classList.toggle("on", st.layers[b.dataset.layer]));
-    if (!is_tool_available_in_current_mode(st.tool)) st.tool = "select";
-    if (st.sel && !is_place_kind_selectable_in_current_mode(st.sel.kind)) st.sel = null;
+    if (st.sel && !is_place_kind_selectable_in_a_shown_view(st.sel.kind)) st.sel = null;
     st.hover = null;
     refreshTool();
     refreshInspector();
@@ -1774,7 +1934,7 @@
   // ------------------------------------------------------------ boot
   set_editor_mode(opts.mode);
   const ro = new ResizeObserver(resize);
-  ro.observe(wrap);
+  render_targets.forEach((render_target) => ro.observe(render_target.wrap));
   resize();
   refreshAll();
   listSaved();
@@ -1790,6 +1950,7 @@
     generate_map, set_open_route,
     set_paint_biome: (biome_code) => { st.biome = biome_code; setTool("biome"); refreshTool(); },
     paint_biome: () => st.biome,
+    set_view_modes, fit_every_view,
     tools: Object.keys(TOOLS), layers: () => Object.assign({}, st.layers),
     zoomIn: () => $("zIn").onclick(), zoomOut: () => $("zOut").onclick(), getZoomPct: () => Math.round(st.view.z / 6 * 100),
     getDoc: () => st.doc, isUnsaved: () => st.unsaved,
@@ -1799,6 +1960,7 @@
       ro.disconnect();
       for (const [t, type, fn, o] of listeners) t.removeEventListener(type, fn, o);
       root.innerHTML = "";
+      if (beside_render_target) host.beside_view.innerHTML = "";
     },
   };
   }

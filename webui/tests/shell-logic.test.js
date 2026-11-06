@@ -215,7 +215,7 @@ test("a saved layout on the old Routes B or Story tab opens the Map tab, keeping
   assert.ok(!SL.CENTER_TABS.includes("story"));
 });
 
-test("split centre: Routes beside one region view, dropped left or right, kept through activation", () => {
+test("split centre: Routes beside a region view, dropped left or right, kept through activation", () => {
   const layout = SL.defaultLayout();
   assert.deepStrictEqual(SL.center_tabs_shown(layout), ["scene"]);
   const map_on_left = SL.split_after_center_tab_drop(layout, "region", "left");
@@ -225,7 +225,9 @@ test("split centre: Routes beside one region view, dropped left or right, kept t
   assert.strictEqual(SL.split_after_center_tab_drop(layout, "scene", "middle"), null);
   assert.deepStrictEqual(SL.split_after_activating_tab(map_on_left, "geography"), { left: "geography", right: "scene", ratio: 0.5 });
   assert.strictEqual(SL.split_after_activating_tab(map_on_left, "scene"), map_on_left);
-  assert.strictEqual(SL.sanitize_center_split({ left: "region", right: "geography" }), null, "two region views share one editor");
+  assert.deepStrictEqual(SL.sanitize_center_split({ left: "region", right: "geography" }), { left: "region", right: "geography", ratio: 0.5 });
+  assert.strictEqual(SL.sanitize_center_split({ left: "region", right: "region" }), null, "one view cannot sit beside itself");
+  assert.strictEqual(SL.sanitize_center_split({ left: "region", right: "nowhere" }), null);
   assert.deepStrictEqual(SL.sanitize_center_split({ left: "scene", right: "story", ratio: 2 }), { left: "scene", right: "region", ratio: 0.8 });
   const restored = SL.sanitizeLayout({ v: 1, center: "geography", split: { left: "scene", right: "region", ratio: 0.4 } });
   assert.strictEqual(restored.center, "scene", "the active tab is one of the shown ones");
@@ -233,6 +235,38 @@ test("split centre: Routes beside one region view, dropped left or right, kept t
   assert.strictEqual(SL.center_drop_side(10, 0, 300), "left");
   assert.strictEqual(SL.center_drop_side(150, 0, 300), "middle");
   assert.strictEqual(SL.center_drop_side(290, 0, 300), "right");
+});
+
+test("split centre: Map beside Geography, dropped from either single view or an existing split", () => {
+  const geography_alone = Object.assign(SL.defaultLayout(), { center: "geography" });
+  const map_on_right_of_geography = SL.split_after_center_tab_drop(geography_alone, "region", "right");
+  assert.deepStrictEqual(map_on_right_of_geography, { left: "geography", right: "region", ratio: 0.5 });
+  const geography_on_left_of_map = SL.split_after_center_tab_drop(Object.assign(SL.defaultLayout(), { center: "region" }), "geography", "left");
+  assert.deepStrictEqual(geography_on_left_of_map, { left: "geography", right: "region", ratio: 0.5 });
+  const routes_beside_map = Object.assign(SL.defaultLayout(), { center: "scene", split: { left: "scene", right: "region", ratio: 0.4 } });
+  assert.deepStrictEqual(SL.split_after_center_tab_drop(routes_beside_map, "geography", "left"), { left: "geography", right: "region", ratio: 0.4 }, "replaces the side it lands on");
+  assert.deepStrictEqual(SL.split_after_center_tab_drop(routes_beside_map, "geography", "right"), { left: "scene", right: "geography", ratio: 0.4 });
+  assert.deepStrictEqual(SL.split_after_center_tab_drop(routes_beside_map, "region", "left"), { left: "region", right: "scene", ratio: 0.4 }, "dropping a shown tab on the other side swaps them");
+  const map_alone = Object.assign(SL.defaultLayout(), { center: "region" });
+  assert.deepStrictEqual(SL.split_after_center_tab_drop(map_alone, "region", "left"), { left: "region", right: "scene", ratio: 0.5 }, "a lone view dragged aside gets Routes beside it");
+});
+
+test("split centre: activating a hidden tab keeps the focused view and Routes where they are", () => {
+  const geography_beside_map = { left: "geography", right: "region", ratio: 0.5 };
+  assert.deepStrictEqual(SL.split_after_activating_tab(geography_beside_map, "scene", "region"), { left: "scene", right: "region", ratio: 0.5 });
+  assert.deepStrictEqual(SL.split_after_activating_tab(geography_beside_map, "scene", "geography"), { left: "geography", right: "scene", ratio: 0.5 });
+  assert.strictEqual(SL.split_after_activating_tab(geography_beside_map, "geography", "region"), geography_beside_map);
+  const routes_beside_map = { left: "scene", right: "region", ratio: 0.5 };
+  assert.deepStrictEqual(SL.split_after_activating_tab(routes_beside_map, "geography", "scene"), { left: "scene", right: "geography", ratio: 0.5 });
+  assert.deepStrictEqual(SL.split_after_activating_tab(routes_beside_map, "geography", "region"), { left: "scene", right: "geography", ratio: 0.5 });
+});
+
+test("split centre: each view element shows one tab, never the same tab twice", () => {
+  const view_tab_lists = [["scene"], ["geography", "region"], ["region", "geography"]];
+  assert.deepStrictEqual(SL.center_tab_of_each_view(view_tab_lists, ["geography", "region"]), [null, "geography", "region"]);
+  assert.deepStrictEqual(SL.center_tab_of_each_view(view_tab_lists, ["region", "geography"]), [null, "geography", "region"]);
+  assert.deepStrictEqual(SL.center_tab_of_each_view(view_tab_lists, ["scene", "region"]), ["scene", "region", null]);
+  assert.deepStrictEqual(SL.center_tab_of_each_view(view_tab_lists, ["geography"]), [null, "geography", null]);
 });
 
 test("rects tile the window without overlap (default, 1440x900)", () => {

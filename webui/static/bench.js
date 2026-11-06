@@ -2066,19 +2066,22 @@
   // its places and layers in the Hierarchy, its panels in the Inspector, its messages in the Console.
   let region_editor_actions = null;
   function region_editor() { return region_editor_actions; }
-  function show_region_editor_in_mode(mode_name) {
-    if (region_editor_actions) { region_editor_actions.set_editor_mode(mode_name); return; }
+  function show_region_editor_views() {
+    const main_view_mode = Shell.center_tab_shown_in($("viewMap"));
+    const beside_view_mode = Shell.center_tab_shown_in($("viewMapBeside"));
+    if (region_editor_actions) { region_editor_actions.set_view_modes(main_view_mode, beside_view_mode, Shell.layout.center); return; }
     const seed_of_last_region = sget("pokeroutes-shell-region-seed") || Math.floor(Math.random() * 100000);
     region_editor_actions = PREditor.init($("viewMap"), {
-      mode: mode_name, seed: seed_of_last_region, onOpenRoute: openInBench,
+      mode: main_view_mode, seed: seed_of_last_region, onOpenRoute: openInBench,
       host: {
-        tools: $("tbMapTools"), side: $("mapInspector"), tree: $("mapTree"),
+        tools: $("tbMapTools"), side: $("mapInspector"), tree: $("mapTree"), beside_view: $("viewMapBeside"),
         filter: () => $("hierFilter").value, icons: { eye: EYE, eye_off: EYE_OFF },
         log: (text, is_error) => log(is_error ? "error" : "info", text),
         onView: syncNonSceneToolbar,
         is_active: () => SL.is_region_editor_tab(Shell.layout.center),
       },
     });
+    region_editor_actions.set_view_modes(main_view_mode, beside_view_mode, Shell.layout.center);
     show_open_route_on_map();
   }
   function show_open_route_on_map() {
@@ -2256,7 +2259,7 @@
 
   function show_center_tab(tab) {
     const region_tab_shown = SL.center_tabs_shown(Shell.layout).find(SL.is_region_editor_tab);
-    if (region_tab_shown) show_region_editor_in_mode(region_tab_shown);
+    if (region_tab_shown) show_region_editor_views();
     // the toolbar, hierarchy and inspector are shared: each shows the active view's contents
     // (Routes or the map editor), while Generate and zoom stay and drive the active view
     $("tbSceneTools").hidden = tab !== "scene";
@@ -2325,7 +2328,7 @@
     requestAnimationFrame(() => {
       resize();
       fit();
-      if (region_editor()) region_editor().fit();
+      if (region_editor()) region_editor().fit_every_view();
     });
   }
   Shell.onCenter((tab) => {
