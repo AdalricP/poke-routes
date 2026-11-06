@@ -1869,7 +1869,7 @@
     const route = state.result;
     const connections = scene_connections();
     const font_size = Math.round(Math.max(11, Math.min(14, s * 0.7)));
-    g.font = `600 ${font_size}px Inter, system-ui, sans-serif`;
+    g.font = `600 ${font_size}px "Pixelify Sans", ui-monospace, monospace`;
     g.textBaseline = "middle";
     (route.exits || []).forEach((scene_exit, exit_index) => {
       const connection = connections[exit_index];
@@ -1879,9 +1879,9 @@
       const box = connection_label_box(scene_exit, g.measureText(text).width, font_size + 8, ox, oy, s);
       g.lineJoin = "round";
       g.lineWidth = 3;
-      g.strokeStyle = "rgba(24,32,24,0.85)";
+      g.strokeStyle = "#fbfaf2";
       g.strokeText(text, box.x + 6, box.y + box.h / 2 + 1);
-      g.fillStyle = "#fbfaf2";
+      g.fillStyle = "#2a2a2a";
       g.fillText(text, box.x + 6, box.y + box.h / 2 + 1);
       if (connection) state.connection_labels.push(Object.assign({ i: exit_index }, box));
     });
