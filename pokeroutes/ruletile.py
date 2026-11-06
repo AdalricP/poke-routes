@@ -30,6 +30,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
+from .classify import seal_waterfalls
 from .layout import Layout
 
 EXPERIMENTS = Path(__file__).resolve().parents[2]
@@ -102,7 +103,7 @@ class ArkTiler:
 
     # -- main --------------------------------------------------------------
     def tile(self, cls: np.ndarray, seed: int = 0) -> Layout:
-        grid = self.prepare(cls)
+        grid = self.prepare(seal_waterfalls(cls))
         H, W = len(grid), len(grid[0])
         C = self.C
         ids = np.full((H, W), self.grass, np.int32)

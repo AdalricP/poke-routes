@@ -105,6 +105,7 @@ def defuse_ledge_corners(cls):
                 out[y, x] = Counter(ground).most_common(1)[0][0] if ground else GRASS
     return out
 
+WATER_LIKE_CLASSES = frozenset("wbhaq")  # pond, sea, shallow, waterfall, bridge: a fall can meet any of these
 
 # When a model has (almost) no examples of a class, the autotiler paints the
 # next class in this chain instead, so any biome's grid can be tiled with any model.
@@ -114,6 +115,25 @@ FALLBACK = {
     CLIFF: ROCK, ROCK: CLIFF, BOULDER: ROCK, LAVA: ROCK, CAVE_ENTRANCE: CLIFF,
     GRASS: ASH, WATERFALL: WATER, TREE: CLIFF,
 }
+
+
+def seal_waterfalls(cls):
+    """A waterfall (``a``) only tiles cleanly in Emerald's art when it pours
+    straight into, or straight out of, open water: close a single stray row
+    (grass, path, ...) separating a fall from the pond or river it belongs to,
+    north or south, so hand-painted and generated falls both read as connected.
+    """
+    out = np.array(cls, copy=True)
+    h = out.shape[0]
+    for y, x in zip(*np.nonzero(out == WATERFALL)):
+        for dy in (-1, 1):
+            ny, gy = y + dy, y + 2 * dy
+            if not (0 <= ny < h) or out[ny, x] in WATER_LIKE_CLASSES:
+                continue
+            if 0 <= gy < h and out[gy, x] in WATER_LIKE_CLASSES:
+                out[ny, x] = out[gy, x] if out[gy, x] != WATERFALL else WATER
+    return out
+
 
 _BEHAVIOR_CLASS = {
     0x02: TALL, 0x03: TALL, 0x09: TALL,
