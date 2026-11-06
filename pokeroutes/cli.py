@@ -123,7 +123,7 @@ def main() -> None:
     g.add_argument("--seed", type=int)
     g.add_argument("--stages", action="store_true", help="also write a per-stage image")
     g.add_argument("--tileset", choices=["learned", "ark"], default="learned",
-                   help="ark: tile with the Arklarna outdoor tilesets (rule-based, pokeroutes.ruletile)")
+                   help="ark: tile with the PokeRoutes outdoor tilesets (rule-based, pokeroutes.ruletile)")
     g.set_defaults(fn=cmd_generate)
     l = sub.add_parser("learn", help="learn autotiling from the pokeemerald map corpus")
     l.add_argument("primary", nargs="?")

@@ -43,8 +43,8 @@ The generator only produces terrain classes. Two tilers turn them into metatiles
 </p>
 
 <p align="center">
-  <img src="docs/img/tilers-erlenbruch.png" alt="The same route tiled with Emerald's tiles and with Arklarna's custom tileset">
-  <br><sub>The same route with the learned tiler on Emerald tiles (left) and the rule tiler on Arklarna's tileset (right).</sub>
+  <img src="docs/img/tilers-erlenbruch.png" alt="The same route tiled with Emerald's tiles and with the PokeRoutes tileset">
+  <br><sub>The same route with the learned tiler on Emerald tiles (left) and the rule tiler on the PokeRoutes tileset (right).</sub>
 </p>
 
 ### Regions
