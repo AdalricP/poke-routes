@@ -3,18 +3,7 @@
 
   const metatile_size_in_pixels = 16;
   const most_route_maps_generated_at_once = 3;
-  const pixels_per_region_cell_where_tiles_start_to_show = 10;
-  const pixels_per_region_cell_where_tiles_fully_show = 26;
-  const pixels_per_region_cell_where_generation_starts = 7;
   const region_cells_of_margin_around_view_for_generation = 6;
-
-  function share_of_route_tiles_shown_at_zoom(pixels_per_region_cell) {
-    const zoom_span = pixels_per_region_cell_where_tiles_fully_show - pixels_per_region_cell_where_tiles_start_to_show;
-    const raw_share = (pixels_per_region_cell - pixels_per_region_cell_where_tiles_start_to_show) / zoom_span;
-    const clamped_share = Math.max(0, Math.min(1, raw_share));
-    const eased_share = clamped_share * clamped_share * (3 - 2 * clamped_share);
-    return eased_share;
-  }
 
   function does_rect_touch_cell_window(region_rect, cell_window) {
     const [left, top, right, bottom] = region_rect;
@@ -123,9 +112,8 @@
       }
     }
 
-    function request_tiles_near_view(region_document, cell_window, pixels_per_region_cell) {
+    function request_tiles_near_view(region_document, cell_window) {
       forget_tiles_of_another_document(region_document);
-      if (pixels_per_region_cell < pixels_per_region_cell_where_generation_starts) return;
       const margin = region_cells_of_margin_around_view_for_generation;
       const widened_window = { left: cell_window.left - margin, top: cell_window.top - margin, right: cell_window.right + margin, bottom: cell_window.bottom + margin };
       const view_centre = { x: (cell_window.left + cell_window.right) / 2, y: (cell_window.top + cell_window.bottom) / 2 };
@@ -138,39 +126,37 @@
       }
     }
 
-    function draw_one_chain_map(context, chain_map, screen_rect_of, share_shown, now_in_milliseconds) {
+    function draw_one_chain_map(context, chain_map, screen_rect_of, now_in_milliseconds) {
       const [left, top, width, height] = screen_rect_of(chain_map.rect);
       const tiles_entry = tiles_of_map_name.get(chain_map.map_name);
       if (!tiles_entry || tiles_entry.state !== "ready") {
-        draw_placeholder(context, left, top, width, height, share_shown, now_in_milliseconds);
+        draw_placeholder(context, left, top, width, height, now_in_milliseconds);
         return;
       }
       const fade_in_share = Math.min(1, (now_in_milliseconds - tiles_entry.shown_since_in_milliseconds) / 350);
-      context.globalAlpha = share_shown * fade_in_share;
+      context.globalAlpha = fade_in_share;
       context.imageSmoothingEnabled = width < tiles_entry.canvas.width;
       context.drawImage(tiles_entry.canvas, left, top, width, height);
       context.globalAlpha = 1;
     }
 
-    function draw_placeholder(context, left, top, width, height, share_shown, now_in_milliseconds) {
+    function draw_placeholder(context, left, top, width, height, now_in_milliseconds) {
       const pulse_share = 0.5 + 0.5 * Math.sin(now_in_milliseconds / 420);
-      context.fillStyle = `rgba(255,255,255,${(0.05 + 0.05 * pulse_share) * share_shown})`;
+      context.fillStyle = `rgba(255,255,255,${0.05 + 0.05 * pulse_share})`;
       context.fillRect(left, top, width, height);
-      context.strokeStyle = `rgba(255,255,255,${0.25 * share_shown})`;
+      context.strokeStyle = "rgba(255,255,255,0.25)";
       context.setLineDash([4, 4]);
       context.lineWidth = 1;
       context.strokeRect(left + 0.5, top + 0.5, width - 1, height - 1);
       context.setLineDash([]);
     }
 
-    function draw_route_tiles(context, region_document, cell_window, pixels_per_region_cell, screen_rect_of) {
-      request_tiles_near_view(region_document, cell_window, pixels_per_region_cell);
-      const share_shown = share_of_route_tiles_shown_at_zoom(pixels_per_region_cell);
-      if (share_shown <= 0) return false;
+    function draw_route_tiles(context, region_document, cell_window, screen_rect_of) {
+      request_tiles_near_view(region_document, cell_window);
       const now_in_milliseconds = performance.now();
       const shown_maps = chain_maps_of_document(region_document).filter((chain_map) => does_rect_touch_cell_window(chain_map.rect, cell_window));
       context.save();
-      for (const chain_map of shown_maps) draw_one_chain_map(context, chain_map, screen_rect_of, share_shown, now_in_milliseconds);
+      for (const chain_map of shown_maps) draw_one_chain_map(context, chain_map, screen_rect_of, now_in_milliseconds);
       context.restore();
       const is_still_animating = shown_maps.some((chain_map) => is_map_still_arriving(tiles_of_map_name.get(chain_map.map_name), now_in_milliseconds));
       return is_still_animating;
@@ -186,6 +172,6 @@
     return fly_view_route_tiles;
   }
 
-  const fly_view_api = { make_fly_view_route_tiles, share_of_route_tiles_shown_at_zoom, does_rect_touch_cell_window, chain_maps_of_document };
+  const fly_view_api = { make_fly_view_route_tiles, does_rect_touch_cell_window, chain_maps_of_document };
   global.FLY_VIEW = fly_view_api;
 })(typeof window !== "undefined" ? window : globalThis);
