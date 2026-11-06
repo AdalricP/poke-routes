@@ -33,8 +33,8 @@
     player: { x: 0, y: 0, facing: "down", is_surfing: false }, current_move: null, step_parity: 0,
     held_directions: [], is_b_held: false, turn_lock_until: 0,
     text_box: null, toast: null, grass_rustles: new Map(),
-    pending_arrival: null, is_loading_route: false, loading_started_at: 0, fade_started_at: 0,
-    pending_seam_crossing: null, tile_canvas: null, neighbouring_maps: [], map_offset: { x: 0, y: 0 },
+    transition: { kind: "none" }, fade_started_at: 0,
+    tile_canvas: null, neighbouring_maps: [], map_offset: { x: 0, y: 0 },
     sheets_by_tiler: {}, particle_set: { effect: "none", particles: [] }, last_frame_time: 0, animation_frame_request: 0,
     field_moves: { surf: false, cut: false, strength: false, rock_smash: false, waterfall: false },
   };
@@ -93,30 +93,43 @@
     return play_world;
   }
 
+  function start_transition(kind, now, extra) {
+    session.transition = Object.assign({ kind, started_at: now }, extra || {});
+  }
+
+  function end_transition() {
+    session.transition = { kind: "none" };
+  }
+
+  function is_transitioning() {
+    return session.transition.kind !== "none";
+  }
+
+  function is_leaving_route() {
+    return session.transition.kind === "leaving_route";
+  }
+
   function placement_for_new_route(play_world) {
-    const arrival = session.pending_arrival;
-    if (!arrival) return Logic.starting_placement(play_world);
-    const arrival_index = Logic.arrival_exit_index(play_world.exits, hooks.scene_connections(), arrival.from_route_name, arrival.left_by_side);
+    const transition = session.transition;
+    if (transition.kind !== "leaving_route") return Logic.starting_placement(play_world);
+    const arrival_index = Logic.arrival_exit_index(play_world.exits, hooks.scene_connections(), transition.from_route_name, transition.left_by_side);
     const placement = Logic.arrival_placement(play_world, arrival_index);
     return placement;
   }
 
   async function load_current_route() {
     const route = Bench.state.result;
-    const seam_crossing = session.pending_seam_crossing;
+    const transition = session.transition;
     session.route_id = route.id;
-    if (!seam_crossing) session.is_loading_route = true;
     hooks.show_final_stage();
     const [playtest_route_data] = await Promise.all([fetch_playtest_route_data(route.id), load_sheets_for_tiler(route.tiler)]);
     if (Bench.state.result !== route) return;
     const play_world = play_world_of_route(route, playtest_route_data);
-    const seam_placement = seam_crossing ? placement_across_seam(play_world, seam_crossing) : null;
+    const seam_placement = transition.kind === "crossing_seam" ? placement_across_seam(play_world, transition) : null;
     take_over_map_of_route(play_world, route);
     place_player(seam_placement || placement_for_new_route(play_world));
     if (seam_placement) start_move(seam_placement.entry_move, seam_placement.facing, performance.now());
-    session.pending_arrival = null;
-    session.pending_seam_crossing = null;
-    session.is_loading_route = false;
+    end_transition();
     if (!seam_placement) session.fade_started_at = performance.now();
   }
 
@@ -218,7 +231,7 @@
 
   function press_a_button(now) {
     if (session.text_box) { advance_text_box(now); return; }
-    if (session.current_move || session.is_loading_route) return;
+    if (session.current_move || is_leaving_route()) return;
     const interaction = Logic.resolve_interaction(session.play_world, session.player, session.player.facing, session.field_moves);
     session.play_world = Logic.world_after_interaction(session.play_world, interaction);
     present_interaction(interaction);
@@ -278,9 +291,9 @@
   }
 
   function cross_chain_seam(exit_index, direction) {
-    session.pending_seam_crossing = {
+    start_transition("crossing_seam", performance.now(), {
       cell: { x: session.player.x, y: session.player.y }, direction, is_surfing: session.player.is_surfing, map_offset: session.map_offset,
-    };
+    });
     session.held_directions = session.held_directions.filter((held) => held === direction);
     hooks.follow_connection(exit_index);
   }
@@ -290,16 +303,15 @@
     const connection = hooks.scene_connections()[exit_index];
     if (!connection || connection.kind === "unknown") { bump_in_place(direction, now); show_toast(connection ? "Open the Map to follow this exit" : "Nothing connected here"); return; }
     if (connection.kind === "town") { bump_in_place(direction, now); show_toast(`${connection.name}: towns can't be played yet`); return; }
-    session.pending_arrival = { from_route_name: hooks.playtest_route_name(), left_by_side: session.play_world.exits[exit_index].side };
-    session.is_loading_route = true;
-    session.loading_started_at = now;
-    session.loading_route_name = connection.name;
+    start_transition("leaving_route", now, {
+      from_route_name: hooks.playtest_route_name(), left_by_side: session.play_world.exits[exit_index].side, loading_route_name: connection.name,
+    });
     hooks.follow_connection(exit_index);
   }
 
   function try_to_step(now) {
     const direction = held_direction();
-    if (!direction || session.text_box || session.is_loading_route || session.pending_seam_crossing || now < session.turn_lock_until) return;
+    if (!direction || session.text_box || is_transitioning() || now < session.turn_lock_until) return;
     const resolved_move = Logic.resolve_step(session.play_world, session.player, direction, session.field_moves);
     switch (resolved_move.kind) {
       case "leave":
@@ -369,9 +381,8 @@
     const route = Bench.state.result;
     if (!route || !hooks.final_tile_canvas()) return;
     if (route.id !== session.route_id) { load_current_route(); return; }
-    if (session.is_loading_route && session.pending_arrival && now - session.loading_started_at > route_load_timeout_in_milliseconds) {
-      session.is_loading_route = false;
-      session.pending_arrival = null;
+    if (Logic.transition_timed_out(session.transition, now, route_load_timeout_in_milliseconds)) {
+      end_transition();
       show_toast("The next route didn't load");
     }
   }
@@ -383,7 +394,7 @@
     const elapsed_in_seconds = Math.min(0.1, (now - (session.last_frame_time || now)) / 1000);
     session.last_frame_time = now;
     check_for_new_route(now);
-    if (session.play_world && !session.is_loading_route) advance_movement(now);
+    if (session.play_world && !is_leaving_route()) advance_movement(now);
     draw_frame(now, elapsed_in_seconds);
     session.animation_frame_request = requestAnimationFrame(tick);
   }
@@ -395,7 +406,7 @@
     context.imageSmoothingEnabled = false;
     context.fillStyle = "#000";
     context.fillRect(0, 0, screen_width_in_pixels, screen_height_in_pixels);
-    if (session.play_world && !session.is_loading_route) draw_world(context, now, elapsed_in_seconds);
+    if (session.play_world && !is_leaving_route()) draw_world(context, now, elapsed_in_seconds);
     draw_fade(context, now);
     draw_toast(context, now);
     if (session.text_box) draw_text_box(context, now);
@@ -604,15 +615,16 @@
   }
 
   function draw_fade(context, now) {
-    const fade_progress = session.is_loading_route ? 1 : Math.max(0, 1 - (now - session.fade_started_at) / fade_duration_in_milliseconds);
+    const is_leaving = is_leaving_route();
+    const fade_progress = is_leaving ? 1 : Math.max(0, 1 - (now - session.fade_started_at) / fade_duration_in_milliseconds);
     if (fade_progress <= 0) return;
     context.fillStyle = `rgba(0,0,0,${fade_progress})`;
     context.fillRect(0, 0, screen_width_in_pixels, screen_height_in_pixels);
-    if (!session.is_loading_route || !session.loading_route_name) return;
+    if (!is_leaving || !session.transition.loading_route_name) return;
     context.font = toast_font;
     context.fillStyle = "#f4f4f4";
     context.textAlign = "center";
-    context.fillText(session.loading_route_name, screen_width_in_pixels / 2, screen_height_in_pixels / 2);
+    context.fillText(session.transition.loading_route_name, screen_width_in_pixels / 2, screen_height_in_pixels / 2);
     context.textAlign = "left";
   }
 
@@ -789,9 +801,7 @@
     session.context = session.canvas.getContext("2d");
     session.is_open = true;
     session.route_id = "";
-    session.pending_arrival = null;
-    session.pending_seam_crossing = null;
-    session.is_loading_route = false;
+    session.transition = { kind: "none" };
     session.last_frame_time = 0;
     fit_display_scale();
     session.overlay.tabIndex = -1;

@@ -104,6 +104,21 @@ class StateMachine(Base):
         self.assertEqual(j["notes"], ["why"])
         self.assertIn("updated", j)
 
+    def test_kill_reason_allowed_path(self):
+        j = {"id": "x", "status": "running"}
+        improve.set_kill_reason(j, "cancelled")
+        self.assertEqual(j["kill_reason"], "cancelled")
+        improve.set_kill_reason(j, "cancelled")   # setting the same reason again is a no-op
+        self.assertEqual(j["kill_reason"], "cancelled")
+
+    def test_kill_reason_rejects_bad_moves(self):
+        j = {"id": "x", "status": "running"}
+        improve.set_kill_reason(j, "timeout")
+        with self.assertRaises(improve.TransitionError):
+            improve.set_kill_reason(j, "cancelled")   # a job already marked timeout keeps that reason
+        with self.assertRaises(improve.TransitionError):
+            improve.set_kill_reason({"id": "y"}, "bogus")
+
     def test_pick_next_fifo_rom_cap(self):
         me = improve._me
         jobs = {
@@ -306,7 +321,7 @@ class Cancel(Base):
                "target": "poke-routes", "request": "r", "created": 1}
         improve._jobs["r1"] = job
         improve.cancel("r1")
-        self.assertEqual(job["killed"], "cancelled")
+        self.assertEqual(job["kill_reason"], "cancelled")
         code, final = improve._run_agent(job, cwd=self.repo)
         self.assertEqual((code, final), (-1, ""))   # the agent is never even started
         self.assertNotIn("r1", improve._procs)

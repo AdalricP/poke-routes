@@ -444,12 +444,16 @@
 
   async function load_tileset(tileset_id) {
     set_status_note("Loading…");
+    await state.pending_edit;
+    let loaded_tileset;
     try {
-      state.tileset = await fetch_json(`/api/tile-editor/tileset?id=${encodeURIComponent(tileset_id)}`);
+      loaded_tileset = await fetch_json(`/api/tile-editor/tileset?id=${encodeURIComponent(tileset_id)}`);
     } catch (load_error) {
       set_status_note(load_error.message);
       return;
     }
+    state.tileset = loaded_tileset;
+    state.pending_edit = Promise.resolve();
     state.tileset_id = tileset_id;
     state.elements.tileset_select.value = tileset_id;
     state.base = state.tileset.base;
@@ -488,18 +492,28 @@
     return editable;
   }
 
-  function run_operation(operation, after_success) {
-    if (!is_editable()) return Promise.resolve();
-    state.pending_edit = state.pending_edit.then(() => send_operation(operation, after_success));
+  function queue_overlay_edit(task) {
+    const edited_tileset_id = state.tileset_id;
+    state.pending_edit = state.pending_edit.then(() => {
+      if (state.tileset_id !== edited_tileset_id) return;
+      return task(edited_tileset_id);
+    });
     return state.pending_edit;
   }
 
-  async function send_operation(operation, after_success) {
+  function run_operation(operation, after_success) {
+    if (!is_editable()) return Promise.resolve();
+    return queue_overlay_edit((tileset_id) => send_operation(tileset_id, operation, after_success));
+  }
+
+  async function send_operation(tileset_id, operation, after_success) {
     try {
-      const response_body = await post_json("/api/tile-editor/edit", { id: state.tileset_id, overlay: state.overlay, operation });
+      const response_body = await post_json("/api/tile-editor/edit", { id: tileset_id, overlay: state.overlay, operation });
+      if (state.tileset_id !== tileset_id) return;
       replace_overlay_with_undo(response_body.overlay);
       if (after_success) after_success(response_body);
     } catch (edit_error) {
+      if (state.tileset_id !== tileset_id) return;
       set_status_note(edit_error.message);
       log_to_console("warn", "Tile editor: " + edit_error.message);
       render_everything();
@@ -515,19 +529,23 @@
   }
 
   function undo() {
-    if (!state.undo_overlays.length) return;
-    state.redo_overlays.push(state.overlay);
-    state.overlay = state.undo_overlays.pop();
-    rebuild_model();
-    render_everything();
+    queue_overlay_edit(() => {
+      if (!state.undo_overlays.length) return;
+      state.redo_overlays.push(state.overlay);
+      state.overlay = state.undo_overlays.pop();
+      rebuild_model();
+      render_everything();
+    });
   }
 
   function redo() {
-    if (!state.redo_overlays.length) return;
-    state.undo_overlays.push(state.overlay);
-    state.overlay = state.redo_overlays.pop();
-    rebuild_model();
-    render_everything();
+    queue_overlay_edit(() => {
+      if (!state.redo_overlays.length) return;
+      state.undo_overlays.push(state.overlay);
+      state.overlay = state.redo_overlays.pop();
+      rebuild_model();
+      render_everything();
+    });
   }
 
   function revert_to_saved() {
