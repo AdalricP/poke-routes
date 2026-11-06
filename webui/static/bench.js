@@ -1291,9 +1291,8 @@
     const { zoom, ox, oy } = view;
     const s = CELL * zoom;
     const zones = PR.zonesAt(r, state.stage);
-    if (state.ov.markings && state.ov.events) drawEvents(g, PR.eventsAt(r, state.stage).filter((e) => !route_people.hides_generated_event(e)).concat(route_items.visible_items()), ox, oy, s);
-    if (state.ov.markings && state.ov.events) route_people.draw(g, ox, oy, s);
-    if (state.layer !== "classes" && is_final_stage_shown() && state.top_layer_canvas) draw_top_layer_over_people(g, ox, oy, r.width * s, r.height * s, opt);
+    paint_sprites_and_top_layer_by_row(g, r, ox, oy, s, opt);
+    if (state.ov.markings && state.ov.events) route_people.draw_selection_outline(g, ox, oy, s);
     if (state.ov.markings) route_events.draw(g, ox, oy, s);
     if (state.ov.markings && state.ov.areas) drawAreas(g, zones, ox, oy, s);
     if (!opt.interactive) return;
@@ -1316,10 +1315,35 @@
     }
   }
 
-  function draw_top_layer_over_people(g, ox, oy, W, H, opt) {
+  function draw_top_layer_row(g, row, ox, oy, s, W, opt) {
+    const canvas = state.top_layer_canvas;
     g.globalAlpha = opt.fade == null ? 1 : opt.fade;
-    g.drawImage(state.top_layer_canvas, ox, oy, W, H);
+    g.drawImage(canvas, 0, row * CELL, canvas.width, CELL, ox, oy + row * s, W, s);
     g.globalAlpha = 1;
+  }
+
+  // Sorts every sprite/object (people, item balls, boulders, rocks, signs...) by the row
+  // its feet stand on, lower rows closer to screen, and interleaves the tiles' top layer
+  // (tree crowns etc.) one row at a time: an object standing where a crown reaches draws
+  // behind that row's crown, an object below the tree draws in front of it.
+  function paint_sprites_and_top_layer_by_row(g, r, ox, oy, s, opt) {
+    const show_top_layer = state.layer !== "classes" && is_final_stage_shown() && state.top_layer_canvas;
+    const rows_of_sprites = new Map();
+    const add_sprite = (row, draw_fn) => {
+      const clamped_row = Math.max(0, Math.min(r.height - 1, Math.round(row)));
+      if (!rows_of_sprites.has(clamped_row)) rows_of_sprites.set(clamped_row, []);
+      rows_of_sprites.get(clamped_row).push(draw_fn);
+    };
+    if (state.ov.markings && state.ov.events) {
+      const events = PR.eventsAt(r, state.stage).filter((e) => !route_people.hides_generated_event(e)).concat(route_items.visible_items());
+      for (const e of events) add_sprite(e.y, () => draw_one_event(g, e, ox, oy, s));
+      for (const shown_entry of route_people.shown()) add_sprite(shown_entry.entry.y, () => route_people.draw_entry(g, shown_entry.entry, ox, oy, s));
+    }
+    const W = r.width * s;
+    for (let row = 0; row < r.height; row++) {
+      for (const draw_fn of rows_of_sprites.get(row) || []) draw_fn();
+      if (show_top_layer) draw_top_layer_row(g, row, ox, oy, s, W, opt);
+    }
   }
 
   function hoverCells() {
@@ -1348,30 +1372,28 @@
     }
   }
 
-  function drawEvents(g, events, ox, oy, s) {
+  function draw_one_event(g, e, ox, oy, s) {
+    if (route_items.draw_event_sprite(g, e, ox, oy, s, animFrame)) return;
     const rad = Math.max(3.5, Math.min(7, s * 0.3));
-    for (const e of events) {
-      if (route_items.draw_event_sprite(g, e, ox, oy, s, animFrame)) continue;
-      const cx = ox + (e.x + 0.5) * s, cy = oy + (e.y + 0.5) * s;
-      g.lineWidth = 1.5;
-      g.strokeStyle = "#1b1a17";
-      if (e.kind === "hidden_item") {
-        g.beginPath(); g.arc(cx, cy, rad, Math.PI, 0); g.closePath(); g.fillStyle = "#e0453a"; g.fill();
-        g.beginPath(); g.arc(cx, cy, rad, 0, Math.PI); g.closePath(); g.fillStyle = "#f5f2ea"; g.fill();
-        g.beginPath(); g.arc(cx, cy, rad, 0, Math.PI * 2); g.moveTo(cx - rad, cy); g.lineTo(cx + rad, cy); g.stroke();
-      } else if (e.kind === "cut_tree") {
-        g.beginPath();
-        g.moveTo(cx, cy - rad * 1.1); g.lineTo(cx + rad, cy + rad * 0.8); g.lineTo(cx - rad, cy + rad * 0.8); g.closePath();
-        g.fillStyle = "#6fcf6a"; g.fill(); g.stroke();
-      } else {
-        g.beginPath();
-        for (let i = 0; i < 6; i++) {
-          const a = Math.PI / 6 + (i * Math.PI) / 3;
-          const px = cx + Math.cos(a) * rad, py = cy + Math.sin(a) * rad;
-          if (i) g.lineTo(px, py); else g.moveTo(px, py);
-        }
-        g.closePath(); g.fillStyle = e.kind === "story_blocker" ? "#ff50c8" : "#b9b2a3"; g.fill(); g.stroke();
+    const cx = ox + (e.x + 0.5) * s, cy = oy + (e.y + 0.5) * s;
+    g.lineWidth = 1.5;
+    g.strokeStyle = "#1b1a17";
+    if (e.kind === "hidden_item") {
+      g.beginPath(); g.arc(cx, cy, rad, Math.PI, 0); g.closePath(); g.fillStyle = "#e0453a"; g.fill();
+      g.beginPath(); g.arc(cx, cy, rad, 0, Math.PI); g.closePath(); g.fillStyle = "#f5f2ea"; g.fill();
+      g.beginPath(); g.arc(cx, cy, rad, 0, Math.PI * 2); g.moveTo(cx - rad, cy); g.lineTo(cx + rad, cy); g.stroke();
+    } else if (e.kind === "cut_tree") {
+      g.beginPath();
+      g.moveTo(cx, cy - rad * 1.1); g.lineTo(cx + rad, cy + rad * 0.8); g.lineTo(cx - rad, cy + rad * 0.8); g.closePath();
+      g.fillStyle = "#6fcf6a"; g.fill(); g.stroke();
+    } else {
+      g.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = Math.PI / 6 + (i * Math.PI) / 3;
+        const px = cx + Math.cos(a) * rad, py = cy + Math.sin(a) * rad;
+        if (i) g.lineTo(px, py); else g.moveTo(px, py);
       }
+      g.closePath(); g.fillStyle = e.kind === "story_blocker" ? "#ff50c8" : "#b9b2a3"; g.fill(); g.stroke();
     }
   }
 

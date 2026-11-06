@@ -404,10 +404,51 @@
   function draw_world(context, now, elapsed_in_seconds) {
     const camera = Logic.camera_top_left_in_pixels(player_pixel_position(now));
     draw_map_tiles(context, camera, session.tile_canvas, true);
-    draw_people_and_objects(context, camera, now);
-    draw_map_tiles(context, camera, hooks.final_top_layer_canvas(), false);
+    draw_people_objects_and_top_layer_by_row(context, camera, now);
     draw_grass_rustles(context, camera, now);
     hooks.draw_route_effect_particles_into(context, session.particle_set, { left: 0, top: 0, width: screen_width_in_pixels, height: screen_height_in_pixels }, 1, elapsed_in_seconds);
+  }
+
+  function draw_top_layer_tile_row(context, camera, tile_canvas, cell_y) {
+    if (!tile_canvas) return;
+    const play_world = session.play_world;
+    const first_cell_x = Math.floor(camera.x / tile_size);
+    const source_y = Math.max(0, Math.min(play_world.height - 1, cell_y));
+    for (let cell_x = first_cell_x; cell_x <= first_cell_x + Logic.viewport_width_in_tiles; cell_x++) {
+      const source_x = Math.max(0, Math.min(play_world.width - 1, cell_x));
+      context.drawImage(tile_canvas, source_x * tile_size, source_y * tile_size, tile_size, tile_size, cell_x * tile_size - camera.x, cell_y * tile_size - camera.y, tile_size, tile_size);
+    }
+  }
+
+  // Draws every person/object/the player sorted by the row their feet stand on (lower rows
+  // closer to screen, drawn last/in front), interleaved row by row with the tiles' top layer
+  // (tree crowns etc.): an object standing in a crown's row stays behind that crown, an
+  // object below the tree line draws in front of it, instead of the top layer sitting on
+  // top of everyone as one sheet.
+  function draw_people_objects_and_top_layer_by_row(context, camera, now) {
+    const drawables_in_depth_order = depth_sorted_people_and_objects(now);
+    const top_layer_canvas = hooks.final_top_layer_canvas();
+    const first_row = Math.floor(camera.y / tile_size);
+    const last_row = first_row + Logic.viewport_height_in_tiles;
+    let drawable_index = 0;
+    for (let row = first_row; row <= last_row; row++) {
+      while (drawable_index < drawables_in_depth_order.length && drawables_in_depth_order[drawable_index].sort_y < row + 1) {
+        drawables_in_depth_order[drawable_index].draw(context, camera);
+        drawable_index++;
+      }
+      draw_top_layer_tile_row(context, camera, top_layer_canvas, row);
+    }
+    while (drawable_index < drawables_in_depth_order.length) {
+      drawables_in_depth_order[drawable_index].draw(context, camera);
+      drawable_index++;
+    }
+  }
+
+  function depth_sorted_people_and_objects(now) {
+    const object_drawables = [...session.play_world.objects_by_cell.values()].map((play_object) => drawable_of_object(play_object, now));
+    const player_drawable = { sort_y: player_pixel_position(now).y / tile_size + 0.01, draw: (drawing_context, drawing_camera) => draw_player(drawing_context, drawing_camera, now) };
+    const drawables_in_depth_order = [...object_drawables, player_drawable].sort((first, second) => first.sort_y - second.sort_y);
+    return drawables_in_depth_order;
   }
 
   function draw_map_tiles(context, camera, tile_canvas, with_neighbouring_maps) {

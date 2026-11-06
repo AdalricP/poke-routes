@@ -25,7 +25,9 @@ NUM_PRIMARY_PALS = 6
 NUM_PALS_TOTAL = 13
 METATILE_LAYER_TYPE_SHIFT = 12
 METATILE_LAYER_TYPE_MASK = 0xF
+METATILE_LAYER_TYPE_NORMAL = 0
 METATILE_LAYER_TYPE_COVERED = 1
+METATILE_LAYER_TYPE_SPLIT = 2
 
 
 def _read_pal(path: Path) -> np.ndarray:
@@ -195,9 +197,14 @@ class TilesetPair:
         return layer_type_of_metatile
 
     def top_layer_mask(self, mid: int) -> np.ndarray:
+        """Only a metatile whose layer type is SPLIT draws its upper tile layer over
+        people (a tree crown overhanging the row above its trunk, tall grass blades over
+        feet...). A NORMAL metatile's two layers both sit behind people even when its
+        upper layer has its own non-background art (shading, texture); a COVERED
+        metatile's two layers both sit in front of people as one piece, never split."""
         top_layer_pixels = np.zeros((16, 16), dtype=bool)
         entries = self._entries(mid)
-        if entries is None or self.layer_type(mid) == METATILE_LAYER_TYPE_COVERED:
+        if entries is None or self.layer_type(mid) != METATILE_LAYER_TYPE_SPLIT:
             return top_layer_pixels
         for quarter_index in range(4):
             tile_entry = int(entries[4 + quarter_index])

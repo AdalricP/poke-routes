@@ -9,7 +9,8 @@ from scipy.ndimage import binary_dilation
 
 from .generate import WALKABLE
 from .raised_ground_dressing import grow_cluster, is_drawn_as_tall_grass, is_inside
-from .scenery_layer import RAISED_GROUND_CLASS, footprint_of_prop, place_prop, placed_props
+from .scenery_layer import (RAISED_GROUND_CLASS, cell_is_under_tree_crown_reach, cells_under_tree_crown_reach,
+                             footprint_of_prop, place_prop, placed_props)
 
 GRASS_CLASS = "g"
 TREE_CLASS = "f"
@@ -130,6 +131,8 @@ def placement_weights(route) -> Dict[str, np.ndarray]:
 def is_grass_to_draw_on(route, surroundings: Surroundings, cell: Cell) -> bool:
     if not is_inside(route, *cell) or surroundings.taken[cell] or surroundings.kept_clear[cell]:
         return False
+    if cell_is_under_tree_crown_reach(route.cls, cell):
+        return False
     cell_class = str(route.cls[cell])
     on_grass = cell_class == GRASS_CLASS or (cell_class == RAISED_GROUND_CLASS and not is_drawn_as_tall_grass(route, cell))
     return on_grass
@@ -182,7 +185,7 @@ def put_prop(route, surroundings: Surroundings, prop_table: dict, prop_name: str
 
 def pick_cluster_start(route, surroundings: Surroundings, recipe: DetailRecipe) -> Optional[Cell]:
     weights = surroundings.placement_weight[recipe.hugs]
-    free_grass = np.isin(route.cls, [GRASS_CLASS, RAISED_GROUND_CLASS]) & ~surroundings.kept_clear
+    free_grass = np.isin(route.cls, [GRASS_CLASS, RAISED_GROUND_CLASS]) & ~surroundings.kept_clear & ~cells_under_tree_crown_reach(route.cls)
     spaced = free_grass & ~binary_dilation(surroundings.taken, np.ones((2 * SPACING_BETWEEN_CLUSTERS_IN_CELLS + 1,) * 2, dtype=bool))
     candidate_weights = np.where(spaced, weights, 0.0).ravel()
     total_weight = float(candidate_weights.sum())

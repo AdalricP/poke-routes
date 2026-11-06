@@ -5,7 +5,7 @@ from typing import List, Tuple
 import numpy as np
 
 from .noise import fbm
-from .scenery_layer import RAISED_GROUND_CLASS, draw_raised_ground_as, drawn_class_by_cell
+from .scenery_layer import RAISED_GROUND_CLASS, cell_is_under_tree_crown_reach, draw_raised_ground_as, drawn_class_by_cell
 from .woodland_closeness import woodland_closeness
 
 TREE_CLASS = "f"
@@ -89,7 +89,7 @@ def grow_cluster(route, start_cell: Cell, cell_count: int, can_hold) -> List[Cel
 
 def plant_bush_clusters_on_raised_ground(route, closeness: np.ndarray) -> None:
     def is_open_raised(cell: Cell) -> bool:
-        return route.cls[cell] == RAISED_GROUND_CLASS
+        return route.cls[cell] == RAISED_GROUND_CLASS and not cell_is_under_tree_crown_reach(route.cls, cell)
 
     for cell_y, cell_x in np.argwhere(route.cls == RAISED_GROUND_CLASS):
         cluster_chance = BUSH_CLUSTER_CHANCE_PER_CELL + EXTRA_BUSH_CLUSTER_CHANCE_BESIDE_WOODLAND * float(closeness[cell_y, cell_x])
