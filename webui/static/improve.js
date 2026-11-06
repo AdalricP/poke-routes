@@ -325,12 +325,15 @@
             const st = el("button", "undo", "Steer");
             st.type = "button";
             st.title = "Send extra instructions to this running agent";
-            st.onclick = () => toggleSteerForm(j, li);
+            st.onclick = () => openSteerForm(j);
             li.append(st);
           }
           const c = el("button", "undo", "Cancel");
           c.type = "button";
-          c.onclick = () => api(`/api/improve/${j.id}/cancel`, {}).then(refresh).catch((e) => ($("impErr").textContent = e.message));
+          c.onclick = () => {
+            if (state.steerOpenFor === j.id) closeSteerForm();   // otherwise refresh() keeps skipping renderSlots forever (finding: "can't cancel a steer")
+            api(`/api/improve/${j.id}/cancel`, {}).then(refresh).catch((e) => ($("impErr").textContent = e.message));
+          };
           li.append(c);
         }
       } else li.append(el("span", "idle", s.retiring ? "stopping" : "idle"));
@@ -477,50 +480,60 @@
     state.logFor = null;
     state.reloadShown = false;   // the owner is looking at a log on purpose; let it show again
     state.fixOpenFor = null;     // navigating away closes any open fix form
-    state.steerOpenFor = null;   // ...and any open steer form
+    closeSteerForm();            // ...and any open steer form
     pollLog();
     renderHist();
     if (state.h) renderSlots(state.h);
   }
 
-  // click Steer on a running worker's row: first click opens a textarea (smooth height anim),
-  // second click (while open, with text typed) sends it straight to that job's live agent.
-  // renderSlots is skipped by refresh() while state.steerOpenFor is set, so periodic polling
-  // doesn't wipe this box or what's typed into it (same trick as the fix form, finding 10).
-  function toggleSteerForm(j, li) {
-    const next = li.nextElementSibling;
-    const existing = next && next.classList.contains("imp-steer-form") ? next : null;
-    if (existing) {
-      const ta = existing.querySelector("textarea");
-      const text = ta.value.trim();
-      if (!text) { ta.focus(); return; }
-      const send = existing.querySelector("button");
-      const err = existing.querySelector(".imp-err");
-      send.disabled = true;
-      api(`/api/improve/${j.id}/steer`, { text }).then(() => {
-        existing.remove();
-        state.steerOpenFor = null;
-        refresh();
-      }).catch((e) => { err.textContent = e.message; send.disabled = false; });
+  // close the steer form (if any) without sending, and let renderSlots resume.
+  function closeSteerForm() {
+    const existing = document.querySelector(".imp-steer-form");
+    if (existing) existing.remove();
+    state.steerOpenFor = null;
+  }
+
+  // click Steer on a running worker's row: opens a form attached to the bottom of the
+  // Workers list (not inline in that row, so it can't cover rows below it). A Cancel
+  // button closes it without sending. renderSlots is skipped by refresh() while
+  // state.steerOpenFor is set, so periodic polling doesn't wipe this box or what's typed
+  // into it (same trick as the fix form, finding 10); the job's own Cancel button clears
+  // state.steerOpenFor first so cancelling mid-steer doesn't leave renderSlots stuck off.
+  function openSteerForm(j) {
+    if (state.steerOpenFor === j.id) {
+      document.querySelector(".imp-steer-form textarea")?.focus();
       return;
     }
+    closeSteerForm();
     state.steerOpenFor = j.id;
-    const form = el("li", "imp-steer-form");
+    const form = el("div", "imp-steer-form");
+    form.append(el("p", "imp-steer-who", `Steer ${j.request}`));
     const ta = document.createElement("textarea");
     ta.placeholder = "Extra instructions for this running agent...";
     ta.rows = 2;
     const row = el("div", "imp-row");
+    const cancel = el("button", "undo", "Cancel");
+    cancel.type = "button";
+    cancel.onclick = () => closeSteerForm();
     const send = el("button", "primary", "Steer");
     send.type = "button";
     const err = el("p", "imp-err");
-    send.onclick = () => toggleSteerForm(j, li);
+    send.onclick = () => {
+      const text = ta.value.trim();
+      if (!text) { ta.focus(); return; }
+      send.disabled = true;
+      api(`/api/improve/${j.id}/steer`, { text }).then(() => {
+        closeSteerForm();
+        refresh();
+      }).catch((e) => { err.textContent = e.message; send.disabled = false; });
+    };
     ta.addEventListener("keydown", (e) => {
       e.stopPropagation();
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send.click(); }
     });
-    row.append(send);
+    row.append(cancel, send);
     form.append(ta, row, err);
-    li.after(form);
+    $("impOwner").after(form);   // always right below the Workers list, never inline in a row
     requestAnimationFrame(() => form.classList.add("open"));   // smooth open: see .imp-steer-form in improve.css
     ta.focus();
   }
