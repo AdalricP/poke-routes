@@ -25,7 +25,7 @@
   function sprite_motion_at(event, animation_frame) {
     const motion_ticks = SPRITE_MOTION_TICKS[SPRITE_MOTION_BY_KIND[event.kind]];
     if (!motion_ticks) return STILL;
-    const sprite_phase = (Number(event.x) * 7 + Number(event.y) * 13) % motion_ticks.length;
+    const sprite_phase = (Math.round(Number(event.x)) * 7 + Math.round(Number(event.y)) * 13) % motion_ticks.length;
     const sprite_motion = motion_ticks[(animation_frame + sprite_phase) % motion_ticks.length];
     return sprite_motion;
   }
