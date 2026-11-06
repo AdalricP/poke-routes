@@ -76,7 +76,10 @@ def side_surface(route: Route) -> str:
 
 
 def path_class(route: Route) -> str:
-    return _bc(route, 3)
+    biome_path_class = _bc(route, 3)
+    if route.spec.road and biome_path_class == ground_class(route):
+        return "p"
+    return biome_path_class
 
 
 def grass_class(route: Route) -> str:
