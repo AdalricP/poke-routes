@@ -1293,7 +1293,7 @@
     const zones = PR.zonesAt(r, state.stage);
     if (state.ov.markings && state.ov.events) drawEvents(g, PR.eventsAt(r, state.stage).filter((e) => !route_people.hides_generated_event(e)).concat(route_items.visible_items()), ox, oy, s);
     if (state.ov.markings && state.ov.events) route_people.draw(g, ox, oy, s);
-    if (state.layer !== "classes" && is_final_stage_shown() && state.top_layer_canvas) draw_top_layer_over_people(g, ox, oy, W, H, opt);
+    if (state.layer !== "classes" && is_final_stage_shown() && state.top_layer_canvas) draw_top_layer_over_people(g, ox, oy, r.width * s, r.height * s, opt);
     if (state.ov.markings) route_events.draw(g, ox, oy, s);
     if (state.ov.markings && state.ov.areas) drawAreas(g, zones, ox, oy, s);
     if (!opt.interactive) return;
