@@ -32,7 +32,7 @@ Use this instead of exploring with grep/sed. Jump straight to the file and funct
      - `stage_tree_blocks` (`pokeroutes/tree_blocks.py`): settles half-tree 2x2 blocks (fill, clear or flood) so no bush rows
      - `stage_obstacles` (`pokeroutes/obstacles.py`): every Cut tree / smash rock / Strength boulder sits in a one-wide gap on ground, or is removed
      - `stage_rivers_restored` (`pokeroutes/rivers.py`): rivers (smooth, >= 2 wide, painted in stage_lakes) are put back whole; walkable cells in them become bridges
-     - `stage_surf_crossings` (`pokeroutes/surf_crossing.py`): where the region path crosses sea/lake, the main path there turns to water + a built Surf gate; `mode: sea` routes become open sea with islets, sandbars, rocks
+     - `stage_surf_crossings` (`pokeroutes/surf_crossing.py`): where the region path crosses sea/lake, the main path there turns to water + a built Surf gate; `mode: sea` routes become open sea with sand-rimmed islets, sandbars (`h`), rock ridges (`r`, 3 wide) and 2x2 rock clusters (`u`) that shape channels, single rocks, and Dive water (`D`) far from land
      - `stage_plateaus` (generate.py): plains only
      - `stage_route_gate` (generate.py → `gates.build_route_gates`): route design B gate (`spec.gate` or `spec.region.gate`) at the gated entrance. The region side picks the entrance in `region/gates.py`.
      - `stage_seams` (`pokeroutes/seams.py`): stamps the 2-deep seam bands from `spec.region.seams` on the map edges (shared with the neighbouring map, so touching edges match tile for tile) and joins band water to the water inside. `seam_mismatches` compares two touching edges.
@@ -47,6 +47,7 @@ Use this instead of exploring with grep/sed. Jump straight to the file and funct
      - Models live in `pokeroutes/models/*.json` and `models/index.json`.
    - **Ground texturing**, applied after the learned tiler: `pokeroutes/ground.py` (`texture_open_ground` for light-grass patches and flower clumps, `tile_with_false_walls`).
    - **Rule tiler** (hand-made tilesets, shown to the user as the PokeRoutes tileset): `pokeroutes/ruletile.py`, `ArkTiler`; bridges, sand shores, sideways falls and ledges over ground in `pokeroutes/ruletile_terrain.py`.
+   - **Ark terrain secondaries** (coast, mountain, snow, desert, cave on the same `ark_outdoor` primary): `pokeroutes/ruletile_secondaries.py`. `secondary_for_spec` (open sea / biome / spec key `ark_secondary`), `class_table_for_secondary` (primary classes + the secondary's, woodland-only parts dropped), `ArkTiler.load(secondary=)` / `for_secondary`; sea depth bands (`sea_band_grid`, `sea_depth_metatile`), sand with water/grass rims (`sand_metatile`), sea rocks and sea ridges (`tile_sea_rocks`, `tile_rock_ridges_in_sea`), cliff faces (`cliff_face_metatile`), desert dunes (`dune_grid`), cave void (`blob_cell_metatile`). Web UI: `shell_api.ark_tiler(secondary)`, `ark_tiler_for_spec`, atlas URL `&secondary=`. Tests: `webui/tests/test_ruletile_secondaries.py`.
    - **Reading tilesets and rendering metatiles**: `pokeroutes/tileset.py`, `load_pair`.
    - **Tile editor overlay** (hand-drawn pixels, palettes, new metatiles and coalesced classes on top of the Ark ROM tiles): `pokeroutes/tileset_overlay.py`, edits in `tile_editing.py`, `tile_coalesce.py`, `tile_operations.py`; applied by `ArkTiler.load` / `ArkTiler.pair`.
    - **Scene-preview breeze** (tree crowns, tall grass, flowers swaying 1 px; preview only, not in the ROM): `pokeroutes/breeze.py`, added to the atlas `anim` and listed in `meta.breeze` by `webui/server.py` `build_atlas`.
@@ -80,8 +81,9 @@ Use this instead of exploring with grep/sed. Jump straight to the file and funct
 | a | waterfall | l | lava / hot springs |
 | o | other | n | cave entrance |
 | q | bridge | u | boulder |
+| D | dive water (open sea, deepest parts) | | |
 
-Walkable: `gptdhyvzqn`. Surfable: `wb`. Blocked: `frkul`.
+Walkable: `gptdhyvzqn`. Surfable: `wbD`. Blocked: `frkul`.
 
 ## Region generator (`pokeroutes/region/`)
 

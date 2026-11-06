@@ -146,7 +146,7 @@ def ark_atlas(srv, shade: str, secondary: str = ""):
     shaded_pair = ShadedTilesetPair(tileset_pair, floor_plan_for_shade(tiler.c, shade), tiler.grass)
     cached = srv.build_atlas(shaded_pair, tiler.primary_symbol, tiler.secondary_symbol,
                              ark_atlas_url(shade, png=True, secondary=tiler.secondary),
-                             breeze_plan, motions, prop_cells_by_metatile, {"shade": shade, "secondary": tiler.secondary})
+                             breeze_plan, motions, prop_cells_by_metatile, {"shade": shade, "ark_secondary": tiler.secondary})
     with _lock:
         _ark_atlases[cache_key] = cached
     return cached
