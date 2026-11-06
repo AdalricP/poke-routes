@@ -3,9 +3,9 @@
 ```
                  region generator (optional)
   pokeroutes/region/
+  geography.py land and sea of a kind the seed picks, heightmap
   terrain.py   fBm + domain warp, erosion, lakes, rivers, climate, biomes
-  legends.py   legendary landmarks carved into the terrain
-  settle.py    cities
+  town_sites.py where Generate map puts towns
   network.py   route graph: rects, exits, roles, names
   export.py    one spec YAML per route  ──────────────┐
                                                       │
