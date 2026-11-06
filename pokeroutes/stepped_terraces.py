@@ -18,7 +18,7 @@ RING_AROUND_A_CELL = ((-1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1
 ORTHOGONAL_RING_INDICES = (1, 3, 5, 7)
 LEDGE_CLASSES = "sejx"
 SMALLEST_TERRACE_PIECE_IN_CELLS = 20
-LEDGE_TIDY_PASSES = 3
+LEDGE_TIDY_PASSES = 6
 REGION_HEIGHT_WEIGHT = 0.75
 WORLD_HEIGHT_DETAIL_WEIGHT = 0.25
 HEIGHT_SMOOTHING_IN_CELLS = 2.0
@@ -325,28 +325,79 @@ def ledge_cells_along_level_steps(route, terrace_levels: np.ndarray, frozen_cell
 
 
 def tidy_ledge_joins(route, frozen_cells: np.ndarray) -> None:
-    from .ledge_joins import ARM_STEPS, arms_of_ledge_cell, broken_ledge_joins
+    from .ledge_joins import broken_ledge_joins
 
     must_stay_open = cells_that_must_stay_open(route)
     for _pass in range(LEDGE_TIDY_PASSES):
         broken = broken_ledge_joins(route.cls)
-        changed = False
-        for cell in broken["lone ledge"] + broken["short ledge run"]:
-            if not frozen_cells[cell]:
-                route.cls[cell] = BUSH_CLASS
-                changed = True
-        grid = ["".join(str(letter) for letter in row) for row in route.cls]
-        is_walkable = np.isin(route.cls, list(WALKABLE))
-        for cell_y, cell_x in broken["ledge ending in the open"]:
-            arms = arms_of_ledge_cell(grid, cell_y, cell_x)
-            if len(arms) != 1:
-                continue
-            step_y, step_x = ARM_STEPS[(arms[0] + 2) % 4]
-            cap_y, cap_x = cell_y + step_y, cell_x + step_x
-            if frozen_cells[cap_y, cap_x] or must_stay_open[cap_y, cap_x] or not is_safe_to_block(is_walkable, cap_y, cap_x):
-                continue
-            route.cls[cap_y, cap_x] = BUSH_CLASS
-            is_walkable[cap_y, cap_x] = False
-            changed = True
+        changed = clear_lone_and_short_ledges(route, broken, frozen_cells)
+        changed = cap_or_shorten_open_ledge_ends(route, broken["ledge ending in the open"], frozen_cells, must_stay_open) or changed
+        changed = cut_stems_off_tangled_joins(route, broken["tangled ledge join"], frozen_cells, must_stay_open) or changed
         if not changed:
             return
+
+
+def clear_lone_and_short_ledges(route, broken: dict, frozen_cells: np.ndarray) -> bool:
+    changed = False
+    for cell in broken["lone ledge"] + broken["short ledge run"]:
+        if not frozen_cells[cell]:
+            route.cls[cell] = BUSH_CLASS
+            changed = True
+    return changed
+
+
+def can_block_cell(route, is_walkable: np.ndarray, frozen_cells: np.ndarray, must_stay_open: np.ndarray, cell: Cell) -> bool:
+    inside = 0 <= cell[0] < route.h and 0 <= cell[1] < route.w
+    can_block = inside and not frozen_cells[cell] and not must_stay_open[cell] and is_safe_to_block(is_walkable, *cell)
+    return can_block
+
+
+def block_with_a_bush(route, is_walkable: np.ndarray, cell: Cell) -> None:
+    route.cls[cell] = BUSH_CLASS
+    is_walkable[cell] = False
+
+
+def cap_or_shorten_open_ledge_ends(route, open_end_cells: List[Cell], frozen_cells: np.ndarray, must_stay_open: np.ndarray) -> bool:
+    from .ledge_joins import ARM_STEPS, arms_of_ledge_cell
+
+    grid = ["".join(str(letter) for letter in row) for row in route.cls]
+    is_walkable = np.isin(route.cls, list(WALKABLE))
+    changed = False
+    for cell_y, cell_x in open_end_cells:
+        arms = arms_of_ledge_cell(grid, cell_y, cell_x)
+        if len(arms) != 1:
+            continue
+        step_y, step_x = ARM_STEPS[(arms[0] + 2) % 4]
+        cap_cell = (cell_y + step_y, cell_x + step_x)
+        if can_block_cell(route, is_walkable, frozen_cells, must_stay_open, cap_cell):
+            block_with_a_bush(route, is_walkable, cap_cell)
+            changed = True
+        elif can_block_cell(route, is_walkable, frozen_cells, must_stay_open, (cell_y, cell_x)):
+            block_with_a_bush(route, is_walkable, (cell_y, cell_x))
+            changed = True
+    return changed
+
+
+def cut_stems_off_tangled_joins(route, tangled_cells: List[Cell], frozen_cells: np.ndarray, must_stay_open: np.ndarray) -> bool:
+    from .ledge_joins import ARM_STEPS, ROW_LEDGE_LETTERS, arms_of_ledge_cell
+
+    grid = ["".join(str(letter) for letter in row) for row in route.cls]
+    is_walkable = np.isin(route.cls, list(WALKABLE))
+    changed = False
+    for cell_y, cell_x in tangled_cells:
+        along_row = str(route.cls[cell_y, cell_x]) in ROW_LEDGE_LETTERS
+        for arm in arms_of_ledge_cell(grid, cell_y, cell_x):
+            step_y, step_x = ARM_STEPS[arm]
+            if (step_y == 0) == along_row:
+                continue
+            stem_cell = (cell_y + step_y, cell_x + step_x)
+            if not frozen_cells[stem_cell] and not must_stay_open[stem_cell]:
+                route.cls[stem_cell] = BUSH_CLASS
+                is_walkable[stem_cell] = False
+                changed = True
+    return changed
+
+
+def tidy_ledges_after_every_stage(route) -> None:
+    tidy_ledge_joins(route, seam_band_cells(route))
+    route.snap("ledge ends")
