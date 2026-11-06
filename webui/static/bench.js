@@ -1943,9 +1943,9 @@
       { id: "last", label: "Next animation frame", enabled: sceneRoute, run: () => step_tile_animation(1) },
     ] },
     { label: "Window", items: [
-      { id: "w-scene", label: "Route bench (Scene)", radio: true, checked: () => Shell.layout.center === "scene", run: () => Shell.setCenter("scene") },
+      { id: "w-scene", label: "Routes", radio: true, checked: () => Shell.layout.center === "scene", run: () => Shell.setCenter("scene") },
       { id: "w-geography", label: "Geography editor", radio: true, checked: () => Shell.layout.center === "geography", run: () => Shell.setCenter("geography") },
-      { id: "w-region", label: "Route design A", radio: true, checked: () => Shell.layout.center === "region", run: () => Shell.setCenter("region") },
+      { id: "w-region", label: "Map", radio: true, checked: () => Shell.layout.center === "region", run: () => Shell.setCenter("region") },
       { id: "w-story", label: "Story", radio: true, checked: () => Shell.layout.center === "story", run: () => Shell.setCenter("story") },
       { id: "w-gates", label: "Route design B", radio: true, checked: () => Shell.layout.center === "gates", run: () => Shell.setCenter("gates") },
       { sep: true },
