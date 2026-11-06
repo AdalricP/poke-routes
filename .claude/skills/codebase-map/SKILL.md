@@ -36,6 +36,9 @@ Use this instead of exploring with grep/sed. Jump straight to the file and funct
      - `stage_plateaus` (generate.py): plains only
      - `stage_route_gate` (generate.py → `gates.build_route_gates`): route design B gate (`spec.gate` or `spec.region.gate`) at the gated entrance. The region side picks the entrance in `region/gates.py`.
      - `stage_seams` (`pokeroutes/seams.py`): stamps the 2-deep seam bands from `spec.region.seams` on the map edges (shared with the neighbouring map, so touching edges match tile for tile) and joins band water to the water inside. `seam_mismatches` compares two touching edges.
+     - `stage_bridges` (`pokeroutes/bridges.py`): every bridge that is not one straight span over water from bank to bank (staircases over slanted rivers, planks over land, stubs, boardwalks along a river) is taken up and the banks are joined again by the shortest straight 1-2 wide crossing nearby (blocked flank cells may become water), else a way round over land is carved, else the old bridge stays. Seam-band bridges keep their band cells.
+     - `stage_river_ends` (`pokeroutes/river_ends.py`): a river (remembered river cells or water joined to seam-band water) that stops where the player can walk up to it gets a rock cap (class `r`, 1-2 deep), unless that would spoil a bridge.
+     - `stage_shores` (`pokeroutes/shores.py`): single ground cells sticking into water and islets smaller than 2x2 become water; signs standing in water move to dry ground.
    - Per-biome palette: `stages.BIOME_CODES`, a tuple of (wall, ground, lane surface, road, encounter grass).
 4. **Height**: `pokeroutes/height.py`. One shared world height map, sampled at `spec.world`.
 5. **Special areas**: `pokeroutes/places.py` (archetypes `arch_grove`, `arch_meadow`, `arch_pond`, `arch_hollow`, `arch_stones`, plus `place_specials`) and the `pokeroutes/areas/` package (recipes, stamps).
@@ -53,6 +56,8 @@ Use this instead of exploring with grep/sed. Jump straight to the file and funct
    - **Idle motions and per-tile animation** (preview only): `pokeroutes/idle_motion.py` (motions sway/tips/nod/bop/dance/roll/wobble, whole props move together), baked into the atlas by `webui/server.py` `build_atlas` (`meta.anim`, `meta.motion`). Per-tileset overrides: `webui/tile_looks.py` (`/api/tile-looks`, stored in `webui/tile-looks.json`); UI `webui/static/tile-motion.js` (M over a map tile, or right-click a Tiles-palette entry). Event sprites (item ball, berry tree, boulder) move in `route-items.js`.
    - **Under-tree shade** (spec `tree_shade`): `pokeroutes/tree_shade.py` tints the Ark tree floor pixels (`floor_masks` in the class table) in the Ark atlas (`shell_api.ark_atlas`, `?shade=`).
    - **Ark fences** (class `c`, autotile `fence4`, NESW arms) and cross-colour tree crowns / coloured bushes: `ruletile.py` (`fence_arm_key`, `crown_from_other_colour_below`, `bush_in_neighbouring_tree_colour`).
+   - **Tree crowns**: `ArkTiler.tree_blocks` keeps a 2x2 tree only where every cell its crown reaches (row above, crown tip two rows up, side leaves) can carry crown art; otherwise the block becomes bushes. The Ark set has no crown-tip art over path/tall grass (py=0 keys), so those tips stay clipped: `ArkTiler.clipped_crown_cells` reports both kinds.
+   - **Top layer over people**: `TilesetPair.top_layer_mask` (metatile layer type NORMAL/SPLIT, top-layer pixels); `webui/server.py` `build_atlas` adds a top-layer cell per atlas cell (`meta.top_layer`); `bench.js` draws `state.top_layer_canvas` over events/people on the final stage, and `playtest.js` draws it over the player and objects (`hooks.final_top_layer_canvas`).
 7. **Export**: `pokeroutes/export.py`.
    - `seal_edges`, `write_emerald` (map.bin, border.bin, map.json, scripts.inc)
    - `write_scene` (scene.json), `report` (report.json)
@@ -137,6 +142,7 @@ node webui/tests/playtest-logic.test.js     # play-test movement, collision, enc
 node webui/tests/people-events-logic.test.js  # people, signs and events pure logic
 node --check webui/static/<changed>.js
 python3 -m pokeroutes generate examples/bernsteinweg.yaml   # also erlenbruch.yaml, kiefernheide.yaml
+python3 tools/count_generation_glitches.py [--quick] [--renders DIR]   # clipped crowns, crooked bridges, open river ends, islets... (pokeroutes/glitches.py)
 ```
 
 The route tool `check_examples` runs all three example specs, and `check_web_ui` starts and checks a temporary copy of the server. Prefer them over starting servers by hand.

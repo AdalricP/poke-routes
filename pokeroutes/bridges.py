@@ -34,6 +34,7 @@ SMALLEST_BANK_WORTH_A_BRIDGE_IN_CELLS = 3
 FLANK_CLASSES_THAT_MAY_BECOME_WATER = "frkou"
 FLOODING_PENALTY_PER_CELL = 1.0
 WIDEST_LANE_ALONG_THE_WATER_IN_METATILES = 4
+LONGEST_SEAM_BRIDGE_EXTENSION_IN_METATILES = 4
 LAND_CLASSES_A_WAY_ROUND_MAY_CROSS = LAND_CLASSES_A_BRIDGE_LANDS_ON + "fro"
 CARVING_COST_PER_BLOCKED_CELL = 3.0
 LONGEST_WAY_ROUND_COST = 60.0
@@ -62,7 +63,7 @@ def inward_step_of_ring_cell(route: Route, cell: Cell) -> Optional[Cell]:
     return inward_step
 
 
-def extend_seam_bridge_inward(route: Route, ring: np.ndarray, ring_cell: Cell) -> None:
+def extend_seam_bridge_inward(route: Route, ring: np.ndarray, ring_cell: Cell, ground_class: str) -> None:
     step = inward_step_of_ring_cell(route, ring_cell)
     if step is None:
         return
@@ -73,8 +74,9 @@ def extend_seam_bridge_inward(route: Route, ring: np.ndarray, ring_cell: Cell) -
         cell = (cell[0] + step[0], cell[1] + step[1])
     if not is_bridge_land(route.cls, cell):
         return
+    extension_class = BRIDGE_CLASS if len(extension_cells) <= LONGEST_SEAM_BRIDGE_EXTENSION_IN_METATILES else ground_class
     for extension_cell in extension_cells:
-        route.cls[extension_cell] = BRIDGE_CLASS
+        route.cls[extension_cell] = extension_class
 
 
 def neighbour_classes(class_grid: np.ndarray, cell: Cell, reach: int) -> List[str]:
@@ -352,7 +354,7 @@ def straighten_bridge(route: Route, bridge_cells: List[Cell], river_mask: np.nda
     inner_cells = [cell for cell in bridge_cells if not ring[cell]]
     take_up_bridge(route, inner_cells, river_mask, ground_class)
     for ring_cell in [cell for cell in bridge_cells if ring[cell]]:
-        extend_seam_bridge_inward(route, ring, ring_cell)
+        extend_seam_bridge_inward(route, ring, ring_cell, ground_class)
     labelled = walkable_labels(route.cls)
     anchor_cells = anchor_cells_of_banks(labelled, bank_labels_beside(route.cls, labelled, bridge_cells))
     if rebuild_crossings(route, ring, anchor_cells, bridge_cells, ground_class):

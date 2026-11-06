@@ -18,6 +18,7 @@ from pokeroutes.export import report, seal_edges  # noqa: E402
 from pokeroutes.generate import WALKABLE, generate, reachable  # noqa: E402
 from pokeroutes.gates import class_grid_with_route_gates_open  # noqa: E402
 from pokeroutes.obstacles import FIELD_MOVE_OBSTACLE_KINDS  # noqa: E402
+from pokeroutes.river_ends import ROCK_CLASS  # noqa: E402
 from pokeroutes.rivers import RIVER_CELLS_KEY  # noqa: E402
 from pokeroutes.spec import RouteSpec  # noqa: E402
 
@@ -62,8 +63,8 @@ def test_riverland_rivers_cross_the_map_and_stay_whole():
     route = example_route("bernsteinweg.yaml", 4, biome="riverland", tileset="general_fortree")
     remembered = route.__dict__.get(RIVER_CELLS_KEY)
     assert remembered is not None and remembered.any()
-    wet = np.isin(route.cls, ["w", "q", "a"])
-    assert (wet | ~remembered).all()
+    wet_or_capped_with_rocks = np.isin(route.cls, ["w", "q", "a", ROCK_CLASS])
+    assert (wet_or_capped_with_rocks | ~remembered).all()
     rows, columns = np.nonzero(remembered)
     spans_the_map = (rows.min() <= 1 and rows.max() >= route.h - 2) or (columns.min() <= 1 and columns.max() >= route.w - 2)
     assert spans_the_map

@@ -117,7 +117,6 @@ ROCK_CAP_DEPTH_IN_METATILES = 2
 SEAM_RING_DEPTH_IN_METATILES = 2
 MOST_CAPPING_PASSES = 4
 SURF_WATER_MARGIN_IN_METATILES = 2
-BRIDGE_CLEARANCE_OF_ROCK_CAPS_IN_METATILES = 3
 
 
 def is_in_seam_ring(class_grid: np.ndarray, cell: Cell) -> bool:
@@ -137,9 +136,9 @@ def water_cells_across(class_grid: np.ndarray, cell: Cell, step: Cell) -> List[C
     return across_cells
 
 
-def rock_cap_cells(class_grid: np.ndarray, land_cell: Cell, step: Cell) -> List[Cell]:
+def rock_cap_cells(class_grid: np.ndarray, land_cell: Cell, step: Cell, cap_depth: int) -> List[Cell]:
     cap_cells = []
-    for depth in range(1, ROCK_CAP_DEPTH_IN_METATILES + 1):
+    for depth in range(1, cap_depth + 1):
         cell = (land_cell[0] + step[0] * depth, land_cell[1] + step[1] * depth)
         if not is_river_water(class_grid, *cell):
             break
@@ -147,15 +146,8 @@ def rock_cap_cells(class_grid: np.ndarray, land_cell: Cell, step: Cell) -> List[
         if len(across_cells) > WIDEST_RIVER_IN_METATILES:
             break
         cap_cells += across_cells
-    cap_cells_off_the_seams = [cell for cell in cap_cells if not is_in_seam_ring(class_grid, cell) and not is_beside_a_bridge(class_grid, cell)]
+    cap_cells_off_the_seams = [cell for cell in cap_cells if not is_in_seam_ring(class_grid, cell)]
     return cap_cells_off_the_seams
-
-
-def is_beside_a_bridge(class_grid: np.ndarray, cell: Cell) -> bool:
-    reach = BRIDGE_CLEARANCE_OF_ROCK_CAPS_IN_METATILES
-    window = class_grid[max(0, cell[0] - reach):cell[0] + reach + 1, max(0, cell[1] - reach):cell[1] + reach + 1]
-    is_beside = bool((window == BRIDGE_CLASS).any())
-    return is_beside
 
 
 def surf_water_mask(route) -> np.ndarray:
@@ -170,18 +162,43 @@ def surf_water_mask(route) -> np.ndarray:
     return surf_water_with_margin
 
 
+def cap_river_end(route, cap_cells: List[Cell]) -> int:
+    from .glitches import crooked_bridges
+
+    crooked_before = len(crooked_bridges(route.cls))
+    classes_before = [str(route.cls[cell]) for cell in cap_cells]
+    for cell in cap_cells:
+        route.cls[cell] = ROCK_CLASS
+    if len(crooked_bridges(route.cls)) <= crooked_before:
+        return len(cap_cells)
+    for cell, class_before in zip(cap_cells, classes_before):
+        route.cls[cell] = class_before
+    return 0
+
+
+def cap_river_end_as_deep_as_bridges_allow(route, land_cell: Cell, step: Cell, surf_water: np.ndarray) -> int:
+    for cap_depth in range(ROCK_CAP_DEPTH_IN_METATILES, 0, -1):
+        cap_cells = [cell for cell in rock_cap_cells(route.cls, land_cell, step, cap_depth) if not surf_water[cell]]
+        if not cap_cells or not all(is_river_water(route.cls, *cell) for cell in cap_cells):
+            continue
+        capped_count = cap_river_end(route, cap_cells)
+        if capped_count:
+            return capped_count
+    return 0
+
+
 def block_open_river_ends(route) -> int:
     rocked_count = 0
     surf_water = surf_water_mask(route)
     rivers = river_water_mask(route)
     for _pass in range(MOST_CAPPING_PASSES):
-        cap_cells = {cell for land_cell, step in walkable_river_end_steps(route.cls, rivers)
-                     for cell in rock_cap_cells(route.cls, land_cell, step) if not surf_water[cell]}
-        if not cap_cells:
+        end_steps = walkable_river_end_steps(route.cls, rivers)
+        if not end_steps:
             break
-        for cell in cap_cells:
-            route.cls[cell] = ROCK_CLASS
-        rocked_count += len(cap_cells)
+        capped_count = sum(cap_river_end_as_deep_as_bridges_allow(route, land_cell, step, surf_water) for land_cell, step in end_steps)
+        rocked_count += capped_count
+        if not capped_count:
+            break
     if rocked_count:
         route.log.append(f"river ends: {rocked_count} water cells at river ends the player could walk up to became rocks")
     return rocked_count
