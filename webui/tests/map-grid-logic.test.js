@@ -51,28 +51,29 @@ test("pointer positions map to grid cells, off the grid is nothing", () => {
   assert.strictEqual(MAP_GRID.grid_cell_at(grid, 48, 3), null);
 });
 
-test("a metro line runs through cell centres into the towns it joins, corners only", () => {
+test("a route fills its squares: neighbouring squares run into each other, the outside keeps a small gap", () => {
   const doc = painted_doc(), grid = MAP_GRID.grid_of_doc(doc);
-  const [main_line] = MAP_GRID.metro_lines_of_route(grid, doc.routes[0]);
-  assert.deepStrictEqual(main_line, [[12, 12], [36, 12]]);
-  const [branch_line] = MAP_GRID.metro_lines_of_route(grid, doc.routes[1]);
-  assert.deepStrictEqual(branch_line, [[20, 12], [20, 28]]);
+  assert.deepStrictEqual(MAP_GRID.pieces_of_cells(grid, doc.routes[0].grid_cells, 1), [[17, 9, 25, 15], [23, 9, 31, 15]]);
 });
 
-test("a dead end gets a terminus bar across its last cell", () => {
+test("a joint bridges the gap where a route meets the place it leads to", () => {
   const doc = painted_doc(), grid = MAP_GRID.grid_of_doc(doc);
-  assert.deepStrictEqual(MAP_GRID.terminus_of_route(grid, doc.routes[1]), { point: [20, 28], across: [1, 0] });
-  assert.strictEqual(MAP_GRID.terminus_of_route(grid, doc.routes[0]), null);
+  const [into_ahlen, into_bertsch] = MAP_GRID.joints_of_route(grid, doc.routes[0], 1, 0.5);
+  assert.deepStrictEqual(into_ahlen, [14, 10, 18, 14]);
+  assert.deepStrictEqual(into_bertsch, [30, 10, 34, 14]);
 });
 
-test("joined routes get different line colours that stay put when others change", () => {
-  const doc = painted_doc();
-  const colours = MAP_GRID.route_line_colours(doc);
-  assert.notStrictEqual(colours["Route 1"], colours["Route 2"]);
-  const reordered = Object.assign({}, doc, { routes: doc.routes.slice().reverse() });
-  assert.deepStrictEqual(MAP_GRID.route_line_colours(reordered), colours);
-  const sea = Object.assign({}, doc, { routes: [Object.assign({}, doc.routes[0], { mode: "sea" })] });
-  assert.strictEqual(MAP_GRID.route_line_colours(sea)["Route 1"], MAP_GRID.SEA_LINE_COLOUR);
+test("the outline of a route follows its squares, not a box around them", () => {
+  const doc = painted_doc(), grid = MAP_GRID.grid_of_doc(doc);
+  const segments = MAP_GRID.outline_segments_of_cells(grid, [[2, 1], [3, 1], [3, 2]]);
+  assert.strictEqual(segments.length, 8);
+  assert.ok(!segments.some(([[x0, y0], [x1, y1]]) => x0 === 16 && x1 === 16 && Math.max(y0, y1) > 16));
+});
+
+test("a route stroke for a chosen route sends every non-town square; a new one only the empty ones", () => {
+  const grid = MAP_GRID.grid_of_doc(painted_doc());
+  assert.deepStrictEqual(MAP_GRID.cells_a_route_stroke_paints(grid, [[1, 1], [2, 1], [5, 1]], ""), [[5, 1]]);
+  assert.deepStrictEqual(MAP_GRID.cells_a_route_stroke_paints(grid, [[1, 1], [2, 1], [5, 1]], "r1"), [[2, 1], [5, 1]]);
 });
 
 test("a big town is drawn as one station: pieces reach into each other", () => {

@@ -215,3 +215,14 @@ def test_changing_the_grid_size_snaps_towns_and_routes_and_keeps_their_names():
     assert painted["map_grid"]["cell"] == 4
     with pytest.raises(map_grid.MapGridProblem):
         edit.regrid_map(doc, 5)
+
+
+def test_a_finer_grid_keeps_every_route_whole_and_joined():
+    doc = edit.generate_map(edit.generate_doc(3))
+    finer = edit.regrid_map(doc, 4)
+    assert len(finer["routes"]) == len(doc["routes"])
+    for route in finer["routes"]:
+        assert len(map_grid.connected_groups(tuple(cell) for cell in route["grid_cells"])) == 1
+    exits_before = {(route["name"], exit_record["to"]) for route in doc["routes"] for exit_record in route["exits"]}
+    exits_after = {(route["name"], exit_record["to"]) for route in finer["routes"] for exit_record in route["exits"]}
+    assert exits_before <= exits_after

@@ -293,6 +293,7 @@ body.resizing.h * { cursor: row-resize !important; }
 #mapInspector .exits2, #mapInspector .beats { margin: 4px 0 6px; padding: 0; }
 #mapInspector .exits2 { list-style: none; }
 #mapInspector .exits2 li { display: grid; grid-template-columns: 50px 1fr; gap: 6px; align-items: center; margin-bottom: 2px; }
+#mapInspector .exits2 li.exit-line { display: block; color: var(--text-2); }
 #mapInspector .exits2 .to { grid-column: 1 / -1; color: var(--text-3); margin-top: -3px; }
 #mapInspector .beats { padding-left: 18px; }
 #mapInspector .beats li { display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 3px; align-items: center; margin-bottom: 4px; }

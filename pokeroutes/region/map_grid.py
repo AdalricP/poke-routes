@@ -342,8 +342,9 @@ def landmass_name_of_grid_cells(w: World, cells: Sequence[GridCell]) -> str:
     return landmass_name
 
 
-def town_size_of(cells: Sequence[GridCell]) -> str:
-    town_size = "city" if len(cells) >= FEWEST_GRID_CELLS_OF_A_CITY else "town"
+def town_size_of(cells: Sequence[GridCell], size: int) -> str:
+    smallest_city_area = FEWEST_GRID_CELLS_OF_A_CITY * REGION_CELLS_PER_GRID_CELL ** 2
+    town_size = "city" if len(cells) * size ** 2 >= smallest_city_area else "town"
     return town_size
 
 
@@ -352,10 +353,10 @@ def town_of_group(w: World, cells: List[GridCell], old_town: Optional[City], nam
     rect = region_rect_of_grid_cells(cells, region_cells_per_grid_cell(w))
     if old_town is not None:
         kept_town = City(old_town.id, old_town.name, rect, old_town.gym, old_town.honours, landmass_name_of_grid_cells(w, cells),
-                         town_size_of(cells), old_town.note, old_town.pinned, grid_cells)
+                         town_size_of(cells, region_cells_per_grid_cell(w)), old_town.note, old_town.pinned, grid_cells)
         return kept_town
     new_town = City(town_id, name, rect, gym="", honours="", half=landmass_name_of_grid_cells(w, cells),
-                    size=town_size_of(cells), grid_cells=grid_cells)
+                    size=town_size_of(cells, region_cells_per_grid_cell(w)), grid_cells=grid_cells)
     return new_town
 
 
@@ -620,7 +621,11 @@ def route_cells_of_place(route: dict, size: int) -> List[GridCell]:
     return path_cells
 
 
-def marks_and_assignment_of_places(w: World, route_cells_of) -> Tuple[Dict[GridCell, str], Dict[GridCell, str]]:
+def no_reaching_cells(route: dict) -> List[GridCell]:
+    return []
+
+
+def marks_and_assignment_of_places(w: World, route_cells_of, reaching_cells_of=no_reaching_cells) -> Tuple[Dict[GridCell, str], Dict[GridCell, str]]:
     grid_size = grid_size_of_world(w)
     size = region_cells_per_grid_cell(w)
     assignment: Dict[GridCell, str] = {}
@@ -628,6 +633,8 @@ def marks_and_assignment_of_places(w: World, route_cells_of) -> Tuple[Dict[GridC
         key = route.get("grid_key") or next_free_route_key(assignment)
         route["grid_key"] = key
         assignment.update({cell: key for cell in route_cells_of(route) if is_inside_grid(cell, grid_size) and cell not in assignment})
+    for route in w.routes:
+        assignment.update({cell: route["grid_key"] for cell in reaching_cells_of(route) if is_inside_grid(cell, grid_size) and cell not in assignment})
     town_cells = [cell for town in w.cities for cell in old_town_grid_cells(town, size)]
     marks = with_cells_painted(with_cells_painted({}, list(assignment), "route", grid_size), town_cells, "town", grid_size)
     route_assignment = {cell: key for cell, key in assignment.items() if marks.get(cell) == ROUTE_MARK}
@@ -664,6 +671,12 @@ def town_cells_at_new_size(town: City, old_size: int, new_size: int) -> List[Lis
     return town_cells
 
 
+def reaching_cells_at_new_size(route: dict, new_size: int) -> List[GridCell]:
+    reaching_cells = [grid_cell_of_region_cell((exit_record["cell"][0] + network.DELTA[exit_record["side"]][0], exit_record["cell"][1] + network.DELTA[exit_record["side"]][1]), new_size)
+                      for exit_record in route.get("exits") or []]
+    return reaching_cells
+
+
 def regrid_world(w: World, new_size: int) -> None:
     if new_size not in GRID_CELL_SIZES_IN_REGION_CELLS:
         raise MapGridProblem(f"the map grid can be {', '.join(map(str, GRID_CELL_SIZES_IN_REGION_CELLS))} region cells wide, not {new_size}")
@@ -671,5 +684,6 @@ def regrid_world(w: World, new_size: int) -> None:
     for town in w.cities:
         town.grid_cells = town_cells_at_new_size(town, old_size, new_size)
     w.overrides["map_grid"] = {"cell": new_size, "size": [w.W // new_size, w.H // new_size], "rows": []}
-    marks, assignment = marks_and_assignment_of_places(w, lambda route: grid_cells_along_region_path(route.get("path") or [], new_size))
+    marks, assignment = marks_and_assignment_of_places(w, lambda route: grid_cells_along_region_path(route.get("path") or [], new_size),
+                                                       lambda route: reaching_cells_at_new_size(route, new_size))
     map_from_marks(w, marks, assignment)
