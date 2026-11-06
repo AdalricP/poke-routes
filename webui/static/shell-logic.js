@@ -533,6 +533,7 @@
       p.exits = spec.exits.slice(0, 4).map((e) => {
         const o = { side: e.side || "south", at: e.at != null ? +e.at : 0.5, width: e.width != null ? +e.width : 2 };
         if (e.to) o.to = String(e.to);
+        if (e.offset != null) o.offset = +e.offset;
         return o;
       });
     }
@@ -560,15 +561,37 @@
     const unused = region_exits.filter((region_exit) => !used_region_exits.has(region_exit));
     return unused.find(matches_side_and_map) || unused.find(matches_map) || null;
   }
+  function chain_maps_of_document(region_document) {
+    const chain_maps = (region_document.routes || []).flatMap((route) => route.chain || []);
+    return chain_maps;
+  }
+  function region_route_named(region_document, route_name) {
+    if (!region_document) return null;
+    const chain_map = chain_maps_of_document(region_document).find((candidate) => candidate.name === route_name);
+    const region_route = chain_map || (region_document.routes || []).find((candidate) => candidate.name === route_name) || null;
+    return region_route;
+  }
+  function chain_map_with_constant(region_document, map_constant) {
+    if (!region_document) return null;
+    const chain_map = chain_maps_of_document(region_document).find((candidate) => candidate.map === map_constant) || null;
+    return chain_map;
+  }
+  function chain_of_map(region_document, map_name) {
+    if (!region_document) return [];
+    const route_holding_map = (region_document.routes || []).find((route) => (route.chain || []).some((chain_map) => chain_map.name === map_name));
+    const chain = route_holding_map && route_holding_map.chain.length > 1 ? route_holding_map.chain : [];
+    return chain;
+  }
   function connection_for(region_exit, region_document) {
-    const route = (region_document.routes || []).find((candidate) => candidate.name === region_exit.to) || null;
+    const destination_name = region_exit.to_chain_map || region_exit.to;
+    const route = region_route_named(region_document, destination_name);
     const town = route ? null : (region_document.cities || []).find((candidate) => candidate.name === region_exit.to) || null;
     if (!route && !town) return null;
-    return { name: region_exit.to, kind: route ? "route" : "town", route, town };
+    return { name: destination_name, kind: route ? "route" : "town", route, town };
   }
   function exitConnections(scene_exits, region_document, route_name) {
     const exits = scene_exits || [];
-    const region_route = region_document && (region_document.routes || []).find((route) => route.name === route_name);
+    const region_route = region_route_named(region_document, route_name);
     if (!region_route) return exits.map((scene_exit) => (scene_exit.to ? { name: name_from_map_constant(scene_exit.to), kind: "unknown", route: null, town: null } : null));
     const used_region_exits = new Set();
     return exits.map((scene_exit) => {
@@ -902,7 +925,7 @@
     flattenMenus, findShortcut, shortcutClashes, SHORTCUTS, ALT_SHORTCUTS, NOT_IN_FIELDS, attachShortcuts,
     LAYOUT_KEY, CHROME, BOTTOM_TABS, CENTER_TABS, defaultLayout, sanitizeLayout, loadLayout, saveLayout,
     computeRects, dragSize, nearHomeEdge, MIN_CENTER, MIN_SIDE,
-    History, RECENT_KEY, pushRecent, recentLabel, specToParams, paramsToSpecFile, safeFileName, exitConnections,
+    History, RECENT_KEY, pushRecent, recentLabel, specToParams, paramsToSpecFile, safeFileName, exitConnections, region_route_named, chain_of_map, chain_map_with_constant,
     STAMPS, brushCells, stampCells, lineCells, PAINT_KEY, PAINT_OBJECTS_KEY, paintKey, mergePaint, paintList,
     PLACED_ITEMS_KEY, PLACEABLE_ITEM_KINDS, placed_item_index, place_item, update_placed_item, remove_placed_item,
     remember_placed_items, merge_placement_result,

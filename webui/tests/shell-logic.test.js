@@ -422,6 +422,24 @@ test("scene exits lead to the routes and towns on the other side", () => {
   assert.deepStrictEqual(SL.exitConnections([], doc, "Route 1"), []);
 });
 
+test("scene exits walk along a route's chain of maps", () => {
+  const first_map = { name: "Route 1 (1/2)", id: "Route1_1", exits: [{ side: "west", to: "Town 1", to_map: "MAP_TOWN1" }, { side: "east", to: "Route 1", to_map: "MAP_ROUTE1_2", to_chain_map: "Route 1 (2/2)" }] };
+  const second_map = { name: "Route 1 (2/2)", id: "Route1_2", map: "MAP_ROUTE1_2", exits: [{ side: "west", to: "Route 1", to_map: "MAP_ROUTE1_1", to_chain_map: "Route 1 (1/2)" }, { side: "north", to: "Route 2", to_map: "MAP_ROUTE2", to_chain_map: "Route 2" }] };
+  const route_two_map = { name: "Route 2", id: "Route2", exits: [{ side: "south", to: "Route 1", to_map: "MAP_ROUTE1_2", to_chain_map: "Route 1 (2/2)" }] };
+  const doc = {
+    routes: [{ name: "Route 1", chain: [first_map, second_map], exits: [] }, { name: "Route 2", chain: [route_two_map], exits: [] }],
+    cities: [{ id: "town1", name: "Town 1" }],
+  };
+  const [town, next_map] = SL.exitConnections([{ side: "west", to: "MAP_TOWN1" }, { side: "east", to: "MAP_ROUTE1_2" }], doc, "Route 1 (1/2)");
+  assert.strictEqual(town.kind, "town");
+  assert.deepStrictEqual([next_map.kind, next_map.name, next_map.route.id], ["route", "Route 1 (2/2)", "Route1_2"]);
+  const [back_into_chain] = SL.exitConnections([{ side: "south", to: "MAP_ROUTE1_2" }], doc, "Route 2");
+  assert.strictEqual(back_into_chain.route.id, "Route1_2");
+  assert.deepStrictEqual(SL.chain_of_map(doc, "Route 1 (2/2)").map((chain_map) => chain_map.id), ["Route1_1", "Route1_2"]);
+  assert.deepStrictEqual(SL.chain_of_map(doc, "Route 2"), []);
+  assert.strictEqual(SL.chain_map_with_constant(doc, "MAP_ROUTE1_2").name, "Route 1 (2/2)");
+});
+
 test("saved spec file round trip", () => {
   const p = { name: "Testweg", seed: 7, width: 64, height: 72, exits: [{ side: "south", at: 0.45, width: 2 }, { side: "north", at: 0.6, width: 2 }], special_areas: ["auto"] };
   const file = SL.paramsToSpecFile(p, { name: "Testweg", region: { role: "link" }, endings: [] });

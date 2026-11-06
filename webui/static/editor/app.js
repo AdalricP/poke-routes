@@ -622,7 +622,7 @@
 
   // the route the Routes view has open: a bright frame and its name, so it can be found while walking exits
   function draw_route_open_in_routes_view(d, X, Y, z) {
-    const open_route = st.open_route && ED.routeByName(d, st.open_route);
+    const open_route = st.open_route && ED.route_or_chain_map_by_name(d, st.open_route);
     if (!open_route) return;
     const [x0, y0, x1, y1] = open_route.rect;
     ctx.save();
@@ -655,7 +655,7 @@
 
   function set_open_route(route_name) {
     st.open_route = route_name || null;
-    const open_route = st.doc && st.open_route && ED.routeByName(st.doc, st.open_route);
+    const open_route = st.doc && st.open_route && ED.route_or_chain_map_by_name(st.doc, st.open_route);
     if (open_route) for_each_shown_render_target(() => bring_cell_rect_into_bound_view(open_route.rect));
     draw();
   }
@@ -1288,7 +1288,8 @@
   }
 
   // ------------------------------------------------------------ bench drill-down
-  async function openInBench(r) {
+  async function openInBench(route_or_chain_map) {
+    const r = ED.first_map_of_route(route_or_chain_map);
     await busy("opening " + r.name, async () => {
       const spec = await api("/api/editor/spec", { doc: ED.encodeDoc(st.doc), id: r.id });
       if (open_route_spec_in_host) { open_route_spec_in_host(spec); return; }
