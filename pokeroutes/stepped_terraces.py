@@ -3,10 +3,9 @@ from __future__ import annotations
 from typing import List, Tuple
 
 import numpy as np
-from scipy.ndimage import binary_dilation, binary_opening, distance_transform_cdt, label
+from scipy.ndimage import binary_dilation, binary_opening, distance_transform_cdt, gaussian_filter, label, zoom
 
 from .generate import WALKABLE
-from .noise import fbm
 from .scenery_layer import RAISED_GROUND_CLASS
 from .seams import SEAM_BAND_DEPTH_IN_METATILES, band_cell, edge_length_of_side, seam_bands_of_route
 
@@ -19,8 +18,11 @@ RING_AROUND_A_CELL = ((-1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1
 ORTHOGONAL_RING_INDICES = (1, 3, 5, 7)
 LEDGE_CLASSES = "sejx"
 SMALLEST_TERRACE_PIECE_IN_CELLS = 20
-STEP_DEPTHS_IN_CELLS = (3, 4)
-LEVEL_NOISE_SPREAD_IN_CELLS = 1.0
+LEDGE_TIDY_PASSES = 3
+REGION_HEIGHT_WEIGHT = 0.75
+WORLD_HEIGHT_DETAIL_WEIGHT = 0.25
+HEIGHT_SMOOTHING_IN_CELLS = 2.0
+HIGH_GROUND_SHARE_OF_INNER_RAISED_GROUND = 0.55
 HIGHEST_TERRACE_LEVEL = 2
 SQUARE_OF_NINE = np.ones((3, 3), dtype=bool)
 LOW_SIDE_LEDGES = (((1, 0), "s"), ((-1, 0), "j"), ((0, 1), "e"), ((0, -1), "x"),
@@ -43,6 +45,7 @@ def lay_stepped_terraces(route) -> None:
     for (cell_y, cell_x), ledge_letter in ledge_cells:
         route.cls[cell_y, cell_x] = ledge_letter
     open_back_to_back_ledges(route, frozen_cells)
+    tidy_ledge_joins(route, frozen_cells)
     route.snap("stepped terraces")
 
 
@@ -235,17 +238,47 @@ def without_small_pieces(mask: np.ndarray) -> np.ndarray:
     return kept
 
 
+def region_fine_heights(route) -> np.ndarray:
+    region_block = route.spec.region if isinstance(getattr(route.spec, "region", None), dict) else {}
+    fine_rows = (region_block.get("elevation") or {}).get("fine") if region_block else None
+    if not fine_rows:
+        return np.zeros((route.h, route.w))
+    region_cell_size = int(region_block.get("cell", 4) or 4)
+    fine_grid = np.array([[int(digit) for digit in row] for row in fine_rows], dtype=float) / 9.0
+    padded = np.pad(fine_grid, 1, mode="edge")
+    upsampled = zoom(padded, region_cell_size, order=1)
+    offset = region_cell_size - region_cell_size // 2
+    cropped = upsampled[offset:offset + route.h, offset:offset + route.w]
+    heights = np.pad(cropped, ((0, route.h - cropped.shape[0]), (0, route.w - cropped.shape[1])), mode="edge")
+    return heights
+
+
+def geography_heights(route) -> np.ndarray:
+    from .height import origin, world_height
+
+    origin_x, origin_y = origin(route.spec)
+    world_xs = origin_x + np.arange(route.w)[None, :] + 0.5
+    world_ys = origin_y + np.arange(route.h)[:, None] + 0.5
+    world_detail = world_height(world_xs, world_ys)
+    heights = REGION_HEIGHT_WEIGHT * region_fine_heights(route) + WORLD_HEIGHT_DETAIL_WEIGHT * world_detail
+    smoothed = gaussian_filter(heights, HEIGHT_SMOOTHING_IN_CELLS, mode="nearest")
+    return smoothed
+
+
 def levels_of_raised_ground(route) -> np.ndarray:
     is_raised = raised_ground_mask(route)
     levels = is_raised.astype(np.int8)
-    distance = distance_into_raised_ground(is_raised).astype(float)
-    level_noise = (fbm(route.h, route.w, 10.0, route.rng, octaves=2) - 0.5) * 2 * LEVEL_NOISE_SPREAD_IN_CELLS
-    step_depth = STEP_DEPTHS_IN_CELLS[int(route.rng.integers(0, len(STEP_DEPTHS_IN_CELLS)))]
+    heights = geography_heights(route)
+    route.__dict__["geography_heights"] = heights
     previous_level_mask = is_raised
     for level in range(2, HIGHEST_TERRACE_LEVEL + 1):
-        reaches_level = (distance + level_noise >= step_depth * (level - 1)) & previous_level_mask
+        inner = inner_part_of(previous_level_mask)
+        if not inner.any():
+            break
+        contour_height = float(np.quantile(heights[inner], 1.0 - HIGH_GROUND_SHARE_OF_INNER_RAISED_GROUND))
+        reaches_level = (heights >= contour_height) & inner
         reaches_level = without_small_pieces(opened_with_map_edge_raised(reaches_level) & previous_level_mask)
-        reaches_level &= inner_part_of(previous_level_mask)
+        reaches_level &= inner
         levels[reaches_level] = level
         previous_level_mask = reaches_level
     return levels
@@ -287,3 +320,31 @@ def ledge_cells_along_level_steps(route, terrace_levels: np.ndarray, frozen_cell
     ledge_cells = [((int(cell_y), int(cell_x)), ledge_letter) for cell_y, cell_x in raised_cells
                    for ledge_letter in [ledge_letter_of(route, terrace_levels, int(cell_y), int(cell_x))] if ledge_letter]
     return ledge_cells
+
+
+def tidy_ledge_joins(route, frozen_cells: np.ndarray) -> None:
+    from .ledge_joins import ARM_STEPS, arms_of_ledge_cell, broken_ledge_joins
+
+    must_stay_open = cells_that_must_stay_open(route)
+    for _pass in range(LEDGE_TIDY_PASSES):
+        broken = broken_ledge_joins(route.cls)
+        changed = False
+        for cell in broken["lone ledge"] + broken["short ledge run"]:
+            if not frozen_cells[cell]:
+                route.cls[cell] = BUSH_CLASS
+                changed = True
+        grid = ["".join(str(letter) for letter in row) for row in route.cls]
+        is_walkable = np.isin(route.cls, list(WALKABLE))
+        for cell_y, cell_x in broken["ledge ending in the open"]:
+            arms = arms_of_ledge_cell(grid, cell_y, cell_x)
+            if len(arms) != 1:
+                continue
+            step_y, step_x = ARM_STEPS[(arms[0] + 2) % 4]
+            cap_y, cap_x = cell_y + step_y, cell_x + step_x
+            if frozen_cells[cap_y, cap_x] or must_stay_open[cap_y, cap_x] or not is_safe_to_block(is_walkable, cap_y, cap_x):
+                continue
+            route.cls[cap_y, cap_x] = BUSH_CLASS
+            is_walkable[cap_y, cap_x] = False
+            changed = True
+        if not changed:
+            return

@@ -114,16 +114,24 @@ def walkable_river_ends(route) -> List[Cell]:
 
 ROCK_CLASS = "r"
 ROCK_CAP_DEPTH_IN_METATILES = 2
-SEAM_RING_DEPTH_IN_METATILES = 2
 MOST_CAPPING_PASSES = 4
 SURF_WATER_MARGIN_IN_METATILES = 2
 
 
-def is_in_seam_ring(class_grid: np.ndarray, cell: Cell) -> bool:
-    height, width = class_grid.shape
-    depth = SEAM_RING_DEPTH_IN_METATILES
-    in_ring = cell[0] < depth or cell[1] < depth or cell[0] >= height - depth or cell[1] >= width - depth
-    return in_ring
+def seam_banded_cells(route) -> np.ndarray:
+    from .seams import SEAM_BAND_DEPTH_IN_METATILES, band_cell, edge_length_of_side, seam_bands_of_route
+
+    banded = np.zeros(route.cls.shape, dtype=bool)
+    for seam_band in seam_bands_of_route(route):
+        side, start_along_edge, band_classes = seam_band["side"], int(seam_band["start"]), seam_band["classes"]
+        edge_length = edge_length_of_side(route, side)
+        for band_index in range(len(band_classes)):
+            position_along_edge = start_along_edge + band_index
+            if not 0 <= position_along_edge < edge_length:
+                continue
+            for depth_from_edge in range(SEAM_BAND_DEPTH_IN_METATILES):
+                banded[band_cell(route, side, position_along_edge, depth_from_edge)] = True
+    return banded
 
 
 def water_cells_across(class_grid: np.ndarray, cell: Cell, step: Cell) -> List[Cell]:
@@ -136,7 +144,7 @@ def water_cells_across(class_grid: np.ndarray, cell: Cell, step: Cell) -> List[C
     return across_cells
 
 
-def rock_cap_cells(class_grid: np.ndarray, land_cell: Cell, step: Cell, cap_depth: int) -> List[Cell]:
+def rock_cap_cells(class_grid: np.ndarray, land_cell: Cell, step: Cell, cap_depth: int, banded_cells: np.ndarray) -> List[Cell]:
     cap_cells = []
     for depth in range(1, cap_depth + 1):
         cell = (land_cell[0] + step[0] * depth, land_cell[1] + step[1] * depth)
@@ -146,7 +154,7 @@ def rock_cap_cells(class_grid: np.ndarray, land_cell: Cell, step: Cell, cap_dept
         if len(across_cells) > WIDEST_RIVER_IN_METATILES:
             break
         cap_cells += across_cells
-    cap_cells_off_the_seams = [cell for cell in cap_cells if not is_in_seam_ring(class_grid, cell)]
+    cap_cells_off_the_seams = [cell for cell in cap_cells if not banded_cells[cell]]
     return cap_cells_off_the_seams
 
 
@@ -176,9 +184,9 @@ def cap_river_end(route, cap_cells: List[Cell]) -> int:
     return 0
 
 
-def cap_river_end_as_deep_as_bridges_allow(route, land_cell: Cell, step: Cell, surf_water: np.ndarray) -> int:
+def cap_river_end_as_deep_as_bridges_allow(route, land_cell: Cell, step: Cell, surf_water: np.ndarray, banded_cells: np.ndarray) -> int:
     for cap_depth in range(ROCK_CAP_DEPTH_IN_METATILES, 0, -1):
-        cap_cells = [cell for cell in rock_cap_cells(route.cls, land_cell, step, cap_depth) if not surf_water[cell]]
+        cap_cells = [cell for cell in rock_cap_cells(route.cls, land_cell, step, cap_depth, banded_cells) if not surf_water[cell]]
         if not cap_cells or not all(is_river_water(route.cls, *cell) for cell in cap_cells):
             continue
         capped_count = cap_river_end(route, cap_cells)
@@ -191,11 +199,12 @@ def block_open_river_ends(route) -> int:
     rocked_count = 0
     surf_water = surf_water_mask(route)
     rivers = river_water_mask(route)
+    banded_cells = seam_banded_cells(route)
     for _pass in range(MOST_CAPPING_PASSES):
         end_steps = walkable_river_end_steps(route.cls, rivers)
         if not end_steps:
             break
-        capped_count = sum(cap_river_end_as_deep_as_bridges_allow(route, land_cell, step, surf_water) for land_cell, step in end_steps)
+        capped_count = sum(cap_river_end_as_deep_as_bridges_allow(route, land_cell, step, surf_water, banded_cells) for land_cell, step in end_steps)
         rocked_count += capped_count
         if not capped_count:
             break

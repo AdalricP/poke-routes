@@ -164,6 +164,7 @@
     water: '<path d="M2 3h12v6.5c-1.3 0-1.3 1.6-2.6 1.6S9.8 9.5 8.5 9.5 7.2 11.1 5.9 11.1 4.6 9.5 3.3 9.5 2 11.1 2 11.1z" fill="currentColor"/>',
     route: '<path d="M2.5 13.5V8h11V2.5" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linejoin="round"/><circle cx="2.5" cy="13.5" r="1.6" fill="currentColor"/><circle cx="13.5" cy="2.5" r="1.6" fill="currentColor"/>',
     town: '<rect x="2" y="2" width="5.5" height="5.5" rx="1.4" fill="currentColor"/><rect x="8.5" y="2" width="5.5" height="5.5" rx="1.4" fill="currentColor"/><rect x="2" y="8.5" width="5.5" height="5.5" rx="1.4" fill="currentColor"/><rect x="8.5" y="8.5" width="5.5" height="5.5" rx="1.4" fill="currentColor" opacity=".35"/>',
+    fly: '<path d="M1.5 8.6l13-6.1-4.4 11.6-2.6-4.3z" fill="currentColor"/><path d="M7.5 9.8l7-7.3" stroke="#3a3a3a" stroke-width="1"/>',
     erase: '<path d="M9.2 2.6l4.2 4.2-6.6 6.6H3.9L2.6 12.1a1.4 1.4 0 010-2z" fill="currentColor"/><path d="M5.5 6.3l4.2 4.2" stroke="#3a3a3a" stroke-width="1.2"/><rect x="8" y="12.6" width="6" height="1.2" fill="currentColor"/>',
   };
   if (host) dock_into_host();
@@ -675,6 +676,7 @@
     }
     ctx.globalAlpha = town_map && !st.layers.squares ? SEE_THROUGH_SQUARE_ALPHA : 1;
     if (st.layers.routes) (town_map ? draw_town_map_routes : drawRoutes)(d, X, Y, z);
+    if (is_bound_view_flying()) draw_fly_view_route_tiles(d, X, Y, z);
     (town_map ? draw_town_map_landmarks : drawLandmarks)(d, X, Y, z);
     if (st.mode !== "geography") (town_map ? draw_town_map_towns : drawCities)(d, X, Y, z);
     ctx.globalAlpha = 1;
@@ -684,7 +686,7 @@
     draw_route_open_in_routes_view(d, X, Y, z);
     if (st.mode !== "geography") draw_selected_tile(d, X, Y, z);
     draw_player_on_map(d, X, Y, z);
-    if (is_bound_view_focused()) drawToolOverlay(d, X, Y, z);
+    if (is_bound_view_focused() && !is_bound_view_flying()) drawToolOverlay(d, X, Y, z);
   }
 
   function draw_map_selection_on_geography(d, X, Y, z) {
@@ -1383,6 +1385,7 @@
     map_element.addEventListener("dblclick", only_while_focused(open_route_under_pointer));
   }
   render_targets.forEach(listen_for_pointer_input_on);
+  render_targets.forEach(listen_for_fly_input_on);
 
   function dab(fx, fy, moving) {
     const d = st.doc, dr = st.drag;
@@ -1936,6 +1939,7 @@
     for (const rail_element of $$(".rail > *, .ed-tools > *")) rail_element.hidden = !is_rail_element_shown_in_current_mode(rail_element);
     $("title").textContent = editor_title_for_each_mode[st.mode] || "region editor";
     $("routeListSection").hidden = st.mode !== "region";
+    if (fly && bound_render_target === fly.render_target && st.mode !== "region") leave_fly_view();
     for (const geography_only_row of document.querySelectorAll("[data-geography-only]")) geography_only_row.hidden = st.mode !== "geography" && st.mode !== null;
     for (const map_only_row of $$("[data-map-only]")) map_only_row.hidden = st.mode !== "region" && st.mode !== null;
     $$('[data-layer="routes"]')[0].hidden = st.mode === "geography";
@@ -1972,6 +1976,10 @@
       btn.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${TOOL_ICONS[b.dataset.edtool] || ""}</svg>`;
       host.tools.append(btn);
     }
+    host.tools.append(el("span", { class: "tb-sep", "data-modes": "region" }));
+    const fly_button = el("button", { type: "button", class: "tb-btn", "data-fly-toggle": "", "data-modes": "region", title: "Fly", "aria-label": "Fly" });
+    fly_button.innerHTML = `<svg viewBox="0 0 16 16" aria-hidden="true">${TOOL_ICONS.fly}</svg>`;
+    host.tools.append(fly_button);
 
     // side panel: the shell inspector's foldouts. Region (name, seed) first, then selection, tool, story, stages.
     host.side.innerHTML = "";
@@ -2102,6 +2110,180 @@
     if (ul.parentElement) ul.parentElement.scrollTop = scroll;
   }
 
+  const smallest_fly_zoom_in_pixels_per_region_cell = 1;
+  const largest_fly_zoom_in_pixels_per_region_cell = 128;
+  const largest_map_zoom_in_pixels_per_region_cell = 48;
+  const glide_speed_in_screen_pixels_per_second = 720;
+  const zoom_easing_rate_per_second = 10;
+  const wheel_zoom_sensitivity_per_delta_pixel = 0.0022;
+  const keys_that_glide = { w: [0, 1], arrowup: [0, 1], s: [0, -1], arrowdown: [0, -1], a: [1, 0], arrowleft: [1, 0], d: [-1, 0], arrowright: [-1, 0] };
+  let fly = null;
+  const fly_view_route_tiles = global.FLY_VIEW ? global.FLY_VIEW.make_fly_view_route_tiles({
+    post_json: (address, body) => api(address, body),
+    get_json: (address) => api(address),
+    encoded_document: (region_document) => ED.encodeDoc(region_document),
+    on_tiles_ready: () => draw(),
+  }) : null;
+
+  function is_bound_view_flying() {
+    const is_flying_here = !!fly && bound_render_target === fly.render_target;
+    return is_flying_here;
+  }
+  function toggle_fly_view() {
+    if (fly) { leave_fly_view(); return; }
+    enter_fly_view();
+  }
+  function enter_fly_view() {
+    if (!st.doc || !fly_view_route_tiles) return;
+    if (st.mode !== "region") { toast("Fly works in the Map view"); return; }
+    const view_box = wrap.getBoundingClientRect();
+    fly = {
+      render_target: focused_render_target, target_zoom: st.view.z, anchor_x: view_box.width / 2, anchor_y: view_box.height / 2,
+      keys_held: new Set(), drag: null, last_frame_time_in_milliseconds: performance.now(), frame_request: 0, is_animating_tiles: false,
+    };
+    st.hover = null;
+    st.drag = null;
+    fly.render_target.wrap.classList.add("flying");
+    fly.render_target.wrap.style.cursor = "grab";
+    show_fly_toggle_state();
+    toast("Fly: drag or WASD to glide, wheel to zoom down to tiles, Esc to leave");
+    fly.frame_request = requestAnimationFrame(step_fly_view);
+    draw();
+  }
+  function leave_fly_view() {
+    if (!fly) return;
+    const leaving_fly = fly;
+    fly = null;
+    cancelAnimationFrame(leaving_fly.frame_request);
+    leaving_fly.render_target.wrap.classList.remove("flying");
+    leaving_fly.render_target.wrap.style.cursor = "";
+    with_render_target(leaving_fly.render_target, clamp_zoom_back_into_map_range);
+    show_fly_toggle_state();
+    draw();
+  }
+  function clamp_zoom_back_into_map_range() {
+    if (st.view.z <= largest_map_zoom_in_pixels_per_region_cell) return;
+    const view_box = wrap.getBoundingClientRect();
+    zoom_view_around_point(largest_map_zoom_in_pixels_per_region_cell / st.view.z, view_box.width / 2, view_box.height / 2);
+  }
+  function show_fly_toggle_state() {
+    $$("[data-fly-toggle]").forEach((fly_toggle_button) => fly_toggle_button.classList.toggle("on", !!fly));
+  }
+  function zoom_view_around_point(zoom_factor, screen_x, screen_y) {
+    const view = st.view;
+    const new_zoom = Math.max(smallest_fly_zoom_in_pixels_per_region_cell, Math.min(largest_fly_zoom_in_pixels_per_region_cell, view.z * zoom_factor));
+    const cell_x_under_point = (screen_x - view.ox) / view.z, cell_y_under_point = (screen_y - view.oy) / view.z;
+    st.view = { z: new_zoom, ox: screen_x - cell_x_under_point * new_zoom, oy: screen_y - cell_y_under_point * new_zoom };
+    bound_render_target.camera = st.view;
+  }
+  function step_fly_view(frame_time_in_milliseconds) {
+    if (!fly) return;
+    const seconds_since_last_frame = Math.min(0.05, (frame_time_in_milliseconds - fly.last_frame_time_in_milliseconds) / 1000);
+    fly.last_frame_time_in_milliseconds = frame_time_in_milliseconds;
+    const has_view_moved = with_render_target(fly.render_target, () => move_fly_camera(seconds_since_last_frame));
+    if (has_view_moved || fly.is_animating_tiles) draw();
+    fly.frame_request = requestAnimationFrame(step_fly_view);
+  }
+  function move_fly_camera(seconds_since_last_frame) {
+    const has_glided = glide_by_held_keys(seconds_since_last_frame);
+    const has_zoomed = ease_zoom_toward_target(seconds_since_last_frame);
+    const has_view_moved = has_glided || has_zoomed;
+    return has_view_moved;
+  }
+  function glide_by_held_keys(seconds_since_last_frame) {
+    let glide_x = 0, glide_y = 0;
+    for (const held_key of fly.keys_held) {
+      const glide_direction = keys_that_glide[held_key];
+      if (!glide_direction) continue;
+      glide_x += glide_direction[0];
+      glide_y += glide_direction[1];
+    }
+    if (!glide_x && !glide_y) return false;
+    const glide_distance_in_screen_pixels = glide_speed_in_screen_pixels_per_second * seconds_since_last_frame;
+    st.view = { z: st.view.z, ox: st.view.ox + glide_x * glide_distance_in_screen_pixels, oy: st.view.oy + glide_y * glide_distance_in_screen_pixels };
+    bound_render_target.camera = st.view;
+    return true;
+  }
+  function ease_zoom_toward_target(seconds_since_last_frame) {
+    const zoom_ratio_left = fly.target_zoom / st.view.z;
+    if (Math.abs(Math.log(zoom_ratio_left)) < 0.002) return false;
+    const eased_share = 1 - Math.exp(-zoom_easing_rate_per_second * seconds_since_last_frame);
+    zoom_view_around_point(Math.exp(Math.log(zoom_ratio_left) * eased_share), fly.anchor_x, fly.anchor_y);
+    return true;
+  }
+  function handle_key_down_while_flying(ev) {
+    if (ev.target && ev.target.closest && ev.target.closest("input, select, textarea")) return false;
+    const pressed_key = ev.key.toLowerCase();
+    if (pressed_key === "escape") { ev.preventDefault(); leave_fly_view(); return true; }
+    if (keys_that_glide[pressed_key]) { ev.preventDefault(); fly.keys_held.add(pressed_key); return true; }
+    if (pressed_key === "+" || pressed_key === "=") { zoom_fly_target_by(1.6); return true; }
+    if (pressed_key === "-") { zoom_fly_target_by(1 / 1.6); return true; }
+    return false;
+  }
+  function zoom_fly_target_by(zoom_factor) {
+    const view_box = fly.render_target.wrap.getBoundingClientRect();
+    fly.anchor_x = view_box.width / 2;
+    fly.anchor_y = view_box.height / 2;
+    fly.target_zoom = Math.max(smallest_fly_zoom_in_pixels_per_region_cell, Math.min(largest_fly_zoom_in_pixels_per_region_cell, fly.target_zoom * zoom_factor));
+  }
+  function listen_for_fly_input_on(render_target) {
+    const only_while_flying_here = (handler) => (ev) => {
+      if (!fly || fly.render_target !== render_target) return;
+      ev.stopPropagation();
+      handler(ev);
+    };
+    const map_element = render_target.wrap;
+    map_element.addEventListener("pointerdown", only_while_flying_here(start_fly_drag), true);
+    map_element.addEventListener("pointermove", only_while_flying_here(follow_fly_drag), true);
+    map_element.addEventListener("pointerup", only_while_flying_here(end_fly_drag), true);
+    map_element.addEventListener("pointercancel", only_while_flying_here(end_fly_drag), true);
+    map_element.addEventListener("wheel", only_while_flying_here(zoom_fly_under_wheel), { capture: true, passive: false });
+    map_element.addEventListener("dblclick", only_while_flying_here(() => {}), true);
+  }
+  function screen_point_in_fly_view(ev) {
+    const view_box = fly.render_target.wrap.getBoundingClientRect();
+    const screen_point = [ev.clientX - view_box.left, ev.clientY - view_box.top];
+    return screen_point;
+  }
+  function start_fly_drag(ev) {
+    const camera = fly.render_target.camera;
+    fly.drag = { pointer_x: ev.clientX, pointer_y: ev.clientY, start_ox: camera.ox, start_oy: camera.oy };
+    if (ev.target.setPointerCapture) ev.target.setPointerCapture(ev.pointerId);
+    fly.render_target.wrap.style.cursor = "grabbing";
+  }
+  function follow_fly_drag(ev) {
+    if (!fly.drag) return;
+    const camera = fly.render_target.camera;
+    const dragged_camera = { z: camera.z, ox: fly.drag.start_ox + ev.clientX - fly.drag.pointer_x, oy: fly.drag.start_oy + ev.clientY - fly.drag.pointer_y };
+    fly.render_target.camera = dragged_camera;
+    if (bound_render_target === fly.render_target) st.view = dragged_camera;
+    draw();
+  }
+  function end_fly_drag() {
+    fly.drag = null;
+    fly.render_target.wrap.style.cursor = "grab";
+  }
+  function zoom_fly_under_wheel(ev) {
+    ev.preventDefault();
+    [fly.anchor_x, fly.anchor_y] = screen_point_in_fly_view(ev);
+    const wheel_zoom_factor = Math.exp(-ev.deltaY * wheel_zoom_sensitivity_per_delta_pixel);
+    fly.target_zoom = Math.max(smallest_fly_zoom_in_pixels_per_region_cell, Math.min(largest_fly_zoom_in_pixels_per_region_cell, fly.target_zoom * wheel_zoom_factor));
+  }
+  function draw_fly_view_route_tiles(region_document, screen_x_of_cell, screen_y_of_cell, pixels_per_region_cell) {
+    const device_pixel_ratio = window.devicePixelRatio || 1;
+    const view_width_in_screen_pixels = cv.width / device_pixel_ratio, view_height_in_screen_pixels = cv.height / device_pixel_ratio;
+    const cell_window = {
+      left: -st.view.ox / pixels_per_region_cell, top: -st.view.oy / pixels_per_region_cell,
+      right: (view_width_in_screen_pixels - st.view.ox) / pixels_per_region_cell, bottom: (view_height_in_screen_pixels - st.view.oy) / pixels_per_region_cell,
+    };
+    const screen_rect_of = (region_rect) => [screen_x_of_cell(region_rect[0]), screen_y_of_cell(region_rect[1]),
+      (region_rect[2] - region_rect[0]) * pixels_per_region_cell, (region_rect[3] - region_rect[1]) * pixels_per_region_cell];
+    const previous_alpha = ctx.globalAlpha;
+    ctx.globalAlpha = 1;
+    fly.is_animating_tiles = fly_view_route_tiles.draw_route_tiles(ctx, region_document, cell_window, pixels_per_region_cell, screen_rect_of);
+    ctx.globalAlpha = previous_alpha;
+  }
+
   // ------------------------------------------------------------ toolbar + keys
   function setTool(t) {
     st.tool = t;
@@ -2116,6 +2298,7 @@
     refresh_tree();
   }
   $$("[data-edtool]").forEach((b) => { b.onclick = () => setTool(b.dataset.edtool); });
+  $$("[data-fly-toggle]").forEach((fly_toggle_button) => { fly_toggle_button.onclick = toggle_fly_view; });
   $$("[data-layer]").forEach((b) => { b.onclick = () => toggleLayer(b.dataset.layer); });
   $("zIn").onclick = () => { const b = wrap.getBoundingClientRect(); zoomAt(1.25, b.width / 2, b.height / 2); };
   $("zOut").onclick = () => { const b = wrap.getBoundingClientRect(); zoomAt(0.8, b.width / 2, b.height / 2); };
@@ -2146,6 +2329,7 @@
     if (ev.defaultPrevented) return; // the host's own shortcut took it
     const mod = ev.ctrlKey || ev.metaKey;
     if (host && mod) return; // docked: save / undo / redo come through the host's menus
+    if (fly && handle_key_down_while_flying(ev)) return;
     if (mod && ev.key.toLowerCase() === "s") { ev.preventDefault(); save(); return; }
     if (ev.target && ev.target.closest && ev.target.closest("input, select, textarea")) return;
     if (mod && ev.key.toLowerCase() === "z") { ev.preventDefault(); ev.shiftKey ? redo() : undo(); return; }
@@ -2167,6 +2351,8 @@
     if (k === "c") { recompute("stale"); return; }
     if (ev.key === "Delete" || ev.key === "Backspace") { ev.preventDefault(); deleteSelected(); }
   });
+  on(document, "keyup", (ev) => { if (fly) fly.keys_held.delete(ev.key.toLowerCase()); });
+  on(window, "blur", () => { if (fly) fly.keys_held.clear(); });
   on(document, "keyup", (ev) => { if (ev.key === " ") { st.space = false; wrap.style.cursor = ""; } });
 
   // ------------------------------------------------------------ boot
@@ -2188,7 +2374,7 @@
     generate_map, set_open_route, spec_of_map, route_chain_specs_of_map, paint_map: paint_map_cells,
     set_paint_biome: (biome_code) => { st.biome = biome_code; setTool("biome"); refreshTool(); },
     paint_biome: () => st.biome,
-    set_view_modes, fit_every_view,
+    set_view_modes, fit_every_view, toggle_fly_view, is_flying: () => !!fly, camera: () => Object.assign({}, focused_render_target.camera),
     tools: Object.keys(TOOLS), layers: () => Object.assign({}, st.layers),
     zoomIn: () => $("zIn").onclick(), zoomOut: () => $("zOut").onclick(), getZoomPct: () => Math.round(st.view.z / 6 * 100),
     getDoc: () => st.doc, isUnsaved: () => st.unsaved,

@@ -12,7 +12,7 @@ from .woodland_closeness import woodland_closeness
 TREE_CLASS = "f"
 OPEN_GROUND_CLASS = "g"
 BIOMES_WITH_OPEN_LAND = ("plains", "meadow", "riverland", "beach", "forest")
-WOODLAND_CLOSENESS_THAT_KEEPS_TREES_BY_BIOME = {"plains": 0.55, "meadow": 0.5, "riverland": 0.45, "beach": 0.5, "forest": 0.38}
+WOODLAND_CLOSENESS_THAT_KEEPS_TREES_BY_BIOME = {"plains": 0.7, "meadow": 0.6, "riverland": 0.45, "beach": 0.6, "forest": 0.38}
 CLOSENESS_NOISE_SPREAD = 0.3
 EDGE_RISE_DEPTHS_IN_CELLS = (3, 4, 5)
 EDGE_RISE_NOISE_SPREAD_IN_CELLS = 1.5
