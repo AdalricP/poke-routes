@@ -51,7 +51,9 @@ def handle_get(h, query, srv) -> bool:
 def palette_for_route(srv, route_id: str) -> dict:
     route, _layout = srv._results[route_id]
     if route_id in srv._ark_ids:
-        return cached_palette("ark", lambda: ark_palette())
+        from pokeroutes.tileset_overlay import ARK_TILESET_PAIR_NAME, overlay_file_change_token
+
+        return cached_palette(f"ark@{overlay_file_change_token(ARK_TILESET_PAIR_NAME)}", lambda: ark_palette())
     tileset_name = srv.route_tileset(route.spec)
     return cached_palette(tileset_name, lambda: learned_palette(srv, tileset_name))
 
@@ -126,7 +128,7 @@ def ark_object_entry(prop_name: str, prop: dict) -> dict:
     metatile_rows = prop["cells"]
     blocked_rows = prop.get("blocked") or [[prop.get("collision", 0)] * len(row) for row in metatile_rows]
     class_rows = [[OBJECT_CLASS if blocked else "g" for blocked in row] for row in blocked_rows]
-    return {"id": prop_name, "name": prop_display_name(prop_name), "group": "objects",
+    return {"id": prop_name, "name": prop.get("name") or prop_display_name(prop_name), "group": "objects",
             "cells": metatile_rows, "classes": class_rows}
 
 

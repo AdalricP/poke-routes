@@ -10,7 +10,8 @@ without restarting anything. Output goes under out/agent/ (gitignored). No netwo
 
 Tools: list_specs, spec_fields, generate_route, route_stats, crop_route_image, route_grid,
 paint_route, save_spec, show_in_editor, generate_world, generate_region, tilers,
-check_examples, check_web_ui, screenshot_web_ui. Generated routes are kept in memory by id.
+check_examples, check_web_ui, screenshot_web_ui, and the tile editor's tile_sheet, tile_read, tile_edit,
+tile_coalesce (webui/tile_agent_tools.py). Generated routes are kept in memory by id.
 """
 from __future__ import annotations
 
@@ -627,6 +628,10 @@ TOOLS = {
     "check_examples": (check_examples, "Run the three example specs through the CLI (the standard check before "
                        "committing) and report which pass.", {}),
 }
+
+import tile_agent_tools  # noqa: E402
+
+TOOLS.update(tile_agent_tools.tile_tools(_fresh, OUT / "tiles"))
 
 
 # ------------------------------------------------------------------ MCP over stdio

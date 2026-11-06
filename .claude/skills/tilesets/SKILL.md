@@ -85,6 +85,15 @@ Put it in a pokeemerald-format tree: `data/tilesets/{primary,secondary}/<name>/`
 4. Generate a forest route with it. Look at the PNG for broken edges, then check tree blocks (2x2), pond edges and ledge rows.
 5. Commit the code plus the credits.
 
+## Editing tiles (tile editor overlay)
+
+- Pixels, palettes and new metatiles for the Ark/PokeRoutes pair live in an overlay, `tilesets/overrides/ark/overlay.json` in the main checkout (gitignored; `POKEROUTES_TILE_OVERRIDES` moves it). Never edit the ROM tree's `tiles.png` / `metatiles.bin` for this.
+- `pokeroutes/tileset_overlay.py`: read/write (revisioned, atomic), `apply_overlay_to_tileset_pair`, `apply_overlay_to_ark_class_table` (custom tiles become `custom_<id>` props, coalesced classes join `classes`), `write_overlaid_tileset_pair_files` (pokeemerald-format export). `ArkTiler.load()` and `ArkTiler.pair()` apply it; `ArkTiler.rom_pair()` is the untouched ROM pair.
+- Edits: `pokeroutes/tile_editing.py` (copy-on-write for shared 8x8 tiles, flips, palettes, new metatiles, behaviour/layer/class), `pokeroutes/tile_coalesce.py` (47 blob variants of a terrain against a surrounding tile), `pokeroutes/tile_operations.py` (one dispatcher).
+- Agent tools: `tile_sheet` to find ids, `tile_read` to look at one (Read its preview PNG), `tile_edit {operation}` to draw or create (saves at once), `tile_coalesce {inner, outer, class}` to give the Ark tiler a new blob class (e.g. `d` sand from a sand texture tile against grass `0x000`). Then `generate_route` with `tiler: ark` and look.
+- Web UI: Window > Tools > Tile editor (`webui/README.md`). Learned Emerald pairs are read-only there.
+- Export to the ROM is not automated yet: the Porymap zip of an Ark route carries the overlaid tilesets under `data/tilesets/`.
+
 ## Checking tiling work
 
 - Generate at least 3 seeds in 2 biomes and read the PNGs.

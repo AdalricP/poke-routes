@@ -384,6 +384,8 @@
     refresh: () => { renderTree(); renderSelection(); route_items.update_count(); draw(); },
   });
 
+  window.addEventListener("pokeroutes:tileset-saved", () => { state.atlases = {}; state.palettes = {}; });
+
   async function atlasFor(url) {
     if (state.atlases[url]) return state.atlases[url];
     const meta = await fetchJSON(url);
@@ -2376,6 +2378,10 @@
       { id: "w-console", label: "Console", run: () => Shell.setBottom("console") },
       { id: "w-improve", label: "Improve queue", enabled: is_improve_tab_shown, run: () => { Shell.setBottom("improve"); const t = document.getElementById("impText"); if (t) t.focus(); } },
       { id: "w-agent", label: "Agent", run: () => { Shell.setBottom("agent"); const t = document.getElementById("agText"); if (t) t.focus(); } },
+      { sep: true },
+      { id: "w-tools", label: "Tools", items: [
+        { id: "w-tile-editor", label: "Tile editor", checked: () => !!window.TileEditor && window.TileEditor.is_open(), run: () => window.TileEditor && window.TileEditor.open() },
+      ] },
       { sep: true },
       { id: "w-reset", label: "Reset layout", run: () => Shell.resetLayout() },
     ] },

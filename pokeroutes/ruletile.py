@@ -108,17 +108,27 @@ def find_rom(root: Optional[Path] = None) -> Path:
 
 
 class ArkTiler:
-    def __init__(self, classes: dict, rom: Path):
-        self.c = classes
+    def __init__(self, classes: dict, rom: Path, overlay: Optional[dict] = None):
+        from .tileset_overlay import apply_overlay_to_ark_class_table, empty_overlay
+
+        self.overlay = overlay or empty_overlay()
+        self.c = apply_overlay_to_ark_class_table(classes, self.overlay) if overlay else classes
         self.rom = rom
-        self.C = classes["classes"]
-        self.bits = classes["mask_bits"]
+        self.C = self.c["classes"]
+        self.bits = self.c["mask_bits"]
         self.grass = self.C["g"]["base"][0]
 
     @classmethod
     def load(cls, rom: Optional[Path] = None) -> "ArkTiler":
+        from .tileset_overlay import ARK_TILESET_PAIR_NAME, read_overlay_for_tileset_pair
+
         rom = find_rom(rom)
-        return cls(json.loads((rom / "data/tilesets/metatile_classes_ark.json").read_text()), rom)
+        table = json.loads((rom / "data/tilesets/metatile_classes_ark.json").read_text())
+        return cls(table, rom, read_overlay_for_tileset_pair(ARK_TILESET_PAIR_NAME))
+
+    def rom_pair(self):
+        from .tileset import load_pair
+        return load_pair(self.rom / "data/tilesets", PRIMARY, SECONDARY)
 
     # -- helpers -----------------------------------------------------------
     def prepare(self, cls: np.ndarray) -> List[str]:
@@ -140,8 +150,10 @@ class ArkTiler:
         return sum(1 << i for i, d in enumerate(self.bits) if n[d])
 
     def pair(self):
-        from .tileset import load_pair
-        return load_pair(self.rom / "data/tilesets", PRIMARY, SECONDARY)
+        from .tileset_overlay import apply_overlay_to_tileset_pair, overlay_has_changes
+
+        base = self.rom_pair()
+        return apply_overlay_to_tileset_pair(base, self.overlay) if overlay_has_changes(self.overlay) else base
 
     def joins_ledge_corners(self) -> bool:
         drawn = [letter for letter in LEDGE_LETTERS if letter in self.C]
@@ -289,6 +301,10 @@ def write_ark_emerald(route, layout: Layout, out: Path, tiler: ArkTiler, offsets
     entry["primary_tileset"], entry["secondary_tileset"] = PRIMARY_SYMBOL, SECONDARY_SYMBOL
     (lay / "layouts_entry.json").write_text(json.dumps(entry, indent=2))
     (lay / "border.bin").write_bytes(np.array(tiler.border(), dtype="<u2").tobytes())
+    from .tileset_overlay import overlay_has_changes, write_overlaid_tileset_pair_files
+
+    if overlay_has_changes(tiler.overlay):
+        write_overlaid_tileset_pair_files(tiler.rom_pair(), tiler.overlay, Path(out) / "data/tilesets")
 
 
 def tile_route(tiler: ArkTiler, route) -> Layout:

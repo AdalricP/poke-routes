@@ -33,18 +33,22 @@ MAX_SPEC = 512 * 1024
 
 _ark = None
 _ark_atlas = None
+_ark_overlay_token = None
 _lock = threading.Lock()
 
 
 # ------------------------------------------------------------------ Ark tiler
 
 def ark_tiler():
-    global _ark
+    global _ark, _ark_atlas, _ark_overlay_token
+    from pokeroutes.tileset_overlay import ARK_TILESET_PAIR_NAME, overlay_file_change_token
+
     with _lock:
-        if _ark is None:
+        overlay_token = overlay_file_change_token(ARK_TILESET_PAIR_NAME)
+        if _ark is None or overlay_token != _ark_overlay_token:
             from pokeroutes.ruletile import ArkTiler
 
-            _ark = ArkTiler.load()
+            _ark, _ark_atlas, _ark_overlay_token = ArkTiler.load(), None, overlay_token
         return _ark
 
 
@@ -81,6 +85,7 @@ def ark_tiles(route, warnings):
 
 def ark_atlas(srv):
     global _ark_atlas
+    ark_tiler()
     if _ark_atlas is None:
         from pokeroutes.breeze import breeze_plan_for_ark_class_table
         from pokeroutes.ruletile import PRIMARY_SYMBOL, SECONDARY_SYMBOL
@@ -119,6 +124,10 @@ def handle(h, method: str, u, srv) -> bool:
 
     if route_items.handle(h, method, u, q, srv):
         return True
+    if u.path.startswith("/api/tile-editor/"):
+        import tile_overrides
+
+        return tile_overrides.handle(h, method, u, q, srv)
     if method == "GET":
         if u.path in ("/", ""):
             return h._send(200, (STATIC / "shell.html").read_bytes(), "text/html; charset=utf-8") or True
