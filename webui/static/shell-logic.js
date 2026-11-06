@@ -483,19 +483,47 @@
     const same = rect.length === other_rect.length && rect.every((coordinate, index) => coordinate === other_rect[index]);
     return same;
   }
-  // Paint remembered per chain map follows a map that is still there (same square, maybe a new name) and is
-  // dropped for maps the Map removed or resized.
+  function chain_map_holding_world_cell(chain_maps, world_x, world_y, metatiles_per_region_cell) {
+    const holding_map = chain_maps.find((chain_map) => world_x >= chain_map.rect[0] * metatiles_per_region_cell && world_x < chain_map.rect[2] * metatiles_per_region_cell
+      && world_y >= chain_map.rect[1] * metatiles_per_region_cell && world_y < chain_map.rect[3] * metatiles_per_region_cell);
+    return holding_map || null;
+  }
+  function painted_entries_in_world(remembered_paint, old_chain_map, metatiles_per_region_cell) {
+    const left = old_chain_map.rect[0] * metatiles_per_region_cell;
+    const top = old_chain_map.rect[1] * metatiles_per_region_cell;
+    if (Array.isArray(remembered_paint)) {
+      const objects_in_world = remembered_paint.map((painted_object) => ({ world_x: painted_object.x + left, world_y: painted_object.y + top, painted_object }));
+      return objects_in_world;
+    }
+    const cells_in_world = Object.entries(remembered_paint || {}).map(([cell_key, painted_class]) => {
+      const [x, y] = cell_key.split(",").map(Number);
+      return { world_x: x + left, world_y: y + top, painted_class };
+    });
+    return cells_in_world;
+  }
+  function add_painted_entry_to_map(followed_memory, entry, new_chain_map, metatiles_per_region_cell) {
+    const new_key = paint_key_of_chain_map(new_chain_map, metatiles_per_region_cell);
+    const local_x = entry.world_x - new_chain_map.rect[0] * metatiles_per_region_cell;
+    const local_y = entry.world_y - new_chain_map.rect[1] * metatiles_per_region_cell;
+    if (entry.painted_object) {
+      followed_memory[new_key] = (Array.isArray(followed_memory[new_key]) ? followed_memory[new_key] : []).concat([Object.assign({}, entry.painted_object, { x: local_x, y: local_y })]);
+      return;
+    }
+    followed_memory[new_key] = Object.assign({}, followed_memory[new_key] || {}, { [`${local_x},${local_y}`]: entry.painted_class });
+  }
   function paint_memory_after_chain_change(paint_memory, old_chain_maps, new_chain_maps, metatiles_per_region_cell) {
     const followed_memory = Object.assign({}, paint_memory || {});
-    const moved_entries = [];
+    const entries_in_world = [];
     for (const old_chain_map of old_chain_maps) {
       const old_key = paint_key_of_chain_map(old_chain_map, metatiles_per_region_cell);
       if (!(old_key in followed_memory)) continue;
-      const surviving_map = new_chain_maps.find((new_chain_map) => is_same_rect(new_chain_map.rect, old_chain_map.rect));
-      if (surviving_map) moved_entries.push([paint_key_of_chain_map(surviving_map, metatiles_per_region_cell), followed_memory[old_key]]);
+      entries_in_world.push(...painted_entries_in_world(followed_memory[old_key], old_chain_map, metatiles_per_region_cell));
       delete followed_memory[old_key];
     }
-    for (const [new_key, remembered_paint] of moved_entries) followed_memory[new_key] = remembered_paint;
+    for (const entry of entries_in_world) {
+      const new_chain_map = chain_map_holding_world_cell(new_chain_maps, entry.world_x, entry.world_y, metatiles_per_region_cell);
+      if (new_chain_map) add_painted_entry_to_map(followed_memory, entry, new_chain_map, metatiles_per_region_cell);
+    }
     return followed_memory;
   }
   function connection_for(region_exit, region_document) {
