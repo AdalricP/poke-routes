@@ -396,6 +396,60 @@ def stage_route_gate(route: Route) -> None:
     build_route_gates(route)
 
 
+def stage_open_land(route: Route) -> None:
+    from .open_land import open_land_by_woodland
+    from .walkability_guard import run_keeping_walkability
+
+    run_keeping_walkability(route, "open land", open_land_by_woodland)
+
+
+def stage_woodland_terraces(route: Route) -> None:
+    from .walkability_guard import run_keeping_walkability
+    from .woodland_terraces import raise_woodland_terraces
+
+    run_keeping_walkability(route, "woodland terraces", raise_woodland_terraces)
+
+
+def stage_worn_paths(route: Route) -> None:
+    from .worn_ground import wear_paths_into_patches
+
+    wear_paths_into_patches(route)
+
+
+def stage_soft_shapes(route: Route) -> None:
+    from .soft_shapes import soften_shapes
+    from .walkability_guard import run_keeping_walkability
+
+    run_keeping_walkability(route, "soft shapes", soften_shapes)
+
+
+def stage_sandy_shores(route: Route) -> None:
+    from .shore_sand import keep_sand_to_the_shore
+
+    keep_sand_to_the_shore(route)
+
+
+def stage_raised_ground_dressing(route: Route) -> None:
+    from .raised_ground_dressing import dress_raised_ground
+    from .walkability_guard import run_keeping_walkability
+
+    run_keeping_walkability(route, "raised ground dressing", dress_raised_ground)
+
+
+def stage_small_details(route: Route) -> None:
+    from .small_details import scatter_small_details
+    from .walkability_guard import run_keeping_walkability
+
+    run_keeping_walkability(route, "small details", scatter_small_details)
+
+
+def stage_stepped_terraces(route: Route) -> None:
+    from .stepped_terraces import lay_stepped_terraces
+    from .walkability_guard import run_keeping_walkability
+
+    run_keeping_walkability(route, "stepped terraces", lay_stepped_terraces)
+
+
 def stage_seams(route: Route) -> None:
     from .seams import stage_seams as stamp_seam_bands_shared_with_neighbours
 
@@ -424,6 +478,14 @@ STAGES: List[Tuple[str, Callable[[Route], None]]] = [
     ("surf", stage_surf_crossings),
     ("gate", stage_route_gate),
     ("seams", stage_seams),
+    ("open land", stage_open_land),
+    ("woodland terraces", stage_woodland_terraces),
+    ("worn paths", stage_worn_paths),
+    ("sandy shores", stage_sandy_shores),
+    ("soft shapes", stage_soft_shapes),
+    ("stepped terraces", stage_stepped_terraces),
+    ("raised ground dressing", stage_raised_ground_dressing),
+    ("small details", stage_small_details),
 ]
 
 

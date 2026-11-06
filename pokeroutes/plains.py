@@ -17,9 +17,6 @@ from .plains_grass import grow_tall_grass
 SEAL_DEPTH = 2
 RIM_DEPTHS = (3, 4, 4, 5, 5, 6)
 VERGE_TOP = "o"
-SEAL_TREE = "f"
-BUSH_CHANCE = 0.07
-SMALL_TREE_CHANCE = 0.25
 MOUNTAIN_CODES = "MS"
 ROCKY_SIDE_SHARE = 0.3
 SIDES = ("north", "south", "west", "east")
@@ -208,20 +205,16 @@ def nearest_side(h: int, w: int, y: int, x: int) -> str:
 
 
 def raise_rim(route: Route, rim: np.ndarray, rocky: Sequence[str] = ()) -> None:
-    """The map's edge rises into a verge: trees on the outermost ring, raised grass
-    behind them, a ledge lip wherever the verge meets the field. On a mountain side
-    the whole verge is rock (its face shows where it meets the field)."""
+    """The map's edge rises into raised grass (no tree wall): the stepped terraces
+    stage later draws its ledge bands and dresses it. On a mountain side the whole
+    verge is rock (its face shows where it meets the field)."""
     h, w = rim.shape
     cls = route.cls
-    seal = edge_ring(h, w) & (rim | ~exit_mouths(route))
-    for y, x in zip(*np.nonzero(seal)):
-        cls[y, x] = SEAL_TREE
-    for y, x in zip(*np.nonzero(rim & ~seal)):
-        cls[y, x] = rim_piece(rim, y, x)
-    for y, x in zip(*np.nonzero(rim | seal)):
+    raised_edge = (edge_ring(h, w) & (rim | ~exit_mouths(route))) | rim
+    cls[raised_edge] = VERGE_TOP
+    for y, x in zip(*np.nonzero(raised_edge)):
         if nearest_side(h, w, y, x) in rocky:
             cls[y, x] = CLIFF
-    dress_verge(route, cls == VERGE_TOP)
 
 
 def exit_mouths(route: Route) -> np.ndarray:
@@ -238,43 +231,6 @@ def edge_ring(h: int, w: int) -> np.ndarray:
     ring = np.ones((h, w), dtype=bool)
     ring[SEAL_DEPTH:-SEAL_DEPTH, SEAL_DEPTH:-SEAL_DEPTH] = False
     return ring
-
-
-def rim_piece(rim: np.ndarray, y: int, x: int) -> str:
-    """A verge cell next to the field is the ledge lip facing it; the rest is raised grass."""
-    h, w = rim.shape
-
-    def low(dy: int, dx: int) -> bool:
-        ny, nx = y + dy, x + dx
-        return 0 <= ny < h and 0 <= nx < w and not rim[ny, nx]
-
-    if low(1, 0):
-        return "s"
-    if low(-1, 0):
-        return "j"
-    if low(0, 1):
-        return "e"
-    if low(0, -1):
-        return "x"
-    if low(1, -1) or low(1, 1):
-        return "s"
-    if low(-1, -1) or low(-1, 1):
-        return "j"
-    return VERGE_TOP
-
-
-def dress_verge(route: Route, top: np.ndarray) -> None:
-    """A few small trees and bushes on the raised grass, never a wall of them."""
-    rng = route.rng
-    h, w = top.shape
-    for by in range(0, h - 1, 2):
-        for bx in range(0, w - 1, 2):
-            if top[by:by + 2, bx:bx + 2].all() and rng.random() < SMALL_TREE_CHANCE:
-                route.cls[by:by + 2, bx:bx + 2] = "f"
-                top[max(0, by - 2):by + 4, max(0, bx - 2):bx + 4] = False
-    for y, x in zip(*np.nonzero(top)):
-        if rng.random() < BUSH_CHANCE:
-            route.cls[y, x] = "f"
 
 
 def plant_groves(route: Route, built: np.ndarray, rim: np.ndarray) -> None:

@@ -67,7 +67,7 @@ Other tools:
   - The real fix is a palette or remap change: road → `d` in `stages.BIOME_CODES`, or a `p`→`d` remap before the learned tiler.
   - Say which one you did.
 - **riverland**: rivers come out as straight east–west bars plus thin north–south streams. There is no meandering river spine yet.
-- **plains**: open fields (Kanto Route 1 / Ash Gray feel). The lane maze is opened into grass with tall-grass plots and a few groves; the map's edge rises into a grassy verge: a tree line, raised grass (class `o`, unwalkable scenery) with a few bushes and small trees, and a low ledge lip facing the field (open at the exits); rock only on a side the region block puts against mountains. At most 0-2 short one-way steps from the height map. Tall grass is soft patches (6-40 cells) plus strips along the road (`pokeroutes/plains.py`, `pokeroutes/plains_grass.py`). Expect 60–75% walkable, over the `max_walkable` budget on purpose.
+- **plains**: open fields (Kanto Route 1 / Ash Gray feel). The lane maze is opened into grass; the map's edge rises as raised grass (class `o`) with no tree wall, drawn as 1-2 stepped ledge bands with rounded corners that turn along the exit corridors; rock only on a side the region block puts against mountains. Trees only toward a wooded neighbour (region biome around the map). The road is worn dirt patches plus dirt at the exit mouths. Expect 60–75% walkable, over the `max_walkable` budget on purpose.
 - **desert**: Route 111 style rock walls, sand and boulders. Close in feel.
 - **mountain, snow, volcanic**: terraces in contour bands (`terraces.py`); snow previews through Route 113's ash set washed white (no snow art in Emerald or Ark yet); volcanic has a lava crater near the top.
 - **beach**: rough. Beach has no shoreline foam and leaves stray teal cells. Volcanic uses Lavaridge's red rock (`BIOME_TILESET`), not Route 113's ash.
@@ -87,6 +87,16 @@ Other tools:
   - Missing generator features: a meandering river spine with banks, cliff terraces with stairs outside mountain, long bridges, hedge-row grass corridors, landmark buildings.
   - Don't promise the look; offer to build the missing stage instead.
 - **Ash road (Route 113)**: not reachable with knobs, because the volcanic biome uses the wrong tileset. A `general_fallarbor` model exists, but it draws cliff interiors as brick.
+
+## The lively look (owner's hand-fixed targets)
+
+The owner's target images (memory `references/*-target.png`) are the spec: sparse trees, bushes in clusters, irregular tall grass, stepped cliffs, small details everywhere. What the generator does for it, all after the seam bands (see the codebase-map skill for the stages):
+- **Open land by region woodland**: in plains/meadow/beach/riverland/forest, tree blocks open up where the region cells (and the ones around the map) are not wooded; trees stay in and toward forest. A meadow map half in forest reads as forest on that side and open field on the other.
+- **Raised ground `o` + stepped terraces**: edges, opened masses and woodland fringes become raised scenery with ledge bands (1-2 levels), small plateaus in clearings, tall grass sweeps, sparse trees, bush clusters and fences on top. Raised ground is never walkable (collision in the Ark tiler).
+- **Small details**: `small_details.DETAIL_RECIPES` is the table to tune (per-biome clusters per 1000 cells, cluster size, whether they hug tree/ledge edges, open ground or the shore). New Ark props slot in by adding a recipe with their prop names.
+- **Shapes**: sand only as a beach band (or patchy banks on wide water), worn dirt patches instead of a full road, tall grass rims roughened, ponds without rectangle corners.
+- Only the Ark (PokeRoutes) tiler draws props and drawn classes; the learned tiler still sees the class grid only.
+- Verify by rendering chain maps from real regions (several seeds) next to the target images, and run the seam check (`region/seam_check.py`) on seeds 0-7.
 
 ## Making it look richer ("block vomit")
 
