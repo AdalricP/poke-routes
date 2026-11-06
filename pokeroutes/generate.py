@@ -286,65 +286,6 @@ def stage_connect(route: Route) -> None:
     route.snap("connect")
 
 
-def stage_plateaus(route: Route) -> None:
-    """Plains: the ground between lanes isn't a rock mass but a raised grass plateau
-    fenced by a ring of ledges: south ledges along its top and bottom (running on
-    through the corners), east / west ledges down its sides. Runs after connect, so
-    the plateaus are scenery: from a lane you can at most hop down onto one and
-    walk off it over another ledge; a plateau you could get stuck on keeps trees
-    on the edge you'd drop in over."""
-    if route.spec.biome != "plains":
-        return
-    from scipy.ndimage import binary_erosion
-
-    cls = route.cls
-    wall = cls == "k"
-    if not wall.any():
-        return
-    # wall cells that touch the map border count as interior on that side
-    pad = np.pad(wall, 1, constant_values=True)
-    inner = binary_erosion(pad, np.ones((3, 3), bool))[1:-1, 1:-1]
-    rim = wall & ~inner
-    # a rim cell with no plateau behind it (a 1-2 wide strip) can't be a ledge: tree
-    cls[rim & ~_near(inner)] = "f"
-    rim &= _near(inner)
-    open_ = ~wall
-    h, w = cls.shape
-
-    def o(y, x):
-        return 0 <= y < h and 0 <= x < w and open_[y, x]
-
-    for y, x in zip(*np.nonzero(rim)):
-        if o(y + 1, x) or o(y - 1, x):
-            cls[y, x] = "s"
-        elif o(y, x + 1):
-            cls[y, x] = "e"
-        elif o(y, x - 1):
-            cls[y, x] = "x"
-        else:  # corner: only a diagonal is open; the top/bottom run turns into it
-            cls[y, x] = "s"
-    cls[inner] = "g"
-    # no softlocks: a plateau you can hop onto (from a lane above) but not off
-    starts = route.exits[0][1]
-    exits = [c for _, cells in route.exits for c in cells]
-    for _ in range(20):
-        trapped = reachable(cls, starts) & ~can_leave(cls, exits)
-        ys, xs = np.nonzero(cls[:-1] == "s")
-        bad = [(y, x) for y, x in zip(ys, xs) if trapped[y + 1, x]]
-        if not bad:
-            break
-        for c in bad:
-            cls[c] = "f"
-    route.snap("plateaus")
-
-
-def _near(mask: np.ndarray) -> np.ndarray:
-    """Cells within one step (8-neighbourhood) of mask."""
-    from scipy.ndimage import binary_dilation
-
-    return binary_dilation(mask, np.ones((3, 3), bool))
-
-
 def can_leave(cls: np.ndarray, exits: Sequence[Cell]) -> np.ndarray:
     """Cells from which some exit can still be walked to (ledges only go south)."""
     h, w = cls.shape
@@ -397,6 +338,8 @@ def stage_hidden(route: Route) -> None:
     route.snap("hidden")
 
 
+from .plains import stage_open_plains  # noqa: E402  (plains needs the helpers above)
+
 STAGES: List[Tuple[str, Callable[[Route], None]]] = [
     ("base", stage_base),
     ("skeleton", stage_skeleton),
@@ -411,7 +354,7 @@ STAGES: List[Tuple[str, Callable[[Route], None]]] = [
     ("dressing", stage_dressing),
     ("cleanup", stage_cleanup),
     ("connect", stage_connect),
-    ("plateaus", stage_plateaus),
+    ("open plains", stage_open_plains),
 ]
 
 
