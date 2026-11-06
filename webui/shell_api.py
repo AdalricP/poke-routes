@@ -115,8 +115,11 @@ def _redirect(h, where: str):
 def handle(h, method: str, u, srv) -> bool:
     """Serve the request and return True, or return False to let server.py handle it."""
     q = parse_qs(u.query)
+    import people_and_events_api
     import route_items
 
+    if people_and_events_api.handle(h, method, u, q, srv):
+        return True
     if route_items.handle(h, method, u, q, srv):
         return True
     if method == "GET":

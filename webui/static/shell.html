@@ -9,6 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pixelify+Sans:wght@600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="shell.css">
+<link rel="stylesheet" href="people-events.css">
 </head>
 <body>
 <div class="shell" id="shell">
@@ -58,6 +59,9 @@
       <button type="button" class="tb-btn" data-tool="item" title="Place items (I). Hidden items show a sparkle here only; in game they're invisible" aria-label="Item">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path fill-rule="evenodd" d="M8 2.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11zM2.6 7.3h3.6a1.9 1.9 0 0 1 3.6 0h3.6v1.4H9.8a1.9 1.9 0 0 1-3.6 0H2.6zM8 7.1a.9.9 0 1 1 0 1.8.9.9 0 0 1 0-1.8z" fill="currentColor"/></svg>
       </button>
+      <button type="button" class="tb-btn" data-tool="people" title="People &amp; signs (P)" aria-label="People and signs">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="4.6" r="2.6" fill="currentColor"/><path d="M3.2 14c.3-3.2 2.2-5.2 4.8-5.2s4.5 2 4.8 5.2z" fill="currentColor"/></svg>
+      </button>
       <span class="tb-opts" id="paintOpts" hidden>
         <select id="paintClass" aria-label="Paint class" title="Class to paint"></select>
         <span class="ledge-rot" id="ledgeRot" hidden title="Ledge direction (R rotates)">
@@ -87,6 +91,12 @@
         <input id="itemName" class="item-name" list="itemConstants" value="ITEM_POTION" spellcheck="false" aria-label="Item constant" title="Item constant (ITEM_*)">
         <datalist id="itemConstants"></datalist>
         <span class="tb-count" id="itemN"></span>
+      </span>
+      <span class="tb-opts" id="peopleOpts" hidden>
+        <span class="seg">
+          <button type="button" class="seg-btn on" data-people-kind="person">Person</button><button type="button" class="seg-btn" data-people-kind="sign">Sign</button>
+        </span>
+        <datalist id="peopleSpecies"></datalist>
       </span>
     </div>
 
@@ -272,6 +282,7 @@
       <div class="tabs" role="tablist">
         <button type="button" class="dock-tab" data-bottom="console" role="tab">Console <span class="count" id="consoleCount" hidden></span></button>
         <button type="button" class="dock-tab" data-bottom="improve" role="tab" hidden>Improve <span class="dot" id="improveDot" hidden></span></button>
+        <button type="button" class="dock-tab" data-bottom="events" role="tab">Events</button>
         <button type="button" class="dock-tab" data-bottom="agent" role="tab">Agent</button>
       </div>
       <button type="button" class="dock-collapse" data-collapse="bottom" aria-label="Collapse bottom panel" title="Collapse"></button>
@@ -299,6 +310,7 @@
         <div id="sessionGraphDock" hidden></div>
       </div>
       <div class="pane agent" id="paneAgent" hidden><div id="agentDock"></div></div>
+      <div class="pane events" id="paneEvents" hidden><div id="eventsDock"></div></div>
     </div>
   </section>
 
@@ -353,6 +365,9 @@
 <script src="editor/logic.js"></script>
 <script src="editor/app.js"></script>
 <script src="route-items.js"></script>
+<script src="people-events-logic.js"></script>
+<script src="route-people.js"></script>
+<script src="events.js"></script>
 <script src="bench.js"></script>
 <script src="improve.js"></script>
 <script src="session-graph.js"></script>
