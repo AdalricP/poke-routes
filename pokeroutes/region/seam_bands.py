@@ -177,9 +177,21 @@ def band_classes_along_shared_edge(world, chain_map: dict, neighbour_rect: Seque
     corner_positions = positions_near_map_corners(chain_map["rect"], neighbour_rect, shared_edge)
     band_classes_with_walled_corners = [TREE_BAND_CLASS if band_index + shared_edge.start_along_in_region_cells * CELL in corner_positions
                                         else band_class for band_index, band_class in enumerate(band_classes)]
-    without_single_trees = without_single_wall_cells(band_classes_with_walled_corners, wall_class)
+    trees_beside_raised_grass_widened = without_single_trees_beside_raised_grass(band_classes_with_walled_corners)
+    without_single_trees = without_single_wall_cells(trees_beside_raised_grass_widened, wall_class)
     shared_band_classes = "".join(without_single_wall_cells(without_single_trees, RAISED_GRASS_BAND_CLASS))
     return shared_band_classes
+
+
+def without_single_trees_beside_raised_grass(band_classes: List[str]) -> List[str]:
+    smoothed = list(band_classes)
+    for band_index, band_class in enumerate(band_classes):
+        before = band_classes[band_index - 1] if band_index > 0 else TREE_BAND_CLASS
+        after = band_classes[band_index + 1] if band_index + 1 < len(band_classes) else TREE_BAND_CLASS
+        is_single_tree = band_class == TREE_BAND_CLASS and before != TREE_BAND_CLASS and after != TREE_BAND_CLASS
+        if is_single_tree and RAISED_GRASS_BAND_CLASS in (before, after):
+            smoothed[band_index] = RAISED_GRASS_BAND_CLASS
+    return smoothed
 
 
 def positions_near_map_corners(rect: Sequence[int], neighbour_rect: Sequence[int], shared_edge: SharedEdge) -> set:

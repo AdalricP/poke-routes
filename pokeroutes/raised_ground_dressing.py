@@ -9,6 +9,7 @@ from .scenery_layer import RAISED_GROUND_CLASS, draw_raised_ground_as, drawn_cla
 from .woodland_closeness import woodland_closeness
 
 TREE_CLASS = "f"
+SEAM_BAND_PLACEHOLDER_CLASS = "O"
 FENCE_CLASS = "c"
 TALL_GRASS_CLASS = "t"
 ROW_LEDGES = "sj"
@@ -33,11 +34,16 @@ Cell = Tuple[int, int]
 def dress_raised_ground(route) -> None:
     if not (route.cls == RAISED_GROUND_CLASS).any():
         return
+    from .stepped_terraces import seam_band_cells
+
     closeness = woodland_closeness(route)
+    band_cells = seam_band_cells(route)
+    route.cls[band_cells & (route.cls == RAISED_GROUND_CLASS)] = SEAM_BAND_PLACEHOLDER_CLASS
     plant_trees_on_raised_ground(route, closeness)
     plant_bush_clusters_on_raised_ground(route, closeness)
     run_fences_behind_ledges(route)
     sweep_tall_grass_over_raised_ground(route)
+    route.cls[route.cls == SEAM_BAND_PLACEHOLDER_CLASS] = RAISED_GROUND_CLASS
     route.snap("raised ground dressing")
 
 

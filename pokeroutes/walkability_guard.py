@@ -38,9 +38,22 @@ def is_no_worse(before: tuple, after: tuple) -> bool:
     return no_worse
 
 
+def keep_seam_bands_as_they_were(route, classes_before) -> None:
+    from .scenery_layer import PLACED_PROPS_KEY
+    from .stepped_terraces import seam_band_cells
+
+    band_cells = seam_band_cells(route)
+    route.cls[band_cells] = classes_before[band_cells]
+    kept_props = [placed_prop for placed_prop in route.__dict__.get(PLACED_PROPS_KEY) or []
+                  if not any(band_cells[tuple(int(part) for part in cell_key.split(","))] for cell_key in placed_prop["under"])]
+    route.__dict__[PLACED_PROPS_KEY] = kept_props
+
+
 def run_keeping_walkability(route, stage_name: str, change_route: Callable) -> None:
     if not route.exits:
+        classes_before = route.cls.copy()
         change_route(route)
+        keep_seam_bands_as_they_were(route, classes_before)
         return
     from .scenery_layer import DRAWN_CLASS_KEY, PLACED_PROPS_KEY
 
@@ -49,6 +62,7 @@ def run_keeping_walkability(route, stage_name: str, change_route: Callable) -> N
     placed_props_before = list(route.__dict__.get(PLACED_PROPS_KEY) or [])
     summary_before = walkability_summary(route)
     change_route(route)
+    keep_seam_bands_as_they_were(route, classes_before)
     summary_after = walkability_summary(route)
     if is_no_worse(summary_before, summary_after):
         return
