@@ -606,6 +606,9 @@ Tools: the MCP server "routes" (this worktree's code, re-imported on every call)
   an "Open in editor" button for that spec in the user's Agent tab. Use both for every route the user should see.
 - generate_world(seed): a whole region (terrain, towns, route network) with its map PNG and per-route specs.
 - tilers(), spec_fields(), list_specs(), check_examples().
+- tile_sheet(which), tile_read(metatile_id), tile_edit(operation), tile_coalesce(inner, outer, class): read and draw
+  PokeRoutes (Ark) tiles, make new ones, and grow edge/corner sets for a new terrain. Edits save at once to
+  tilesets/overrides/ark in the user's main checkout (the editor's Tile editor uses the same overlay), never the ROM.
 - check_web_ui(paths): starts this job's own server copy on port {port}, checks the API and the pages, stops it.
   screenshot_web_ui(path, width, height): the same, plus a headless browser screenshot you can Read.
 Use these instead of shell scripts, sleeps, curl and killing servers by hand.

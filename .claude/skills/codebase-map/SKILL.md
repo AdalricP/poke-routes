@@ -40,8 +40,9 @@ Use this instead of exploring with grep/sed. Jump straight to the file and funct
      - `pokeroutes/classify.py`: class codes and `FALLBACK`.
      - Models live in `pokeroutes/models/*.json` and `models/index.json`.
    - **Ground texturing**, applied after the learned tiler: `pokeroutes/ground.py` (`texture_open_ground` for light-grass patches and flower clumps, `tile_with_false_walls`).
-   - **Rule tiler** (hand-made tilesets): `pokeroutes/ruletile.py`, `ArkTiler`.
+   - **Rule tiler** (hand-made tilesets, shown to the user as the PokeRoutes tileset): `pokeroutes/ruletile.py`, `ArkTiler`; bridges, sand shores, sideways falls and ledges over ground in `pokeroutes/ruletile_terrain.py`.
    - **Reading tilesets and rendering metatiles**: `pokeroutes/tileset.py`, `load_pair`.
+   - **Tile editor overlay** (hand-drawn pixels, palettes, new metatiles and coalesced classes on top of the Ark ROM tiles): `pokeroutes/tileset_overlay.py`, edits in `tile_editing.py`, `tile_coalesce.py`, `tile_operations.py`; applied by `ArkTiler.load` / `ArkTiler.pair`.
    - **Scene-preview breeze** (tree crowns, tall grass, flowers swaying 1 px; preview only, not in the ROM): `pokeroutes/breeze.py`, added to the atlas `anim` and listed in `meta.breeze` by `webui/server.py` `build_atlas`.
 7. **Export**: `pokeroutes/export.py`.
    - `seal_edges`, `write_emerald` (map.bin, border.bin, map.json, scripts.inc)
@@ -92,6 +93,7 @@ Walkable: `gptdhyvzqn`. Surfable: `wb`. Blocked: `frkul`.
   - `shell_api.py`: `/api/tilers`, `/api/scene`, `/api/spec-parse`, `/api/region-specs.zip`, `/api/commits`, `/api/retile`, plus the redirects.
   - `editor_api.py`: `/api/editor/*` (generate, load, recompute, add-route, draw-route, add-town, delete-town, save, spec, render, export, list).
   - `region_api.py`: `/api/region`, `/api/region.png`, `/api/region-spec`.
+  - `tile_overrides.py`: `/api/tile-editor/*` (tilesets, tileset, edit, save) for Window > Tools > Tile editor; `tile_agent_tools.py`: the `tile_*` route tools.
   - `paint_palette.py`: `/api/paint-palette?id=` (what the Tiles tab can paint: classes, samples, objects, exact tiles per tiler); `/api/retile` (in `editor_api.py`) takes those classes.
 - **Agent jobs**: `improve.py` runs the job queue and launches `claude`. `route_tools.py` is the stdio MCP server that provides your `routes` tools.
 - **Front end** (`webui/static/`):
@@ -101,6 +103,7 @@ Walkable: `gptdhyvzqn`. Surfable: `wb`. Blocked: `frkul`.
   - `shell-logic.js`: pure functions (shortcuts, layout, undo, `specToParams`).
   - `editor/app.js` and `editor/logic.js`: the region editor (Geography and Map tabs; route gates are set in the Map inspector). Routes can sit beside either in a split centre (`shell.js`, `split_*` in `shell-logic.js`).
   - `agent.js`: the Agent tab.
+  - `tile-editor.js`, `tile-editor-logic.js` (pure), `tile-editor.css`: the Tile editor window.
 - **Reloading after edits**:
   - Generator edits (`pokeroutes/*.py`) are picked up by the running server automatically (`server.G()` reloads when file mtimes change).
   - Static files are read on every request.
@@ -112,6 +115,7 @@ Walkable: `gptdhyvzqn`. Surfable: `wb`. Blocked: `frkul`.
 python3 -m pytest -q webui/tests            # job queue (with fake_claude.py) + region network
 node webui/tests/shell-logic.test.js        # shell pure logic
 node webui/tests/editor-logic.test.js       # region editor pure logic
+node webui/tests/tile-editor-logic.test.js  # tile editor pure logic
 node --check webui/static/<changed>.js
 python3 -m pokeroutes generate examples/bernsteinweg.yaml   # also erlenbruch.yaml, kiefernheide.yaml
 ```

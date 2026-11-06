@@ -9,6 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pixelify+Sans:wght@600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="shell.css">
+<link rel="stylesheet" href="tile-editor.css">
 </head>
 <body>
 <div class="shell" id="shell">
@@ -85,7 +86,7 @@
         <label class="tb-label">Tiler
           <select id="tbTiler" aria-label="Tiler">
             <option value="learned">Learned</option>
-            <option value="ark">Ark</option>
+            <option value="ark">PokeRoutes</option>
           </select>
         </label>
         <span class="tb-sep"></span>
@@ -293,7 +294,7 @@
   <form method="dialog">
     <header>About poke-routes</header>
     <div class="dlg-body">
-      <p>A rough, local bench for watching poke-routes build a Pokémon Emerald route stage by stage. The map is drawn with real Emerald metatiles (General + Fortree) or the Arklarna rule tiles.</p>
+      <p>A rough, local bench for watching poke-routes build a Pokémon Emerald route stage by stage. The map is drawn with real Emerald metatiles (General + Fortree) or the PokeRoutes rule tiles.</p>
       <p class="muted">Server: <code id="aboutServer"></code></p>
     </div>
     <footer><span class="grow"></span><button class="btn primary" value="ok">Close</button></footer>
@@ -311,5 +312,7 @@
 <script src="improve.js"></script>
 <script src="session-graph.js"></script>
 <script src="agent.js"></script>
+<script src="tile-editor-logic.js"></script>
+<script src="tile-editor.js"></script>
 </body>
 </html>

@@ -54,7 +54,8 @@ Put it in a pokeemerald-format tree: `data/tilesets/{primary,secondary}/<name>/`
 
 ## Rule tiler (a brand-new tileset that no map uses yet)
 
-- **Where it lives**: `pokeroutes/ruletile.py`, `ArkTiler`. It is driven by a class table JSON, `data/tilesets/metatile_classes_ark.json`, found inside a ROM tree located by `find_rom()` (the `ARK_ROM` env var, then fallback candidates).
+- **Name**: the user sees it as the **PokeRoutes** tileset (tiler id `ark`, ROM symbols `gTileset_ArkOutdoor` / `gTileset_ArkWoodland` unchanged).
+- **Where it lives**: `pokeroutes/ruletile.py`, `ArkTiler`, with the newer terrain rules in `pokeroutes/ruletile_terrain.py` (bridges, sand shores, sideways falls, ledges over ground). It is driven by a class table JSON, `data/tilesets/metatile_classes_ark.json`, found inside a ROM tree located by `find_rom()` (the `ARK_ROM` env var, then fallback candidates).
 - **Hardcoded names**: the tileset names are constants (`PRIMARY`, `SECONDARY` and the `*_SYMBOL`s). As written it serves exactly one tileset pair, the Arklarna one.
 - **CLI and web UI**: `--tileset ark`, and Generate > Tiler in the web UI (`webui/shell_api.py`, `ark_tiler`).
 - **Class table format** (read `ArkTiler.tile` and `_trees`):
@@ -68,9 +69,13 @@ Put it in a pokeemerald-format tree: `data/tilesets/{primary,secondary}/<name>/`
   | `column` | `parts` {top, mid, bottom, single} |
   | `waterfall` | `parts` {`top_left` … `bottom_right`} |
   | `tree2x2` | `by_context`, `overlays` (per neighbour class: crown art over g, p, tall grass), `bush`, `phases` |
+  | `shore` (sand `d`) | `body` (blob class used away from water), `joins`, `water`, `by_mask` {water-neighbour mask → id} |
+  | `bridge` (`q`) | `parts` {horizontal_/vertical_ single, top/left, middle, bottom/right, single_<side>_end} |
   | none | `base` [ids], picked deterministically by position |
 
-  Letters missing from the table go through `ruletile.FALLBACK` (sand → path, sea → water, cliff → rock …).
+  Extras on existing classes: `a.sideways_parts` ('<east|west>_<north|middle|south>_<lip|fall|foot>', used when a fall touches more water west and east than north and south), `a.parts.<row>_single` (one-wide falls), `s/j/e/x.over_ground` {ground letter → blob mask → id} and `over_ground_ends` (ledge on the top layer over path/sand or tall grass on its high side; the ground blob is computed as if the ledge cell were that ground).
+
+  Letters missing from the table go through `ruletile.FALLBACK` (sea → water, cliff → rock …; sand and bridges have their own art since the a1-terrain ROM branch).
 
 ### Add a new rule-tiled tileset (needs a small code change)
 
@@ -79,6 +84,15 @@ Put it in a pokeemerald-format tree: `data/tilesets/{primary,secondary}/<name>/`
 3. Generalise `ruletile.py`: make the table path and the `PRIMARY`/`SECONDARY` names parameters (for example `ArkTiler.load(rom, table=..., primary=..., secondary=...)`) instead of constants. Thread a choice through `cli.py --tileset` and `webui/shell_api.py` (`/api/tilers`). Keep Ark working unchanged.
 4. Generate a forest route with it. Look at the PNG for broken edges, then check tree blocks (2x2), pond edges and ledge rows.
 5. Commit the code plus the credits.
+
+## Editing tiles (tile editor overlay)
+
+- Pixels, palettes and new metatiles for the Ark/PokeRoutes pair live in an overlay, `tilesets/overrides/ark/overlay.json` in the main checkout (gitignored; `POKEROUTES_TILE_OVERRIDES` moves it). Never edit the ROM tree's `tiles.png` / `metatiles.bin` for this.
+- `pokeroutes/tileset_overlay.py`: read/write (revisioned, atomic), `apply_overlay_to_tileset_pair`, `apply_overlay_to_ark_class_table` (custom tiles become `custom_<id>` props, coalesced classes join `classes`), `write_overlaid_tileset_pair_files` (pokeemerald-format export). `ArkTiler.load()` and `ArkTiler.pair()` apply it; `ArkTiler.rom_pair()` is the untouched ROM pair.
+- Edits: `pokeroutes/tile_editing.py` (copy-on-write for shared 8x8 tiles, flips, palettes, new metatiles, behaviour/layer/class), `pokeroutes/tile_coalesce.py` (47 blob variants of a terrain against a surrounding tile), `pokeroutes/tile_operations.py` (one dispatcher).
+- Agent tools: `tile_sheet` to find ids, `tile_read` to look at one (Read its preview PNG), `tile_edit {operation}` to draw or create (saves at once), `tile_coalesce {inner, outer, class}` to give the Ark tiler a new blob class (e.g. `d` sand from a sand texture tile against grass `0x000`). Then `generate_route` with `tiler: ark` and look.
+- Web UI: Window > Tools > Tile editor (`webui/README.md`). Learned Emerald pairs are read-only there.
+- Export to the ROM is not automated yet: the Porymap zip of an Ark route carries the overlaid tilesets under `data/tilesets/`.
 
 ## Checking tiling work
 

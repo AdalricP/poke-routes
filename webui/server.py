@@ -502,7 +502,7 @@ def generate(params: dict) -> dict:
             final, tiles, t_final = shell_api.ark_tiles(route, warnings)
         except Exception as e:
             traceback.print_exc()
-            warnings.append(f"Ark tiler unavailable ({type(e).__name__}: {e}); used the learned tiler")
+            warnings.append(f"PokeRoutes tiler unavailable ({type(e).__name__}: {e}); used the learned tiler")
             use = "learned"
     if use == "learned":
         ft = tiler(ts)

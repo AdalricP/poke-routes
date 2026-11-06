@@ -37,14 +37,15 @@ The generator only produces terrain classes. Two tilers turn them into metatiles
 
 - The learned autotiler (`learn.py`, `autotile.py`, `classify.py`) was trained on the 238 Emerald layouts that use the General primary tileset. For each cell it picks the metatiles real maps use for the same 3x3 neighbourhood, then makes a few passes that nudge neighbours toward pairs found side by side in the original maps. The biomes outside the forest family have their own models, trained on the routes that look like them (Route 111 for desert, Routes 105 to 107 for sea, and so on). The models are listed in `pokeroutes/models/index.json`.
 - The rule-based tiler (`ruletile.py`) is for custom tilesets that no map uses yet, so there is nothing to learn from. It reads a class table for the tileset and uses blob masks for edges, 2x2 trees and ledge rows.
+- A rough tile editor in the web UI (Window > Tools > Tile editor) draws on the Ark tiles and makes new ones. Edits go to an overlay in `tilesets/overrides/` that the rule tiler, the editor and the Porymap export apply on top of the ROM's tileset, so the ROM tree is never written from the browser. The agent can do the same by command, including growing a full set of edge and corner tiles for a new terrain from one base tile. See `webui/README.md`.
 
 <p align="center">
   <img src="docs/img/autotile-desert.png" alt="A desert class grid and the same grid tiled with Emerald's Route 111 metatiles">
 </p>
 
 <p align="center">
-  <img src="docs/img/tilers-erlenbruch.png" alt="The same route tiled with Emerald's tiles and with Arklarna's custom tileset">
-  <br><sub>The same route with the learned tiler on Emerald tiles (left) and the rule tiler on Arklarna's tileset (right).</sub>
+  <img src="docs/img/tilers-erlenbruch.png" alt="The same route tiled with Emerald's tiles and with the PokeRoutes tileset">
+  <br><sub>The same route with the learned tiler on Emerald tiles (left) and the rule tiler on the PokeRoutes tileset (right).</sub>
 </p>
 
 ### Regions

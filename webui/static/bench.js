@@ -438,6 +438,8 @@
     refresh: () => { renderTree(); renderSelection(); route_items.update_count(); draw(); },
   });
 
+  window.addEventListener("pokeroutes:tileset-saved", () => { state.atlases = {}; state.palettes = {}; });
+
   async function atlasFor(url) {
     if (state.atlases[url]) return state.atlases[url];
     const meta = await fetchJSON(url);
@@ -536,7 +538,7 @@
 
   function reportToConsole(r, rt) {
     const t = r.timing || {};
-    log("info", `Generated ${r.name} (seed ${r.seed}, ${r.width}×${r.height}, ${r.biome || "?"}, ${r.tiler === "ark" ? "Ark" : "learned"} tiles) in ${rt.toFixed(1)} s`,
+    log("info", `Generated ${r.name} (seed ${r.seed}, ${r.width}×${r.height}, ${r.biome || "?"}, ${r.tiler === "ark" ? "PokeRoutes" : "learned"} tiles) in ${rt.toFixed(1)} s`,
       `server ${(t.total || 0).toFixed(2)} s: generate ${(t.generate || 0).toFixed(2)}, final tiling ${(t.tile_final || 0).toFixed(2)}, stage tiling ${(t.tile_stages || 0).toFixed(2)}\n` +
       `${r.stages.length} stages: ${r.stages.map((s) => s.name).join(", ")}`);
     for (const w of r.warnings || []) log("warn", w);
@@ -2475,7 +2477,7 @@
     prefs.tiler_picked_by_hand = true;
     savePrefs();
     applyPrefs();
-    log("info", `Tiler: ${t === "ark" ? "Ark rule tiles" : "learned Emerald tiles"}`);
+    log("info", `Tiler: ${t === "ark" ? "PokeRoutes tiles" : "learned Emerald tiles"}`);
     if (state.result) generate();
   }
   const menus = [
@@ -2542,13 +2544,17 @@
       { sep: true },
       { id: "tiler", label: "Tiler", items: [
         { id: "t-learned", label: "Learned (Emerald General + Fortree)", radio: true, checked: () => prefs.tiler === "learned", run: () => setTiler("learned") },
-        { id: "t-ark", label: "Ark rule tiles", radio: true, checked: () => prefs.tiler === "ark", enabled: () => !state.tilers || state.tilers.some((t) => t.id === "ark" && t.ok), run: () => setTiler("ark") },
+        { id: "t-ark", label: "PokeRoutes tiles", radio: true, checked: () => prefs.tiler === "ark", enabled: () => !state.tilers || state.tilers.some((t) => t.id === "ark" && t.ok), run: () => setTiler("ark") },
       ] },
     ] },
     { label: "Window", items: [
       { id: "v-left", label: "Hierarchy", checked: () => Shell.layout.left.open, run: () => Shell.toggleDock("left") },
       { id: "v-right", label: "Inspector", checked: () => Shell.layout.right.open, run: () => Shell.toggleDock("right") },
       { id: "v-bottom", label: "Bottom panel", checked: () => Shell.layout.bottom.open, run: () => Shell.toggleDock("bottom") },
+      { sep: true },
+      { id: "w-tools", label: "Tools", items: [
+        { id: "w-tile-editor", label: "Tile editor", checked: () => !!window.TileEditor && window.TileEditor.is_open(), run: () => window.TileEditor && window.TileEditor.open() },
+      ] },
       { sep: true },
       { id: "w-reset", label: "Reset layout", run: () => Shell.resetLayout() },
     ] },
