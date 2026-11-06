@@ -1940,6 +1940,7 @@
     if (isScene()) { generate(); return; }
     const ea = region_editor();
     if (!ea) return;
+    if (Shell.layout.center === "region" && ea.generate_map) { ea.generate_map(); return; }
     if (is_routes_view()) { ea.recompute("routes"); return; }
     ea.generate();
   }

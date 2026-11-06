@@ -374,6 +374,19 @@
       toast(`recomputed ${stages.join(", ")} in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
     });
   }
+  async function generate_map() {
+    if (!st.doc) return;
+    await busy("generating towns and routes", async () => {
+      const t0 = performance.now();
+      const out = await api("/api/editor/generate-map", { doc: ED.encodeDoc(st.doc) });
+      st.hist.begin(st.doc, "generate map");
+      out.name = st.doc.name;
+      setDoc(out, true);
+      st.unsaved = true;
+      refreshAll();
+      toast(`map: ${(out.cities || []).length} towns, ${(out.routes || []).length} routes in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+    });
+  }
   async function addRoute(a, b) {
     if (a.kind === "landmark" && b.kind !== "landmark") [a, b] = [b, a];
     if (a.kind === "landmark") { toast("a route has to start at a town or another route", true); return; }
@@ -1992,6 +2005,7 @@
     load: loadSaved, listSaved, exportSpecs, recompute, setTool, toggleLayer, fit, openInBench,
     set_editor_mode, set_route_opener: (route_opener) => { open_route_spec_in_host = route_opener; },
     deleteSelected, help: () => { $("help").hidden = !$("help").hidden; },
+    generate_map,
     set_paint_biome: (biome_code) => { st.biome = biome_code; setTool("biome"); refreshTool(); },
     paint_biome: () => st.biome,
     tools: Object.keys(TOOLS), layers: () => Object.assign({}, st.layers),
