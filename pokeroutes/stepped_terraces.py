@@ -13,7 +13,7 @@ from .seams import SEAM_BAND_DEPTH_IN_METATILES, band_cell, edge_length_of_side,
 BUSH_CLASS = "f"
 OPEN_GROUND_CLASS = "g"
 PLAIN_GROUND_CLASSES = "gtpd"
-EXIT_MOUTH_KEPT_OPEN_IN_CELLS = 3
+EXIT_CORRIDOR_KEPT_OPEN_IN_CELLS = 6
 NOTCH_FILL_PASSES = 4
 RING_AROUND_A_CELL = ((-1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1), (0, -1))
 ORTHOGONAL_RING_INDICES = (1, 3, 5, 7)
@@ -42,7 +42,32 @@ def lay_stepped_terraces(route) -> None:
     ledge_cells = ledge_cells_along_level_steps(route, terrace_levels, frozen_cells)
     for (cell_y, cell_x), ledge_letter in ledge_cells:
         route.cls[cell_y, cell_x] = ledge_letter
+    open_back_to_back_ledges(route, frozen_cells)
     route.snap("stepped terraces")
+
+
+def back_to_back_ledge_cells(route) -> np.ndarray:
+    cls = route.cls
+    back_to_back = np.zeros(cls.shape, dtype=bool)
+    north_over_south = (cls[:-1, :] == "j") & (cls[1:, :] == "s")
+    back_to_back[:-1, :] |= north_over_south
+    back_to_back[1:, :] |= north_over_south
+    west_beside_east = (cls[:, :-1] == "x") & (cls[:, 1:] == "e")
+    back_to_back[:, :-1] |= west_beside_east
+    back_to_back[:, 1:] |= west_beside_east
+    return back_to_back
+
+
+def open_back_to_back_ledges(route, frozen_cells: np.ndarray) -> None:
+    from .generate import reachable
+
+    back_to_back = back_to_back_ledge_cells(route) & ~frozen_cells
+    if not back_to_back.any():
+        return
+    route.cls[back_to_back] = OPEN_GROUND_CLASS
+    if route.exits:
+        reached = reachable(route.cls, route.exits[0][1])
+        route.cls[back_to_back & ~reached] = BUSH_CLASS
 
 
 def seam_band_cells(route) -> np.ndarray:
@@ -114,12 +139,13 @@ def distance_to_map_edge(route) -> np.ndarray:
 
 
 def cells_that_must_stay_open(route) -> np.ndarray:
-    exit_mouths = np.zeros(route.cls.shape, dtype=bool)
-    for _exit, exit_cells in route.exits:
+    from .generate import inward
+
+    must_stay_open = np.zeros(route.cls.shape, dtype=bool)
+    for map_exit, exit_cells in route.exits:
         for exit_cell in exit_cells:
-            exit_mouths[exit_cell] = True
-    reach = 2 * EXIT_MOUTH_KEPT_OPEN_IN_CELLS + 1
-    must_stay_open = binary_dilation(exit_mouths, np.ones((reach, reach), dtype=bool))
+            for depth in range(EXIT_CORRIDOR_KEPT_OPEN_IN_CELLS):
+                must_stay_open[inward(route, map_exit, exit_cell, depth)] = True
     for path_cell in route.critical_path:
         must_stay_open[path_cell] = True
     for event in route.events:

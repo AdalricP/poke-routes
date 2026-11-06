@@ -21,6 +21,7 @@ EDGE_BONUS = 3.0
 PATH_BONUS = 1.5
 SHORE_BONUS = 4.0
 SPACING_BETWEEN_CLUSTERS_IN_CELLS = 3
+MIXED_PROP_SHARE_IN_A_CLUSTER = 0.3
 
 Cell = Tuple[int, int]
 
@@ -39,13 +40,13 @@ LAND_DEFAULT = "default"
 DETAIL_RECIPES: Tuple[DetailRecipe, ...] = (
     DetailRecipe("flower patch", ("flowers0", "flowers1", "flowers2", "flowers3"),
                  {"plains": 5.0, "meadow": 5.0, "beach": 3.0, "forest": 3.0, "riverland": 4.0, LAND_DEFAULT: 1.0},
-                 (5, 11), "open"),
+                 (6, 14), "open", mixes_props_in_a_cluster=True),
     DetailRecipe("mushroom row", ("mushroom0", "mushroom1", "mushroom2"),
                  {"forest": 5.0, "riverland": 3.5, "meadow": 3.0, "plains": 2.0, "beach": 1.5, LAND_DEFAULT: 0.5},
                  (2, 4), "edge", mixes_props_in_a_cluster=True),
     DetailRecipe("rock cluster", ("pebbles",),
                  {"beach": 5.0, "mountain": 4.0, "snow": 3.0, "desert": 3.0, "volcanic": 3.0, "riverland": 2.0, LAND_DEFAULT: 1.5},
-                 (2, 5), "shore"),
+                 (1, 3), "shore"),
     DetailRecipe("fallen log", ("log",),
                  {"forest": 1.2, "riverland": 1.0, "meadow": 0.8, "plains": 0.6, "beach": 0.6, LAND_DEFAULT: 0.2},
                  (1, 1), "edge"),
@@ -121,7 +122,7 @@ def placement_weights(route) -> Dict[str, np.ndarray]:
     base = np.ones(route.cls.shape)
     weights = {"open": base + EDGE_BONUS * 0.4 * near_edges + PATH_BONUS * near_the_way,
                "edge": 0.1 * base + EDGE_BONUS * near_edges + PATH_BONUS * 0.3 * near_the_way,
-               "shore": base + SHORE_BONUS * near_shore + EDGE_BONUS * 0.3 * near_edges}
+               "shore": 0.15 * base + SHORE_BONUS * near_shore + EDGE_BONUS * 0.3 * near_edges}
     return weights
 
 
@@ -216,7 +217,8 @@ def place_one_cluster(route, recipe: DetailRecipe, surroundings: Surroundings) -
     cluster_cells = grow_cluster(route, start_cell, cluster_size, can_hold)
     patch_prop = usable_props[int(route.rng.integers(0, len(usable_props)))]
     for cluster_cell in cluster_cells:
-        prop_name = usable_props[int(route.rng.integers(0, len(usable_props)))] if recipe.mixes_props_in_a_cluster else patch_prop
+        mixes_here = recipe.mixes_props_in_a_cluster and route.rng.random() < MIXED_PROP_SHARE_IN_A_CLUSTER
+        prop_name = usable_props[int(route.rng.integers(0, len(usable_props)))] if mixes_here else patch_prop
         put_prop(route, surroundings, prop_table, prop_name, cluster_cell)
 
 

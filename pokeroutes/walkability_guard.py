@@ -1,8 +1,16 @@
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, Dict, FrozenSet, Set, Tuple
+
+import numpy as np
+from scipy.ndimage import label
 
 from .generate import WALKABLE, can_leave, reachable
+
+FIELD_MOVE_AND_STORY_OBSTACLE_KINDS = ("cut_tree", "rock_smash", "strength_boulder", "story_blocker")
+LANDING_STEP_BY_LEDGE = {"s": (1, 0), "j": (-1, 0), "e": (0, 1), "x": (0, -1)}
+SURFABLE_CLASSES = "wb"
+WALKABILITY_SUMMARY_KEY = "_walkability_summary"
 
 
 def walkable_cells_of(route, cells) -> list:
@@ -19,6 +27,61 @@ def entrance_cells_on_land(route) -> list:
     return walkable_path_cells
 
 
+def grid_with_obstacles_standing(route, can_surf: bool) -> np.ndarray:
+    grid = np.array(route.cls, copy=True)
+    for event in route.events:
+        if event.kind in FIELD_MOVE_AND_STORY_OBSTACLE_KINDS:
+            grid[event.y, event.x] = "f"
+    if can_surf:
+        grid[np.isin(grid, list(SURFABLE_CLASSES))] = "p"
+    return grid
+
+
+def ledge_hops_between_pieces(grid: np.ndarray, pieces: np.ndarray) -> Dict[int, Set[int]]:
+    hops: Dict[int, Set[int]] = {}
+    height_in_cells, width_in_cells = grid.shape
+    for ledge_letter, (step_y, step_x) in LANDING_STEP_BY_LEDGE.items():
+        for ledge_y, ledge_x in np.argwhere(grid == ledge_letter):
+            from_cell = (int(ledge_y) - step_y, int(ledge_x) - step_x)
+            landing_cell = (int(ledge_y) + step_y, int(ledge_x) + step_x)
+            inside = all(0 <= cell[0] < height_in_cells and 0 <= cell[1] < width_in_cells for cell in (from_cell, landing_cell))
+            if inside and pieces[from_cell] and pieces[landing_cell]:
+                hops.setdefault(int(pieces[from_cell]), set()).add(int(pieces[landing_cell]))
+    return hops
+
+
+def pieces_reached_from(start_pieces: Set[int], hops: Dict[int, Set[int]]) -> Set[int]:
+    reached_pieces = set(start_pieces)
+    stack = list(start_pieces)
+    while stack:
+        piece = stack.pop()
+        for next_piece in hops.get(piece, ()):
+            if next_piece not in reached_pieces:
+                reached_pieces.add(next_piece)
+                stack.append(next_piece)
+    return reached_pieces
+
+
+def exits_reached_on_grid(route, grid: np.ndarray, can_surf: bool) -> Set[Tuple[bool, int, int]]:
+    pieces, _piece_count = label(np.isin(grid, list(WALKABLE)))
+    hops = ledge_hops_between_pieces(grid, pieces)
+    exit_pieces = [{int(pieces[tuple(cell)]) for cell in exit_cells} - {0} for _exit, exit_cells in route.exits]
+    reached_pairs = set()
+    for entrance_index, entrance_pieces in enumerate(exit_pieces):
+        reached_pieces = pieces_reached_from(entrance_pieces, hops)
+        reached_pairs |= {(can_surf, entrance_index, exit_index) for exit_index, other_pieces in enumerate(exit_pieces)
+                          if exit_index != entrance_index and other_pieces & reached_pieces}
+    return reached_pairs
+
+
+def exits_reached_past_standing_obstacles(route) -> FrozenSet[Tuple[bool, int, int]]:
+    reached_pairs = set()
+    for can_surf in (False, True):
+        reached_pairs |= exits_reached_on_grid(route, grid_with_obstacles_standing(route, can_surf), can_surf)
+    exits_reached = frozenset(reached_pairs)
+    return exits_reached
+
+
 def walkability_summary(route) -> tuple:
     entrance_cells = entrance_cells_on_land(route)
     exit_cells = [cell for _exit, cells in route.exits for cell in cells]
@@ -27,14 +90,25 @@ def walkability_summary(route) -> tuple:
     every_exit_reached = all(any(reached[cell] for cell in cells) for _exit, cells in route.exits
                              if walkable_cells_of(route, cells))
     trapped_count = int((reached & ~leavable).sum())
-    summary = (every_exit_reached, trapped_count)
+    summary = (every_exit_reached, trapped_count, exits_reached_past_standing_obstacles(route))
+    return summary
+
+
+def remembered_walkability_summary(route) -> tuple:
+    classes_fingerprint = (route.cls.tobytes(), tuple((event.kind, event.y, event.x) for event in route.events))
+    remembered = route.__dict__.get(WALKABILITY_SUMMARY_KEY)
+    if remembered is not None and remembered[0] == classes_fingerprint:
+        return remembered[1]
+    summary = walkability_summary(route)
+    route.__dict__[WALKABILITY_SUMMARY_KEY] = (classes_fingerprint, summary)
     return summary
 
 
 def is_no_worse(before: tuple, after: tuple) -> bool:
-    every_exit_reached_before, trapped_before = before
-    every_exit_reached_after, trapped_after = after
-    no_worse = (every_exit_reached_after or not every_exit_reached_before) and trapped_after <= trapped_before
+    every_exit_reached_before, trapped_before, gated_exits_before = before
+    every_exit_reached_after, trapped_after, gated_exits_after = after
+    no_new_way_round_a_gate = gated_exits_after <= gated_exits_before
+    no_worse = (every_exit_reached_after or not every_exit_reached_before) and trapped_after <= trapped_before and no_new_way_round_a_gate
     return no_worse
 
 
@@ -60,10 +134,10 @@ def run_keeping_walkability(route, stage_name: str, change_route: Callable) -> N
     classes_before = route.cls.copy()
     drawn_classes_before = dict(route.__dict__.get(DRAWN_CLASS_KEY) or {})
     placed_props_before = list(route.__dict__.get(PLACED_PROPS_KEY) or [])
-    summary_before = walkability_summary(route)
+    summary_before = remembered_walkability_summary(route)
     change_route(route)
     keep_seam_bands_as_they_were(route, classes_before)
-    summary_after = walkability_summary(route)
+    summary_after = remembered_walkability_summary(route)
     if is_no_worse(summary_before, summary_after):
         return
     route.cls[:] = classes_before
