@@ -10,6 +10,25 @@
   const GLITTER_FRAME_SIZE = 16;
   const GLITTER_TWINKLE = [0, 1, 2, 3, 2, 1];
   const KIND_LABELS = { item_ball: "Poké Ball (visible)", hidden_item: "Hidden item" };
+  const SPRITE_PIXELS_PER_CELL = 16;
+  const STILL = { lean: 0, shift: 0, lift: 0 };
+  const SPRITE_MOTION_BY_KIND = { item_ball: "bop", berry_tree: "dance", strength_boulder: "wobble" };
+  const SPRITE_MOTION_TICKS = {
+    bop: [...Array(9).fill(STILL), { lean: 0, shift: 0, lift: -1 }, { lean: 0, shift: 0, lift: -1 }, STILL, STILL,
+      { lean: 0, shift: 0, lift: -1 }, { lean: 0, shift: 0, lift: -1 }, STILL],
+    dance: [STILL, { lean: -1, shift: 0, lift: 0 }, { lean: -1, shift: 0, lift: -1 }, { lean: -1, shift: 0, lift: 0 },
+      STILL, { lean: 1, shift: 0, lift: 0 }, { lean: 1, shift: 0, lift: -1 }, { lean: 1, shift: 0, lift: 0 }],
+    wobble: [...Array(12).fill(STILL), { lean: 0, shift: 1, lift: 0 }, STILL, { lean: 0, shift: -1, lift: 0 }, STILL],
+  };
+  const LEANING_SHARE_OF_SPRITE_HEIGHT = 0.6;
+
+  function sprite_motion_at(event, animation_frame) {
+    const motion_ticks = SPRITE_MOTION_TICKS[SPRITE_MOTION_BY_KIND[event.kind]];
+    if (!motion_ticks) return STILL;
+    const sprite_phase = (Number(event.x) * 7 + Number(event.y) * 13) % motion_ticks.length;
+    const sprite_motion = motion_ticks[(animation_frame + sprite_phase) % motion_ticks.length];
+    return sprite_motion;
+  }
 
   function load_image(url) {
     const image = new Image();
@@ -79,9 +98,20 @@
         left, top, cell_size, cell_size);
     }
 
-    function draw_overworld_sprite(graphics_context, sprite, left, top, cell_size) {
-      const height_in_cells = sprite.height / 16;
-      graphics_context.drawImage(sprite, left, top + cell_size - height_in_cells * cell_size, cell_size, height_in_cells * cell_size);
+    function draw_overworld_sprite(graphics_context, sprite, left, top, cell_size, sprite_motion) {
+      const screen_pixels_per_sprite_pixel = cell_size / SPRITE_PIXELS_PER_CELL;
+      const height_in_cells = sprite.height / SPRITE_PIXELS_PER_CELL;
+      const drawn_left = left + sprite_motion.shift * screen_pixels_per_sprite_pixel;
+      const drawn_top = top + cell_size - height_in_cells * cell_size + sprite_motion.lift * screen_pixels_per_sprite_pixel;
+      if (!sprite_motion.lean) {
+        graphics_context.drawImage(sprite, drawn_left, drawn_top, cell_size, height_in_cells * cell_size);
+        return;
+      }
+      const leaning_rows = Math.round(sprite.height * LEANING_SHARE_OF_SPRITE_HEIGHT);
+      graphics_context.drawImage(sprite, 0, 0, sprite.width, leaning_rows,
+        drawn_left + sprite_motion.lean * screen_pixels_per_sprite_pixel, drawn_top, cell_size, leaning_rows * screen_pixels_per_sprite_pixel);
+      graphics_context.drawImage(sprite, 0, leaning_rows, sprite.width, sprite.height - leaning_rows,
+        drawn_left, drawn_top + leaning_rows * screen_pixels_per_sprite_pixel, cell_size, (sprite.height - leaning_rows) * screen_pixels_per_sprite_pixel);
     }
 
     // true when the event was drawn as a sprite; false leaves it to bench's plain marker
@@ -95,7 +125,7 @@
       const sprites = current_sprites();
       const sprite = sprites[SL.event_sprite_key(event)] || sprites[event.kind];
       if (!sprite) return false;
-      draw_overworld_sprite(graphics_context, sprite, left, top, cell_size);
+      draw_overworld_sprite(graphics_context, sprite, left, top, cell_size, sprite_motion_at(event, animation_frame));
       return true;
     }
 
@@ -112,6 +142,15 @@
       const route = state.result;
       if (!glitter_strip || !route || !state.ov.events || state.ov.markings === false) return false;
       return window.PR.eventsAt(route, state.stage).concat(visible_items()).some((event) => event.kind === "hidden_item");
+    }
+
+    function has_moving_sprites() {
+      const route = state.result;
+      if (!route || !state.ov.events) return false;
+      const sprites = current_sprites();
+      const shown_events = window.PR.eventsAt(route, state.stage).concat(visible_items());
+      const has_moving_sprite = shown_events.some((event) => SPRITE_MOTION_BY_KIND[event.kind] && sprites[event.kind]);
+      return has_moving_sprite;
     }
 
     // ------------------------------------------------------------ placing
@@ -286,7 +325,7 @@
     bind_toolbar();
     load_assets();
     return {
-      draw_event_sprite, visible_items, has_glitter, index_at, click, delete_selected, restore, on_new_route,
+      draw_event_sprite, visible_items, has_glitter, has_moving_sprites, index_at, click, delete_selected, restore, on_new_route,
       render_selection, tree_nodes, selected_box, selected_item, update_count,
       has_selection: () => selected_index() >= 0,
     };

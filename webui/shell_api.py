@@ -32,7 +32,7 @@ ROOT = HERE.parent
 MAX_SPEC = 512 * 1024
 
 _ark = None
-_ark_atlas = None
+_ark_atlases: dict = {}
 _lock = threading.Lock()
 
 
@@ -79,15 +79,53 @@ def ark_tiles(route, warnings):
     return final, tiles, t_final
 
 
-def ark_atlas(srv):
-    global _ark_atlas
-    if _ark_atlas is None:
-        from pokeroutes.breeze import breeze_plan_for_ark_class_table
-        from pokeroutes.ruletile import PRIMARY_SYMBOL, SECONDARY_SYMBOL
+def ark_atlas_url(shade: str, png: bool = False) -> str:
+    import tile_looks
+    from urllib.parse import urlencode
 
-        _ark_atlas = srv.build_atlas(ark_tiler().pair(), PRIMARY_SYMBOL, SECONDARY_SYMBOL, "/api/atlas.png?tiler=ark",
-                                     breeze_plan_for_ark_class_table(ark_tiler().c))
-    return _ark_atlas
+    query = urlencode({"tiler": "ark", "shade": shade, "v": tile_looks.version()})
+    url = ("/api/atlas.png?" if png else "/api/atlas?") + query
+    return url
+
+
+def ark_default_tile_motions():
+    from pokeroutes.breeze import breeze_plan_for_ark_class_table
+    from pokeroutes.idle_motion import default_motions, default_prop_motions_from_ark_class_table, prop_cells_from_ark_class_table
+
+    class_table = ark_tiler().c
+    game_animated = ark_tiler().pair().animated_metatiles()
+    defaults = default_motions(breeze_plan_for_ark_class_table(class_table), default_prop_motions_from_ark_class_table(class_table), game_animated)
+    return defaults, prop_cells_from_ark_class_table(class_table)
+
+
+def ark_atlas(srv, shade: str):
+    import tile_looks
+    from pokeroutes.breeze import breeze_plan_for_ark_class_table
+    from pokeroutes.idle_motion import motions_with_overrides
+    from pokeroutes.ruletile import PRIMARY_SYMBOL, SECONDARY_SYMBOL
+    from pokeroutes.tree_shade import ShadedTilesetPair, floor_plan_for_shade
+
+    with _lock:
+        cached = _ark_atlases.get(shade)
+    if cached is not None:
+        return cached
+    tiler = ark_tiler()
+    breeze_plan = breeze_plan_for_ark_class_table(tiler.c)
+    defaults, prop_cells_by_metatile = ark_default_tile_motions()
+    tileset_pair = tiler.pair()
+    motions = motions_with_overrides(defaults, tile_looks.motion_overrides("ark"), prop_cells_by_metatile,
+                                     set(tileset_pair.animated_metatiles()))
+    shaded_pair = ShadedTilesetPair(tileset_pair, floor_plan_for_shade(tiler.c, shade), tiler.grass)
+    cached = srv.build_atlas(shaded_pair, PRIMARY_SYMBOL, SECONDARY_SYMBOL, ark_atlas_url(shade, png=True),
+                             breeze_plan, motions, prop_cells_by_metatile, {"shade": shade})
+    with _lock:
+        _ark_atlases[shade] = cached
+    return cached
+
+
+def forget_ark_atlases() -> None:
+    with _lock:
+        _ark_atlases.clear()
 
 
 # ------------------------------------------------------------------ helpers
@@ -119,6 +157,10 @@ def handle(h, method: str, u, srv) -> bool:
 
     if route_items.handle(h, method, u, q, srv):
         return True
+    import tile_looks
+
+    if tile_looks.handle(h, method, u, q, srv):
+        return True
     if method == "GET":
         if u.path in ("/", ""):
             return h._send(200, (STATIC / "shell.html").read_bytes(), "text/html; charset=utf-8") or True
@@ -131,7 +173,10 @@ def handle(h, method: str, u, srv) -> bool:
             ok, err = ark_available()
             if not ok:
                 return h._json({"error": "Ark tiler unavailable: " + err}, 404) or True
-            png, meta = ark_atlas(srv)
+            from pokeroutes.tree_shade import SHADE_CHOICES
+
+            requested_shade = q.get("shade", ["leaves"])[0]
+            png, meta = ark_atlas(srv, requested_shade if requested_shade in SHADE_CHOICES and requested_shade != "auto" else "leaves")
             if u.path == "/api/atlas.png":
                 return h._send(200, png, "image/png") or True
             return h._json(meta) or True

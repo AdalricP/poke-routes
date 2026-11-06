@@ -551,8 +551,9 @@
         const m = st.tiles[k];
         if (!meta.anim[m]) continue;
         const cell_x = k % W, cell_y = Math.floor(k / W);
-        const phase = breeze_metatiles.has(m) ? breeze_phase_for_tree_block(cell_x, cell_y) : 0;
-        anim.push({ x: cell_x * CELL, y: cell_y * CELL, mid: m, phase, shown_atlas_cell: -1 });
+        const motion = (meta.motion || {})[m];
+        const phase = breeze_metatiles.has(m) ? breeze_phase_for_tree_block(cell_x, cell_y) : idle_motion_phase(motion, cell_x, cell_y);
+        anim.push({ x: cell_x * CELL, y: cell_y * CELL, mid: m, phase, speed: motion ? motion.speed : 1, shown_atlas_cell: -1 });
       }
     }
     return { tiles: c, classes: cc, mask: prevTiles ? mask : null, changed: prevTiles ? changed : st.tiles.length, anim };
@@ -593,7 +594,7 @@
     animLast = t;
     animFrame++;
     draw_tile_animation_frame();
-    if (route_items.has_glitter()) draw();
+    if (route_items.has_glitter() || route_items.has_moving_sprites()) draw();
   }
   function draw_tile_animation_frame() {
     const cells = state.animCells[state.stage];
@@ -602,12 +603,30 @@
     const g = state.tileCanvases[state.stage].getContext("2d");
     for (const c of cells) {
       const seq = [meta.index[c.mid], ...meta.anim[c.mid]];
-      const a = seq[(animFrame + c.phase) % seq.length];
+      const a = seq[(Math.floor(animFrame * c.speed) + c.phase) % seq.length];
       if (a === c.shown_atlas_cell) continue;
       c.shown_atlas_cell = a;
       g.clearRect(c.x, c.y, CELL, CELL);
       g.drawImage(img, (a % meta.columns) * CELL, Math.floor(a / meta.columns) * CELL, CELL, CELL, c.x, c.y, CELL, CELL);
     }
+    draw();
+  }
+  const idle_motion_cycle_in_ticks = 16;
+  function idle_motion_phase(motion, cell_x, cell_y) {
+    if (!motion || !motion.origin) return 0;
+    const prop_x = cell_x - motion.origin[0], prop_y = cell_y - motion.origin[1];
+    const prop_hash = ((prop_x * 73856093) ^ (prop_y * 19349663)) >>> 0;
+    const idle_phase_in_ticks = prop_hash % idle_motion_cycle_in_ticks;
+    return idle_phase_in_ticks;
+  }
+  async function reload_atlas_at_version(atlas_version) {
+    const route_result = state.result;
+    if (!route_result) return;
+    const atlas_address = new URL(route_result.atlas || "/api/atlas", location.origin);
+    atlas_address.searchParams.set("v", atlas_version);
+    route_result.atlas = atlas_address.pathname + atlas_address.search;
+    state.atlas = await atlasFor(route_result.atlas);
+    buildCanvases();
     draw();
   }
   const breeze_wave_ticks_per_tree_block_step = 3;
@@ -898,6 +917,11 @@
     F: ["#e9a63a", "#d8692c", "#c4822b", "#f0c05a"],
     R: ["#b9381f", "#9c2f1c", "#d0503a", "#e06a4a"],
   };
+  function leaf_colours_for_tree_class(tree_class) {
+    const atlas_leaf_colours = state.atlas && state.atlas.meta.leaf_colours_by_tree_class;
+    const leaf_colours = (atlas_leaf_colours && atlas_leaf_colours[tree_class]) || leaf_colours_by_tree_class[tree_class];
+    return leaf_colours;
+  }
   function leaf_colours_from_route_trees() {
     const route_result = state.result;
     if (!route_result) return null;
@@ -905,7 +929,7 @@
     const tree_cell_counts = { f: 0, F: 0, R: 0 };
     for (const class_row of final_classes) for (const class_code of class_row) if (class_code in tree_cell_counts) tree_cell_counts[class_code]++;
     const weighted_colours = Object.entries(tree_cell_counts).flatMap(([tree_class, cell_count]) =>
-      Array.from({ length: Math.ceil(cell_count / 40) }, () => leaf_colours_by_tree_class[tree_class]).flat());
+      Array.from({ length: Math.ceil(cell_count / 40) }, () => leaf_colours_for_tree_class(tree_class)).flat());
     return weighted_colours.length ? weighted_colours : null;
   }
   function random_colour_of(preset) {
@@ -2775,6 +2799,6 @@
     return improve_tab_is_shown;
   }
 
-  window.Bench = { generate, state, params, setParams, undoStack, menus, extras, loadSpecText };
+  window.Bench = { generate, state, params, setParams, undoStack, menus, extras, loadSpecText, reload_atlas_at_version, fetchJSON, postJSON, log, draw };
   boot();
 })();

@@ -44,3 +44,5 @@ webui/improve-logs/
 
 # owner-only settings for the Improve box and ROM target (see webui/README.md)
 webui/local-settings.json
+webui/tile-looks.json
+webui/tile-looks.tmp

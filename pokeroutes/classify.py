@@ -53,6 +53,7 @@ GRASS, PATH, TALL, WATER, TREE, ROCK, LEDGE_S, LEDGE_E, LEDGE_W, WATERFALL, OTHE
     "g", "p", "t", "w", "f", "r", "s", "e", "x", "a", "o",
 )
 LEDGE_N = "j"
+FENCE = "c"
 SAND, SEA, SHALLOW, ASH_GRASS, ASH, CLIFF, STAIRS, LAVA, CAVE_ENTRANCE, BRIDGE, BOULDER = (
     "d", "b", "h", "y", "v", "k", "z", "l", "n", "q", "u",
 )
@@ -69,7 +70,7 @@ CLASS_NAMES = {
     WATERFALL: "waterfall", OTHER: "other",
     SAND: "sand", SEA: "sea", SHALLOW: "shallow water", ASH_GRASS: "ash grass", ASH: "ash ground",
     CLIFF: "cliff", STAIRS: "stairs", LAVA: "lava / hot springs", CAVE_ENTRANCE: "cave entrance",
-    BRIDGE: "bridge", BOULDER: "boulder",
+    BRIDGE: "bridge", BOULDER: "boulder", FENCE: "fence",
 }
 CLASS_COLORS = {
     GRASS: (120, 190, 90), PATH: (214, 180, 120), TALL: (40, 130, 50), WATER: (70, 120, 220),
@@ -77,11 +78,11 @@ CLASS_COLORS = {
     LEDGE_W: (230, 160, 40), LEDGE_N: (230, 190, 60), WATERFALL: (160, 210, 255), OTHER: (200, 0, 200),
     SAND: (240, 220, 140), SEA: (30, 60, 170), SHALLOW: (130, 190, 230), ASH_GRASS: (150, 150, 110),
     ASH: (190, 185, 160), CLIFF: (90, 50, 30), STAIRS: (230, 230, 230), LAVA: (240, 60, 0),
-    CAVE_ENTRANCE: (20, 20, 20), BRIDGE: (170, 120, 60), BOULDER: (110, 100, 90),
+    CAVE_ENTRANCE: (20, 20, 20), BRIDGE: (170, 120, 60), BOULDER: (110, 100, 90), FENCE: (150, 105, 70),
 }
 WALKABLE_CLASSES = frozenset("gptdhyvzqn")  # shallow water is wade-able
 SURFABLE_CLASSES = frozenset("wb")
-BLOCKED_CLASSES = frozenset("frkul")  # hot springs ('l' walkable in towns) are rare; lava blocks
+BLOCKED_CLASSES = frozenset("frkulc")  # hot springs ('l' walkable in towns) are rare; lava blocks
 LEDGE_CLASSES = frozenset({LEDGE_S, LEDGE_E, LEDGE_W, LEDGE_N})
 ONE_WAY_LEDGE_STEPS = {LEDGE_S: (1, 0), LEDGE_N: (-1, 0)}
 
@@ -117,7 +118,7 @@ FALLBACK = {
     SAND: PATH, PATH: SAND, ASH: PATH, ASH_GRASS: TALL, TALL: ASH_GRASS,
     SEA: WATER, WATER: SEA, SHALLOW: WATER, BRIDGE: PATH, STAIRS: PATH,
     CLIFF: ROCK, ROCK: CLIFF, BOULDER: ROCK, LAVA: ROCK, CAVE_ENTRANCE: CLIFF,
-    GRASS: ASH, WATERFALL: WATER, TREE: CLIFF,
+    GRASS: ASH, WATERFALL: WATER, TREE: CLIFF, FENCE: OTHER,
     LEDGE_N: GRASS,  # Emerald has no north-ledge art: the lip just reads as grass (a plains verge's south edge)
 }
 

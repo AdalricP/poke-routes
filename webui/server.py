@@ -22,7 +22,7 @@ from collections import OrderedDict
 from concurrent.futures import ProcessPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import numpy as np
 
@@ -32,10 +32,13 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(HERE))
 
 import route_extras  # noqa: E402
+import tile_looks  # noqa: E402
 from fasttile import FastTiler  # noqa: E402
 from pokeroutes.autotile import Autotiler  # noqa: E402
-from pokeroutes.breeze import (BreezePlan, animation_sequence_for_swaying_metatile,  # noqa: E402
-                               breeze_frames_for_tileset_pair, breeze_plan_for_learned_model)
+from pokeroutes.breeze import BreezePlan, breeze_plan_for_learned_model  # noqa: E402
+from pokeroutes.idle_motion import (BREEZE_MOTIONS, TileMotion, atlas_sequence_for_motion, default_motions,  # noqa: E402
+                                    motion_frames_for_tileset_pair, motion_meta_for_metatile, motions_with_overrides)
+from pokeroutes.tree_shade import LEAF_COLOURS_BY_TREE_LETTER, SHADE_CHOICES  # noqa: E402
 from pokeroutes.spec import BIOMES, ROUTE_EFFECTS  # noqa: E402
 from pokeroutes.tileset import NUM_PRIMARY_METATILES, load_pair  # noqa: E402
 
@@ -81,16 +84,60 @@ def pair(ts: str = TILESET):
 
 
 def atlas_url(ts: str = TILESET, png: bool = False) -> str:
-    return "/api/atlas" + (".png" if png else "") + ("" if ts == TILESET else f"?ts={ts}")
+    query = {"ts": ts} if ts != TILESET else {}
+    query["v"] = str(tile_looks.version())
+    url = "/api/atlas" + (".png" if png else "") + "?" + urlencode(query)
+    return url
 
 
 def atlas(ts: str = TILESET):
-    """(png bytes, metadata) for every metatile of the pair, rendered once."""
-    if ts not in _atlases:
+    """(png bytes, metadata) for every metatile of the pair, rendered once per tile-looks version."""
+    with _lock:
+        cached = _atlases.get(ts)
+    if cached is None:
         a, b = ts.split("_", 1)
-        _atlases[ts] = build_atlas(pair(ts), f"gTileset_{a.title()}", f"gTileset_{b.title()}", atlas_url(ts, png=True),
-                                   breeze_plan_for_learned_tileset(ts))
-    return _atlases[ts]
+        defaults, prop_cells_by_metatile = default_tile_motions(ts)
+        motions = motions_with_overrides(defaults, tile_looks.motion_overrides(ts), prop_cells_by_metatile, set(pair(ts).animated_metatiles()))
+        cached = build_atlas(pair(ts), f"gTileset_{a.title()}", f"gTileset_{b.title()}", atlas_url(ts, png=True),
+                             breeze_plan_for_learned_tileset(ts), motions, prop_cells_by_metatile)
+        with _lock:
+            _atlases[ts] = cached
+    return cached
+
+
+def ark_atlas_url_for_route(spec) -> str:
+    import shell_api
+    from pokeroutes.tree_shade import resolved_shade
+
+    shade = resolved_shade(getattr(spec, "tree_shade", "auto"), tile_looks.tree_shade_of_tileset("ark"), getattr(spec, "biome", ""))
+    route_atlas_url = shell_api.ark_atlas_url(shade)
+    return route_atlas_url
+
+
+def forget_atlases() -> None:
+    import shell_api
+
+    with _lock:
+        _atlases.clear()
+    shell_api.forget_ark_atlases()
+
+
+def is_known_tile_looks_key(tileset_key: str) -> bool:
+    if tileset_key == "ark":
+        return True
+    is_learned_tileset = "_" in tileset_key and tileset_key.replace("_", "").isalnum() and (MODELS / f"{tileset_key}.json").is_file()
+    return is_learned_tileset
+
+
+def default_tile_motions(tileset_key: str):
+    """(default motion per metatile, the multi-cell props whose cells move together) for a tileset."""
+    if tileset_key == "ark":
+        import shell_api
+
+        return shell_api.ark_default_tile_motions()
+    game_animated = pair(tileset_key).animated_metatiles()
+    defaults = default_motions(breeze_plan_for_learned_tileset(tileset_key), {}, game_animated)
+    return defaults, {}
 
 
 def breeze_plan_for_learned_tileset(tileset_name: str) -> BreezePlan:
@@ -101,20 +148,29 @@ def breeze_plan_for_learned_tileset(tileset_name: str) -> BreezePlan:
     return learned_model_breeze_plan
 
 
-def build_atlas(p, primary_sym: str, secondary_sym: str, png_url: str, breeze_plan: BreezePlan = BreezePlan()):
+def build_atlas(p, primary_sym: str, secondary_sym: str, png_url: str, breeze_plan: BreezePlan = BreezePlan(),
+                motions=None, prop_cells_by_metatile=None, extra_meta=None):
     """(png bytes, metadata) for every metatile of a tileset pair, plus extra cells for the
-    other frames of any metatile that animates (water, flowers, waterfalls...) so the browser
-    can play them instead of showing a dead scene, and preview-only breeze frames (tree
-    crowns, tall grass, flowers swaying a pixel) listed under "breeze"."""
+    other frames of any metatile that animates in-game (water, flowers, waterfalls...) and for
+    the preview-only idle motions (pokeroutes/idle_motion.py: tree crowns, tall grass and flowers
+    swaying a pixel, props bopping or rolling...). "anim" lists each moving metatile's atlas cells
+    per tick, "motion" its motion, speed and place in its prop, "breeze" the swaying tree crowns, grass and flowers."""
     from PIL import Image
 
     n_pri, n_sec = p.metatile_count()
     ids = list(range(n_pri)) + [NUM_PRIMARY_METATILES + i for i in range(n_sec)]
-    anim = p.animated_metatiles()  # metatile id -> frame count, for the ones that animate
-    breeze_frames = breeze_frames_for_tileset_pair(p, breeze_plan, set(anim))
-    extra = [(mid, p.render_metatile(mid, frame=f)) for mid, nf in anim.items() for f in range(1, nf)]
-    extra_breeze = [(mid, offset, pixels) for mid, frames in breeze_frames.items() for offset, pixels in frames.items()]
-    rows = (len(ids) + len(extra) + len(extra_breeze) + ATLAS_COLS - 1) // ATLAS_COLS
+    known_ids = set(ids)
+    game_animated = p.animated_metatiles()  # metatile id -> frame count, for the ones that animate in-game
+    if motions is None:
+        motions = default_motions(breeze_plan, {}, game_animated)
+    motions = {mid: motion for mid, motion in motions.items() if mid in known_ids}
+    prop_cells_by_metatile = prop_cells_by_metatile or {}
+    played_game_animation = {mid: nf for mid, nf in game_animated.items() if motions.get(mid, TileMotion("game")).motion == "game"}
+    idle_frames = motion_frames_for_tileset_pair(p, {mid: motion for mid, motion in motions.items() if mid not in game_animated},
+                                                 prop_cells_by_metatile, breeze_plan)
+    extra = [(mid, p.render_metatile(mid, frame=f)) for mid, nf in played_game_animation.items() for f in range(1, nf)]
+    extra_idle = [(mid, offset, pixels) for mid, frames in idle_frames.items() for offset, pixels in frames.items()]
+    rows = (len(ids) + len(extra) + len(extra_idle) + ATLAS_COLS - 1) // ATLAS_COLS
     img = np.zeros((rows * 16, ATLAS_COLS * 16, 4), dtype=np.uint8)
 
     def put(n, pixels):
@@ -131,18 +187,21 @@ def build_atlas(p, primary_sym: str, secondary_sym: str, png_url: str, breeze_pl
         n = len(ids) + k
         put(n, pixels)
         anim_index.setdefault(str(mid), []).append(n)
-    breeze_cells: dict = {}
-    for k, (mid, offset, pixels) in enumerate(extra_breeze):
+    idle_cells: dict = {}
+    for k, (mid, offset, pixels) in enumerate(extra_idle):
         n = len(ids) + len(extra) + k
         put(n, pixels)
-        breeze_cells.setdefault(mid, {})[offset] = n
-    for mid, cells in breeze_cells.items():
-        anim_index[str(mid)] = animation_sequence_for_swaying_metatile(index[str(mid)], cells)
+        idle_cells.setdefault(mid, {})[offset] = n
+    for mid, cells in idle_cells.items():
+        anim_index[str(mid)] = atlas_sequence_for_motion(index[str(mid)], cells, motions[mid].motion)
+    moving = sorted(set(idle_cells) | set(played_game_animation))
+    motion_meta = {str(mid): motion_meta_for_metatile(mid, motions.get(mid, TileMotion("game")), prop_cells_by_metatile) for mid in moving}
     buf = io.BytesIO()
     Image.fromarray(img).save(buf, "PNG", optimize=True)
     meta = {"png": png_url, "cell": 16, "columns": ATLAS_COLS, "count": len(ids),
             "index": index, "primary": primary_sym, "secondary": secondary_sym, "anim": anim_index,
-            "breeze": sorted(breeze_cells)}
+            "breeze": sorted(mid for mid in idle_cells if motions[mid].motion in BREEZE_MOTIONS), "motion": motion_meta,
+            "leaf_colours_by_tree_class": LEAF_COLOURS_BY_TREE_LETTER, **(extra_meta or {})}
     return buf.getvalue(), meta
 
 
@@ -249,6 +308,7 @@ HINTS = {
     "height": {"group": "route", "min": 24, "max": 112, "step": 2},
     "biome": {"group": "route", "choices": list(BIOMES)},
     "effect": {"group": "route", "choices": list(ROUTE_EFFECTS)},
+    "tree_shade": {"group": "route", "choices": list(SHADE_CHOICES), "label": "under trees"},
     "meander": {"group": "shape", "min": 0, "max": 1, "step": 0.05},
     "branches": {"group": "shape", "min": 0, "max": 8},
     "loops": {"group": "shape", "min": 0, "max": 4},
@@ -551,7 +611,7 @@ def generate(params: dict) -> dict:
     return {
         "id": gid, "name": spec.name, "route_id": spec.id, "seed": spec.seed, "biome": getattr(spec, "biome", ""),
         "tiler": use, "tileset": "ark" if use == "ark" else ts,
-        "atlas": "/api/atlas?tiler=ark" if use == "ark" else atlas_url(ts),
+        "atlas": ark_atlas_url_for_route(spec) if use == "ark" else atlas_url(ts),
         "width": route.w, "height": route.h, "stages": stages, "zones": zones, "events": events, "exits": exits,
         "report": rep, "encounters": enc, "emerald_encounters": em,
         "log": part("log", lambda: [str(l) for l in route.log if l not in _stage_names()], []),
