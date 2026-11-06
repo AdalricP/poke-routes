@@ -175,6 +175,19 @@
   }
 
   const GROUPS = ["route", "shape", "secrets", "encounters", "advanced"];
+  // these shape controls only matter for one kind of route; hide them otherwise
+  // instead of showing a slider that does nothing for what is open
+  const SEA_ONLY_SHAPE_FIELDS = new Set(["sea_clutter"]);
+  const LAND_ONLY_SHAPE_FIELDS = new Set(["meander", "max_lanes", "dead_ends", "lakes", "tall_grass", "ledge_chance", "road"]);
+  function route_is_open_sea() {
+    const r = state.result;
+    return !!(r && r.spec && r.spec.region && r.spec.region.mode === "sea");
+  }
+  function update_shape_control_visibility() {
+    const is_sea = route_is_open_sea();
+    for (const name of SEA_ONLY_SHAPE_FIELDS) { const c = controls[name]; if (c) c.el.hidden = !is_sea; }
+    for (const name of LAND_ONLY_SHAPE_FIELDS) { const c = controls[name]; if (c) c.el.hidden = is_sea; }
+  }
   function shape_control_rank(field) {
     const rank = SHAPE_CONTROL_ORDER.indexOf(field.name);
     return rank < 0 ? SHAPE_CONTROL_ORDER.length : rank;
@@ -195,6 +208,7 @@
     }
     set_fold_empty($("sec-advanced"), !$("g-advanced").children.length);
     sizeWarn();
+    update_shape_control_visibility();
   }
 
   function set_fold_empty(fold, is_empty) {
@@ -580,13 +594,16 @@
 
   function reportToConsole(r, rt) {
     const t = r.timing || {};
-    log("info", `Generated ${r.name} (seed ${r.seed}, ${r.width}×${r.height}, ${r.biome || "?"}, ${r.tiler === "ark" ? "PokeRoutes" : "learned"} tiles) in ${rt.toFixed(1)} s`,
-      `server ${(t.total || 0).toFixed(2)} s: generate ${(t.generate || 0).toFixed(2)}, final tiling ${(t.tile_final || 0).toFixed(2)}, stage tiling ${(t.tile_stages || 0).toFixed(2)}\n` +
-      `${r.stages.length} stages: ${r.stages.map((s) => s.name).join(", ")}`);
-    for (const w of r.warnings || []) log("warn", w);
-    if (r.log && r.log.length) log("info", `Generator notes (${r.log.length})`, r.log.join("\n"));
+    const detail_parts = [
+      `server ${(t.total || 0).toFixed(2)} s: generate ${(t.generate || 0).toFixed(2)}, final tiling ${(t.tile_final || 0).toFixed(2)}, stage tiling ${(t.tile_stages || 0).toFixed(2)}`,
+      `${r.stages.length} stages: ${r.stages.map((s) => s.name).join(", ")}`,
+    ];
+    if (r.log && r.log.length) detail_parts.push(`generator notes (${r.log.length}):\n${r.log.join("\n")}`);
     const rows = reportRows(r);
-    if (rows.length) log("info", "Generation report", rows.map(([k, v]) => `${k.padEnd(18)} ${v}`).join("\n"));
+    if (rows.length) detail_parts.push(`report:\n${rows.map(([k, v]) => `${k.padEnd(18)} ${v}`).join("\n")}`);
+    log("info", `Generated ${r.name} (seed ${r.seed}, ${r.width}×${r.height}, ${r.biome || "?"}, ${r.tiler === "ark" ? "PokeRoutes" : "learned"} tiles) in ${rt.toFixed(1)} s`,
+      detail_parts.join("\n\n"));
+    for (const w of r.warnings || []) log("warn", w);
     if (!r.exportable) log("warn", `${r.width}×${r.height} is too big for the GBA map buffer; Porymap export is disabled`);
   }
 
@@ -2130,6 +2147,7 @@
     const r = state.result;
     const dl = $("stats");
     dl.innerHTML = "";
+    update_shape_control_visibility();
     if (!r) { renderEnc(); return; }
     for (const [k, v] of reportRows(r)) dl.append(el("dt", "", k), el("dd", "", v == null ? "-" : String(v)));
     if (r.warnings && r.warnings.length) dl.append(el("dt", "", "warnings"), Object.assign(el("dd", "long", r.warnings.join("; ")), { style: "color: var(--warn)" }));

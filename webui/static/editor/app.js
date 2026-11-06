@@ -1019,12 +1019,8 @@
     return request;
   }
   function route_label_lines(r, size) {
-    const is_selected = !!st.sel && st.sel.kind === "route" && st.sel.id === r.name;
-    const gate = route_gate_summary(r);
-    const role = r.role.replace(/_/g, " ") + (r.pinned ? " · pinned" : "");
-    const second_line = gate !== "open" ? gate : is_selected ? role : "";
-    const second_colour = gate !== "open" ? "#963228" : TOWN_MAP_INK;
-    const lines = [label_line(r.name, size, TOWN_MAP_INK)].concat(second_line ? [label_line(second_line, Math.round(size * 0.85), second_colour)] : []);
+    // the Map label is the route name only; role and gate status live in the inspector
+    const lines = [label_line(r.name, size, TOWN_MAP_INK)];
     return lines;
   }
   function is_route_in_focus(r) {
@@ -1114,29 +1110,50 @@
     ctx.fillStyle = fill || "#f4f2ea";
     ctx.fillText(text, x, y);
   }
+  function draw_placed_geo_label(request, box) {
+    const centre_x = (box.left + box.right) / 2;
+    let line_top = box.top;
+    for (const line of request.lines) {
+      label(line.text, centre_x, line_top + line.height / 2, line.size, line.fill);
+      line_top += line.height;
+    }
+  }
   function drawLabels(d, X, Y, z) {
+    // route name only: role and gate status live in the inspector, not the Map/Geography label
     const fs = Math.round(Math.max(10, Math.min(18, z * 1.7)));
+    const screen_box_of_rect = (rect) => ({ left: X(rect[0]), top: Y(rect[1]), right: X(rect[2]), bottom: Y(rect[3]) });
+    const town_boxes = d.cities.map((c) => screen_box_of_rect(c.rect));
+    const route_boxes = st.layers.routes ? d.routes.map((r) => screen_box_of_rect(r.rect)) : [];
+    const requests = [];
     if (st.layers.routes) {
-      for (const r of d.routes) {
-        const [x0, y0, x1, y1] = r.rect;
-        const cx = X((x0 + x1) / 2), cy = Y((y0 + y1) / 2);
-        label(r.name, cx, cy - fs * 0.55, fs);
-        const gate = route_gate_summary(r);
-        if (gate !== "open") {
-          label(gate, cx, cy + fs * 0.55, Math.round(fs * 0.78), "#ffb0a0");
-        } else {
-          label(r.role.replace(/_/g, " ") + (r.pinned ? " · pinned" : ""), cx, cy + fs * 0.55, Math.round(fs * 0.78), rgb(ED.ROLE_RGB[r.role] || [255, 255, 255]));
-        }
-      }
+      d.routes.forEach((r, route_index) => {
+        const lines = [label_line(r.name, fs, "#f4f2ea")];
+        const label_size = label_size_of_lines(lines);
+        requests.push({ key: "geo-route:" + r.name, priority: is_route_in_focus(r) ? 0 : 3, must_show: true, lines,
+          candidate_boxes: MAP_GRID.label_boxes_around_box(route_boxes[route_index], label_size.width, label_size.height, 2),
+          hard_obstacle_boxes: town_boxes, soft_obstacle_boxes: route_boxes.filter((_box, other_index) => other_index !== route_index) });
+      });
     }
     for (const l of d.landmarks) {
       if (["whirlpool", "station", "pillar"].includes(l.kind)) continue;
-      label(l.name, X(l.x + 0.5), Y(l.y + 0.5) + Math.max(10, z * 2.4), Math.round(fs * 0.85), LM_RGB[l.kind]);
+      const lines = [label_line(l.name, Math.round(fs * 0.85), LM_RGB[l.kind])];
+      const label_size = label_size_of_lines(lines);
+      const reach = Math.max(10, z * 2.4);
+      const landmark_box = { left: X(l.x + 0.5) - reach, top: Y(l.y + 0.5), right: X(l.x + 0.5) + reach, bottom: Y(l.y + 0.5) + reach };
+      requests.push({ key: "geo-landmark:" + l.id, priority: 2, must_show: true, lines,
+        candidate_boxes: MAP_GRID.label_boxes_around_box(landmark_box, label_size.width, label_size.height, 2),
+        hard_obstacle_boxes: town_boxes, soft_obstacle_boxes: route_boxes });
     }
     for (const c of d.cities) {
-      const [x0, y0, x1, y1] = c.rect;
-      label(c.name, X((x0 + x1) / 2), Y((y0 + y1) / 2), Math.round(fs * 1.15));
+      const lines = [label_line(c.name, Math.round(fs * 1.15), "#f4f2ea")];
+      const label_size = label_size_of_lines(lines);
+      const city_box = screen_box_of_rect(c.rect);
+      requests.push({ key: "geo-city:" + c.id, priority: 1, must_show: true, lines,
+        candidate_boxes: MAP_GRID.label_boxes_along_cells([city_box], label_size.width, label_size.height, 2),
+        hard_obstacle_boxes: [], soft_obstacle_boxes: route_boxes });
     }
+    const request_of_key = new Map(requests.map((request) => [request.key, request]));
+    for (const placed_label of MAP_GRID.placed_map_labels(requests)) draw_placed_geo_label(request_of_key.get(placed_label.key), placed_label.box);
   }
 
   function brush_radius_in_cells() {
