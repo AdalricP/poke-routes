@@ -27,6 +27,8 @@ Use this instead of exploring with grep/sed. Jump straight to the file and funct
      - `stage_dressing`: signposts, HM obstacles, NPCs, items, `_furniture`
      - `stage_cleanup` (generate.py): `_thin_water`
      - `stage_connect` (generate.py): reachability, `_untrap`
+     - `stage_plateaus` (generate.py): plains only
+     - `stage_route_gate` (generate.py → `gates.build_route_gates`): route design B gate (`spec.gate` or `spec.region.gate`) at the gated entrance. The region side picks the entrance in `region/gates.py`.
    - Per-biome palette: `stages.BIOME_CODES`, a tuple of (wall, ground, lane surface, road, encounter grass).
 4. **Height**: `pokeroutes/height.py`. One shared world height map, sampled at `spec.world`.
 5. **Special areas**: `pokeroutes/places.py` (archetypes `arch_grove`, `arch_meadow`, `arch_pond`, `arch_hollow`, `arch_stones`, plus `place_specials`) and the `pokeroutes/areas/` package (recipes, stamps).

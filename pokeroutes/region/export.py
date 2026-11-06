@@ -11,6 +11,7 @@ from typing import Dict, List
 import numpy as np
 import yaml
 
+from .gates import gate_block_for_route_spec
 from .world import BIOME_NAMES, CELL, SPEC_BIOME, World
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -229,7 +230,8 @@ def route_spec(w: World, r: dict, idx: int) -> dict:
         spec["endings"] = [{"kind": "special", "side": reg["goal"]["side"], "area": reg["goal"]["landmark"] or "auto"}]
     # route design B: what it takes to get onto this route (field move, story beat)
     if r.get("gate"):
-        spec["gate"] = dict(r["gate"])
+        spec["gate"] = gate_block_for_route_spec(w, r, own + other)
+        reg["gate"] = spec["gate"]
     # hand edits from the region editor win over the derived values
     for k, v in (r.get("spec_overrides") or {}).items():
         if k not in ("region", "size", "name", "id", "exits"):

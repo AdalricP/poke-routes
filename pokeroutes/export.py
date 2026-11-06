@@ -10,7 +10,8 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from .classify import CLASS_COLORS
-from .generate import Route, reachable
+from .gates import class_grid_with_route_gates_open
+from .generate import WALKABLE, Route, reachable
 
 ZONE_COLORS = {
     "main": (240, 200, 90), "branch": (120, 200, 255), "loop": (255, 140, 200), "dead_end": (200, 160, 255),
@@ -96,6 +97,7 @@ def scene_dict(route: Route) -> dict:
         "purposes": route.__dict__.get("purposes", []),
         "encounters": encounters(route),
         "exits": [{"side": e.side, "to": e.to, "cells": [[int(y), int(x)] for (y, x) in cells]} for e, cells in route.exits],
+        "gates": route.gates,
     }
 
 
@@ -159,7 +161,7 @@ def seal_edges(route: Route) -> int:
                 keep[yy, xx] = True
     before = route.cls.copy()
     route.cls[~keep & ~np.isin(route.cls, [wall, "r"])] = wall  # rock-mass tops are wall already
-    seen = reachable(route.cls, route.exits[0][1])
+    seen = reachable(class_grid_with_route_gates_open(route), route.exits[0][1])
     orphan = np.isin(route.cls, list("gpt")) & ~seen
     route.cls[orphan] = wall
     return int((before != route.cls).sum())
@@ -210,7 +212,7 @@ def write_emerald(route: Route, layout, out: Path, primary: str, secondary: str,
     def elev(y, x):
         return int(layout.elevation[y, x])
 
-    seen = reachable(route.cls, route.exits[0][1])
+    seen = reachable(class_grid_with_route_gates_open(route), route.exits[0][1]) & np.isin(route.cls, list(WALKABLE))
     taken = set()
 
     def settle(y, x):
@@ -346,6 +348,23 @@ TEMP_FLAGS = [f"FLAG_TEMP_{i:X}" for i in range(0x11, 0x20)]
 HM_TEMP_FLAGS = [f"FLAG_TEMP_{i:X}" for i in range(0x1, 0x11)]
 
 
+STORY_GATE_BLOCKER_TEXT = "Sorry, you can't go through here yet. Come back later."
+
+
+def story_gate_export(route_id: str, map_constant_name: str, story_blocker_event) -> tuple:
+    from .areas.rom import text_block
+
+    story_gate_flag = f"FLAG_ARK_{map_constant_name}_STORY_GATE_OPEN"
+    story_gate_script_id = f"{route_id}_EventScript_StoryGate"
+    story_gate_object = _obj("OBJ_EVENT_GFX_MAN_3", story_blocker_event.x, story_blocker_event.y, story_gate_script_id,
+                             story_gate_flag, move="MOVEMENT_TYPE_FACE_DOWN", rng=0)
+    story_gate_script = (f"@ story gate: {story_blocker_event.data.get('script_note', 'moves after a story beat')}. "
+                         f"Set {story_gate_flag} at that beat and this person is gone.\n"
+                         f"{story_gate_script_id}::\n\tmsgbox {story_gate_script_id}_Text, MSGBOX_NPC\n\tend\n\n"
+                         + text_block(f"{story_gate_script_id}_Text", STORY_GATE_BLOCKER_TEXT, width=30))
+    return story_gate_object, story_gate_flag, story_gate_script
+
+
 def build_events(route: Route, elev, settle, taken: set, cname: str):
     """Every event of the route and its special areas, plus the scripts.inc body.
     Returns (object_events, bg_events, coord_events, warp_events, permanent flags, scripts)."""
@@ -384,6 +403,12 @@ def build_events(route: Route, elev, settle, taken: set, cname: str):
             sc.append(f"{sid}::\n\tmsgbox {sid}_Text, MSGBOX_SIGN\n\tend\n\n"
                       + text_block(f"{sid}_Text", "An old stone figure fills the gap. It won't budge. "
                                                   "There must be a way to move it somewhere.", width=30))
+            used.add((e.y, e.x))
+        elif k == "story_blocker" and free(e.y, e.x):
+            story_gate_object, story_gate_flag, story_gate_script = story_gate_export(s.id, cname, e)
+            flags.append(story_gate_flag)
+            objs.append(story_gate_object)
+            sc.append(story_gate_script)
             used.add((e.y, e.x))
         elif k == "gate_switch":
             flag = f"FLAG_ARK_{cname}_{e.data['opens'].upper()}_OPEN"
@@ -484,6 +509,7 @@ def debug_image(route: Route, scale: int = 8, zones: bool = True) -> Image.Image
             d.rectangle([x * scale + 1, y * scale + 1, (x + 1) * scale - 2, (y + 1) * scale - 2], outline=(150, 110, 255, 255))
     for e in route.events:
         col = {"hidden_item": (255, 60, 60), "cut_tree": (60, 255, 60), "rock_smash": (200, 200, 200),
+               "strength_boulder": (150, 110, 70), "story_blocker": (255, 80, 200),
                "sealed_gate": (150, 110, 255), "gate_switch": (150, 110, 255)}.get(e.kind, (255, 255, 0))
         cx, cy = e.x * scale + scale // 2, e.y * scale + scale // 2
         d.ellipse([cx - 3, cy - 3, cx + 3, cy + 3], fill=col + (255,), outline=(0, 0, 0, 255))
@@ -510,7 +536,7 @@ def stage_sheet(route: Route, scale: int = 4) -> Image.Image:
 
 
 def report(route: Route) -> dict:
-    seen = reachable(route.cls, route.exits[0][1])
+    seen = reachable(class_grid_with_route_gates_open(route), route.exits[0][1])
     walk = np.isin(route.cls, list("gpt"))
     counts = {k: int((route.cls == k).sum()) for k in "fgptwrs"}
     return {
@@ -521,4 +547,5 @@ def report(route: Route) -> dict:
         "zones": {k: sum(1 for z in route.zones if z.kind == k) for k in sorted({z.kind for z in route.zones})},
         "events": {k: sum(1 for e in route.events if e.kind == k) for k in sorted({e.kind for e in route.events})},
         "special_areas": [z.name for z in route.zones if z.kind == "special"],
+        "gates": route.gates,
     }

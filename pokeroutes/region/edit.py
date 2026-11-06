@@ -147,6 +147,7 @@ def doc_to_world(doc: dict) -> World:
     w.landmarks = [Landmark(**l) for l in doc.get("landmarks", [])]
     w.links = doc.get("links", [])
     w.routes = doc.get("routes", [])
+    w.overrides["story"] = list(doc.get("story") or [])
     w.log = list(doc.get("log", []))
     return w
 

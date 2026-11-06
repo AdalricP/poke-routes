@@ -152,9 +152,11 @@ def reachable(cls: np.ndarray, starts) -> np.ndarray:
 
 
 def report(route) -> dict:
+    from pokeroutes.gates import class_grid_with_route_gates_open
+
     walk = np.isin(route.cls, list(WALKABLE))
     starts = route.exits[0][1] if route.exits else []
-    seen = reachable(route.cls, starts)
+    seen = reachable(class_grid_with_route_gates_open(route), starts)
     return {
         "size": [route.w, route.h],
         "walkable_cells": int(walk.sum()),
@@ -163,4 +165,5 @@ def report(route) -> dict:
         "zones": {k: sum(1 for z in route.zones if z.kind == k) for k in sorted({z.kind for z in route.zones})},
         "events": {k: sum(1 for e in route.events if e.kind == k) for k in sorted({e.kind for e in route.events})},
         "special_areas": [z.name for z in route.zones if z.kind == "special"],
+        "gates": list(getattr(route, "gates", [])),
     }
