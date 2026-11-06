@@ -109,12 +109,18 @@
       graphics_context.drawImage(image, left, top + cell_size - height_in_cells * cell_size, cell_size, height_in_cells * cell_size);
     }
 
+    function draw_entry(graphics_context, entry, origin_x, origin_y, cell_size) {
+      const left = origin_x + entry.x * cell_size, top = origin_y + entry.y * cell_size;
+      if (entry.kind === PE.SIGN_KIND) draw_sign(graphics_context, left, top, cell_size);
+      else draw_person(graphics_context, entry, left, top, cell_size);
+    }
+
     function draw(graphics_context, origin_x, origin_y, cell_size) {
-      for (const { entry } of shown()) {
-        const left = origin_x + entry.x * cell_size, top = origin_y + entry.y * cell_size;
-        if (entry.kind === PE.SIGN_KIND) draw_sign(graphics_context, left, top, cell_size);
-        else draw_person(graphics_context, entry, left, top, cell_size);
-      }
+      for (const { entry } of shown()) draw_entry(graphics_context, entry, origin_x, origin_y, cell_size);
+      draw_selection_outline(graphics_context, origin_x, origin_y, cell_size);
+    }
+
+    function draw_selection_outline(graphics_context, origin_x, origin_y, cell_size) {
       const item = selected_item();
       if (!item) return;
       graphics_context.strokeStyle = "#4d90d6";
@@ -460,7 +466,7 @@
     bind_toolbar();
     return {
       SELECTION_TYPE, on_new_route, people_put_back_on, snapshot, resume, restore, click, pick_at, draw, hides_generated_event, render_selection,
-      tree_nodes, tree_id, selected_box, delete_selected, person_at, people,
+      tree_nodes, tree_id, selected_box, delete_selected, person_at, people, shown, draw_entry, draw_selection_outline,
       has_selection: () => !!selected_item(),
       is_selection: (selection) => !!selection && selection.type === SELECTION_TYPE,
     };
