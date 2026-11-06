@@ -41,7 +41,7 @@
   const state = {
     atlases: {}, result: null,
     stage: 0, prevStage: null, fadeStart: 0,
-    tileCanvases: [], classCanvases: [], changedMasks: [], stageInfo: [], flashStart: 0,
+    tileCanvases: [], classCanvases: [], changedMasks: [], stageInfo: [], animCells: [], flashStart: 0,
     view: { zoom: 1, ox: 0, oy: 0 },
     layer: viewSaved.layer === "classes" ? "classes" : "tiles",
     ov: Object.assign({ areas: true, events: true, grid: false }, viewSaved.ov || {}),
@@ -477,7 +477,16 @@
       }
     }
     cg.putImageData(data, 0, 0);
-    return { tiles: c, classes: cc, mask: prevTiles ? mask : null, changed: prevTiles ? changed : st.tiles.length };
+    // every cell drawn with an animated metatile (water, flowers, waterfalls...), so
+    // tickAnim() can redraw just those few cells instead of the whole stage each frame
+    const anim = [];
+    if (meta.anim) {
+      for (let k = 0; k < st.tiles.length; k++) {
+        const m = st.tiles[k];
+        if (meta.anim[m]) anim.push({ x: (k % W) * CELL, y: Math.floor(k / W) * CELL, mid: m });
+      }
+    }
+    return { tiles: c, classes: cc, mask: prevTiles ? mask : null, changed: prevTiles ? changed : st.tiles.length, anim };
   }
 
   function buildCanvases() {
@@ -486,18 +495,45 @@
     state.classCanvases = [];
     state.changedMasks = [];
     state.stageInfo = [];
+    state.animCells = [];
     let prev = null, prevTiles = null;
     r.stages.forEach((st, i) => {
       const d = drawStage(i, prev, prevTiles);
       state.tileCanvases.push(d.tiles);
       state.classCanvases.push(d.classes);
       state.changedMasks.push(d.mask);
+      state.animCells.push(d.anim);
       const pz = i ? r.stages[i - 1].zones : 0, pe = i ? r.stages[i - 1].events : 0;
       state.stageInfo.push({ changed: d.changed, zones: st.zones - pz, events: st.events - pe });
       prev = d.tiles;
       prevTiles = st.tiles;
     });
   }
+
+  // ------------------------------------------------------------ tile animation
+  // Plays the handful of metatiles that animate in-game (water, flowers, waterfalls) so the
+  // scene isn't a dead frame. Only touches the few cells that actually animate.
+  const ANIM_MS = 200;
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let animLast = 0, animFrame = 0;
+  function tickAnim(t) {
+    requestAnimationFrame(tickAnim);
+    if (reduceMotion || t - animLast < ANIM_MS) return;
+    const cells = state.animCells[state.stage];
+    if (!state.atlas || !cells || !cells.length) return;
+    animLast = t;
+    animFrame++;
+    const { meta, img } = state.atlas;
+    const g = state.tileCanvases[state.stage].getContext("2d");
+    for (const c of cells) {
+      const seq = [meta.index[c.mid], ...meta.anim[c.mid]];
+      const a = seq[animFrame % seq.length];
+      g.clearRect(c.x, c.y, CELL, CELL);
+      g.drawImage(img, (a % meta.columns) * CELL, Math.floor(a / meta.columns) * CELL, CELL, CELL, c.x, c.y, CELL, CELL);
+    }
+    draw();
+  }
+  requestAnimationFrame(tickAnim);
 
   // ------------------------------------------------------------ scene view
   const wrap = $("viewScene");

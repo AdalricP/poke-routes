@@ -11,6 +11,7 @@ Format notes (pokeemerald):
 from __future__ import annotations
 
 import struct
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -43,6 +44,40 @@ def _read_tiles(path: Path) -> np.ndarray:
     return a
 
 
+def _load_anim(path: Path, tiles: np.ndarray) -> Dict[int, List[np.ndarray]]:
+    """Animated-tile replacement frames (water, flowers, waterfalls...) from
+    data/tilesets/*/anim/<name>/N.png: the same raw 8x8 frame strips the game copies into
+    VRAM over the static tile at the same slot. Returns tile index -> ordered frame list,
+    frame 0 first; only indices whose frame-0 content matches the static sheet exactly are
+    included, so an unmatched/unknown animation (e.g. this tileset's water, which isn't
+    baked into the static sheet at all) is skipped rather than guessed at."""
+    anim_dir = path / "anim"
+    if not anim_dir.is_dir():
+        return {}
+    out: Dict[int, List[np.ndarray]] = {}
+    for group in sorted(p for p in anim_dir.iterdir() if p.is_dir()):
+        frame_files = sorted(group.glob("*.png"), key=lambda f: int(f.stem))
+        if not frame_files:
+            continue
+        frames = [_read_tiles(f) for f in frame_files]
+        n = frames[0].shape[0]
+        if any(f.shape[0] != n for f in frames):
+            continue
+        votes: Counter = Counter()
+        for i in range(n):
+            for j in range(len(tiles)):
+                if np.array_equal(tiles[j], frames[0][i]):
+                    votes[j - i] += 1
+        if not votes:
+            continue
+        base = votes.most_common(1)[0][0]
+        for i in range(n):
+            idx = base + i
+            if 0 <= idx < len(tiles) and np.array_equal(tiles[idx], frames[0][i]):
+                out[idx] = [fr[i] for fr in frames]
+    return out
+
+
 @dataclass
 class Tileset:
     name: str
@@ -51,6 +86,7 @@ class Tileset:
     palettes: np.ndarray  # (16, 16, 3)
     metatiles: np.ndarray  # (M, 8) uint16
     attributes: np.ndarray  # (M,) uint16
+    tile_frames: Dict[int, List[np.ndarray]] = field(default_factory=dict, repr=False)
 
     @classmethod
     def load(cls, path: Path, name: Optional[str] = None) -> "Tileset":
@@ -65,7 +101,8 @@ class Tileset:
         metatiles = np.frombuffer(raw, dtype="<u2").reshape(-1, 8).copy()
         araw = (path / "metatile_attributes.bin").read_bytes()
         attrs = np.frombuffer(araw, dtype="<u2").copy()
-        return cls(name or path.name, path, tiles, pals, metatiles, attrs)
+        tile_frames = _load_anim(path, tiles)
+        return cls(name or path.name, path, tiles, pals, metatiles, attrs, tile_frames)
 
 
 @dataclass
@@ -74,7 +111,8 @@ class TilesetPair:
 
     primary: Tileset
     secondary: Tileset
-    _cache: Dict[int, np.ndarray] = field(default_factory=dict, repr=False)
+    _cache: Dict[Tuple[int, int], np.ndarray] = field(default_factory=dict, repr=False)
+    _anim_cache: Optional[Dict[int, int]] = field(default=None, repr=False)
 
     @property
     def palettes(self) -> np.ndarray:
@@ -103,31 +141,37 @@ class TilesetPair:
     def behavior(self, mid: int) -> int:
         return self.attribute(mid) & 0xFF
 
-    def _tile(self, idx: int) -> np.ndarray:
+    def _tile(self, idx: int, frame: int = 0) -> np.ndarray:
         if idx < NUM_PRIMARY_TILES:
-            t = self.primary.tiles
+            t = self.primary
         else:
-            t = self.secondary.tiles
+            t = self.secondary
             idx -= NUM_PRIMARY_TILES
-        if idx >= len(t):
+        frames = t.tile_frames.get(idx)
+        if frames:
+            return frames[frame % len(frames)]
+        if idx >= len(t.tiles):
             return np.zeros((8, 8), dtype=np.uint8)
-        return t[idx]
+        return t.tiles[idx]
 
-    def render_metatile(self, mid: int) -> np.ndarray:
-        """Return a 16x16x3 RGB array for metatile id ``mid``."""
-        if mid in self._cache:
-            return self._cache[mid]
+    def render_metatile(self, mid: int, frame: int = 0) -> np.ndarray:
+        """Return a 16x16x3 RGB array for metatile id ``mid``. ``frame`` picks the animation
+        frame (water ripples, swaying flowers, falling waterfalls...) for any of its tiles
+        that animate; frame 0 is always identical to the metatile's static look."""
+        key = (mid, frame)
+        if key in self._cache:
+            return self._cache[key]
         out = np.zeros((16, 16, 3), dtype=np.uint8)
         entries = self._entries(mid)
         if entries is None:
             out[:] = (255, 0, 255)
-            self._cache[mid] = out
+            self._cache[key] = out
             return out
         pals = self.palettes
         for layer in range(2):
             for q in range(4):
                 e = int(entries[layer * 4 + q])
-                t = self._tile(e & 0x3FF)
+                t = self._tile(e & 0x3FF, frame)
                 if e & 0x400:
                     t = t[:, ::-1]
                 if e & 0x800:
@@ -140,7 +184,31 @@ class TilesetPair:
                 else:
                     mask = t != 0
                     out[y : y + 8, x : x + 8][mask] = rgb[mask]
-        self._cache[mid] = out
+        self._cache[key] = out
+        return out
+
+    def animated_metatiles(self) -> Dict[int, int]:
+        """metatile id -> animation frame count, for every metatile that uses at least one
+        tile with more than one frame (see Tileset.tile_frames)."""
+        if self._anim_cache is not None:
+            return self._anim_cache
+        out: Dict[int, int] = {}
+        n_pri, n_sec = self.metatile_count()
+        ids = list(range(n_pri)) + [NUM_PRIMARY_METATILES + i for i in range(n_sec)]
+        for mid in ids:
+            entries = self._entries(mid)
+            if entries is None:
+                continue
+            nf = 1
+            for e in entries:
+                idx = int(e) & 0x3FF
+                t, local = (self.primary, idx) if idx < NUM_PRIMARY_TILES else (self.secondary, idx - NUM_PRIMARY_TILES)
+                frames = t.tile_frames.get(local)
+                if frames:
+                    nf = max(nf, len(frames))
+            if nf > 1:
+                out[mid] = nf
+        self._anim_cache = out
         return out
 
     def atlas(self, which: str = "primary", cols: int = 8, scale: int = 2, labels: bool = True) -> Image.Image:
