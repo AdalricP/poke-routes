@@ -249,27 +249,25 @@ HINTS = {
     "height": {"group": "route", "min": 24, "max": 112, "step": 2},
     "biome": {"group": "route", "choices": list(BIOMES)},
     "effect": {"group": "route", "choices": list(ROUTE_EFFECTS)},
-    "meander": {"group": "shape", "min": 0, "max": 1, "step": 0.05},
-    "branches": {"group": "shape", "min": 0, "max": 8},
-    "loops": {"group": "shape", "min": 0, "max": 4},
-    "dead_ends": {"group": "shape", "min": 0, "max": 6},
-    "clearings": {"group": "shape", "min": 0, "max": 8},
-    "lakes": {"group": "shape", "min": 0, "max": 4},
+    "meander": {"group": "shape", "label": "winding", "min": 0, "max": 1, "step": 0.05},
+    "max_lanes": {"group": "shape", "label": "paths to the exit", "min": 1, "max": 3},
+    "dead_ends": {"group": "shape", "label": "side areas", "min": 0, "max": 6},
+    "lakes": {"group": "shape", "label": "water", "min": 0, "max": 4},
     "tall_grass": {"group": "shape", "min": 0, "max": 0.9, "step": 0.05},
-    "road": {"group": "shape", "label": "dirt road on the main path"},
+    "ledge_chance": {"group": "shape", "label": "ledges", "min": 0, "max": 1, "step": 0.05},
+    "road": {"group": "shape", "label": "dirt road"},
     "hidden_paths": {"group": "secrets", "min": 0, "max": 6},
     "hidden_items": {"group": "secrets", "min": 0, "max": 12},
-    "sections": {"group": "shape", "min": 1, "max": 8},
-    "max_lanes": {"group": "shape", "min": 1, "max": 5},
-    "merge_chance": {"group": "shape", "min": 0, "max": 1, "step": 0.05},
-    "dead_end_chance": {"group": "shape", "min": 0, "max": 1, "step": 0.05},
-    "ledge_chance": {"group": "shape", "min": 0, "max": 1, "step": 0.05},
-    "extra_exits": {"group": "shape", "min": 0, "max": 4},
+    "clearings": {"group": "advanced", "min": 0, "max": 8},
+    "sections": {"group": "advanced", "min": 0, "max": 8},
+    "merge_chance": {"group": "advanced", "min": 0, "max": 1, "step": 0.05},
+    "dead_end_chance": {"group": "advanced", "min": 0, "max": 1, "step": 0.05},
+    "extra_exits": {"group": "advanced", "min": 0, "max": 4},
     "levels": {"group": "encounters", "min": 1, "max": 100},
 }
 # fields the UI handles specially or that make no sense to edit here
 SKIP = {"name", "id", "size", "exits", "special_areas", "species_file", "tileset", "palette", "exclude_areas",
-        "music", "weather", "map_name", "region"}
+        "music", "weather", "map_name", "region", "branches", "loops"}
 SIDES = ("north", "south", "east", "west")
 
 
@@ -321,7 +319,7 @@ def spec_schema() -> dict:
                 h.update(min=0, max=max(8, int(abs(d or 0) * 3)), step=1 if k == "int" else 0.1)
         if f.name == "seed":
             h["group"] = "route"
-        fields.append({"name": f.name, "kind": k, "default": d, "group": h.pop("group", "other"), **h})
+        fields.append({"name": f.name, "kind": k, "default": d, "group": h.pop("group", "advanced"), **h})
     exit_fields = []
     for f in dataclasses.fields(g.spec.Exit):
         exit_fields.append({"name": f.name, "kind": _kind(f, _default(f)), "default": _default(f)})

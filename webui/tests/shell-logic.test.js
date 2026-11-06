@@ -104,12 +104,13 @@ function skeleton() {
     { label: "File", items: ids(["new", "open"]).concat([{ id: "recent", label: "Open recent", items: () => [] }, { sep: true }],
       ids(["save", "saveas"]), [{ id: "export", label: "Export", items: ids(["exp-zip", "exp-scene", "exp-png"]) }]) },
     { label: "Edit", items: ids(["undo", "redo", "copy-spec", "paste-spec", "deselect", "prefs"]) },
-    { label: "View", items: [{ head: "x" }].concat(ids(["zin", "zout", "zfit", "z100", "frame", "ov-areas", "ov-items", "ov-classes", "ov-grid"])) },
-    { label: "Generate", items: ids(["gen", "regen", "gen-region", "play", "next", "prev", "first", "last"]) },
-    { label: "Window", items: ids(["w-scene", "w-reset"]) },
+    { label: "View", items: ids(["zin", "zout", "zfit", "z100", "frame", "v-split", "v-back"]) },
+    { label: "Generate", items: ids(["gen", "regen"]) },
+    { label: "Window", items: ids(["v-left", "v-right", "v-bottom", "w-reset"]) },
     { label: "Help", items: ids(["keys", "about"]) },
   ];
-  const extra = ids(["tool-select", "tool-pan", "tool-paint", "tool-stamp", "tool-tile", "x-zin", "x-zout", "x-zfit", "x-help", "x-ledge-rot", "tool-item", "tool-people", "x-item-delete"]);
+  const extra = ids(["tool-select", "tool-pan", "tool-paint", "tool-item", "tool-people", "x-item-delete", "x-rotate", "x-brush-smaller", "x-brush-bigger",
+    "x-zin", "x-zout", "x-zfit", "x-help", "ov-areas", "ov-items", "ov-classes", "ov-grid", "play", "next", "prev", "first", "last"]);
   SL.attachShortcuts(menus, extra);
   return { menus, extra };
 }
@@ -144,8 +145,8 @@ test("findShortcut: platform, focus and enabled()", () => {
   const save = ev({ ctrlKey: true, key: "s", code: "KeyS" });
   assert.strictEqual(SL.findShortcut(menus, save, "text", false, extra).id, "save");
   assert.strictEqual(SL.findShortcut(menus, save, "text", true, extra), null); // Ctrl+S isn't Save on a mac
-  const s = ev({ key: "s", code: "KeyS" });
-  assert.strictEqual(SL.findShortcut(menus, s, "none", true, extra).id, "tool-stamp");
+  const s = ev({ key: "r", code: "KeyR" });
+  assert.strictEqual(SL.findShortcut(menus, s, "none", true, extra).id, "x-rotate");
   assert.strictEqual(SL.findShortcut(menus, s, "text", true, extra), null);
   const undo = ev({ metaKey: true, key: "z", code: "KeyZ" });
   assert.strictEqual(SL.findShortcut(menus, undo, "none", true, extra).id, "undo");
@@ -205,11 +206,33 @@ test("layout survives blocked storage and junk", () => {
   assert.deepStrictEqual(bad.inspector, { fine: false });
 });
 
-test("a saved layout on the old Routes B tab opens the Map tab, keeping its tab order", () => {
+test("a saved layout on the old Routes B or Story tab opens the Map tab, keeping its tab order", () => {
   const old = SL.sanitizeLayout({ v: 1, center: "gates", centerOrder: ["story", "gates", "region", "geography", "scene"] });
   assert.strictEqual(old.center, "region");
-  assert.deepStrictEqual(old.centerOrder, ["story", "region", "geography", "scene"]);
+  assert.deepStrictEqual(old.centerOrder, ["region", "geography", "scene"]);
+  assert.strictEqual(SL.sanitizeLayout({ v: 1, center: "story" }).center, "region");
   assert.ok(!SL.defaultLayout().centerOrder.includes("gates"));
+  assert.ok(!SL.CENTER_TABS.includes("story"));
+});
+
+test("split centre: Routes beside one region view, dropped left or right, kept through activation", () => {
+  const layout = SL.defaultLayout();
+  assert.deepStrictEqual(SL.center_tabs_shown(layout), ["scene"]);
+  const map_on_left = SL.split_after_center_tab_drop(layout, "region", "left");
+  assert.deepStrictEqual(map_on_left, { left: "region", right: "scene", ratio: 0.5 });
+  const routes_on_right = SL.split_after_center_tab_drop(Object.assign({}, layout, { center: "geography" }), "scene", "right");
+  assert.deepStrictEqual(routes_on_right, { left: "geography", right: "scene", ratio: 0.5 });
+  assert.strictEqual(SL.split_after_center_tab_drop(layout, "scene", "middle"), null);
+  assert.deepStrictEqual(SL.split_after_activating_tab(map_on_left, "geography"), { left: "geography", right: "scene", ratio: 0.5 });
+  assert.strictEqual(SL.split_after_activating_tab(map_on_left, "scene"), map_on_left);
+  assert.strictEqual(SL.sanitize_center_split({ left: "region", right: "geography" }), null, "two region views share one editor");
+  assert.deepStrictEqual(SL.sanitize_center_split({ left: "scene", right: "story", ratio: 2 }), { left: "scene", right: "region", ratio: 0.8 });
+  const restored = SL.sanitizeLayout({ v: 1, center: "geography", split: { left: "scene", right: "region", ratio: 0.4 } });
+  assert.strictEqual(restored.center, "scene", "the active tab is one of the shown ones");
+  assert.deepStrictEqual(SL.center_tabs_shown(restored), ["scene", "region"]);
+  assert.strictEqual(SL.center_drop_side(10, 0, 300), "left");
+  assert.strictEqual(SL.center_drop_side(150, 0, 300), "middle");
+  assert.strictEqual(SL.center_drop_side(290, 0, 300), "right");
 });
 
 test("rects tile the window without overlap (default, 1440x900)", () => {
@@ -425,7 +448,12 @@ test("paint palette brushes: kinds, ledges, tree blocks, objects, exact tiles", 
   assert.deepStrictEqual(SL.brush_kind("tile:286"), { kind: "tile", key: "286" });
   assert.deepStrictEqual(SL.palette_ledge_codes(palette), ["s", "j", "e"]);
   assert.strictEqual(SL.next_ledge_code(palette, "s"), "j");
+  assert.strictEqual(SL.next_ledge_code(palette, "j"), "e");
   assert.strictEqual(SL.next_ledge_code(palette, "e"), "s");
+  const four_ledges = Object.assign({}, palette, { terrain: ["e", "j", "x", "s"].map((code) => ({ code, group: "ledges" })) });
+  const turns = [SL.next_ledge_code(four_ledges, "s")];
+  for (let turn = 0; turn < 3; turn++) turns.push(SL.next_ledge_code(four_ledges, turns[turns.length - 1]));
+  assert.deepStrictEqual(turns, ["x", "j", "e", "s"], "R turns ledges clockwise: south, west, north, east");
   assert.strictEqual(SL.next_ledge_code(null, "s"), "s");
   assert.strictEqual(SL.palette_class_codes(palette), "gFsjed");
   assert.strictEqual(SL.palette_terrain_entry(palette, "F").snap_blocks, true);
@@ -440,6 +468,35 @@ test("paint palette brushes: kinds, ledges, tree blocks, objects, exact tiles", 
   assert.strictEqual(SL.exact_tile_value(palette, 99), "g#99");
   assert.deepStrictEqual(SL.expand_paint_cells([[1, 2, "F#564"], [3, 4, "p"], [5, 6, "o#709"]]),
     [[1, 2, "F"], [1, 2, "#564"], [3, 4, "p"], [5, 6, "o"], [5, 6, "#709"]]);
+});
+
+test("whole objects: painting over any cell lifts the whole object; what it covered comes back", () => {
+  const palette = { terrain: [], unavailable: [], tiles: {}, objects: [{ id: "pine", cells: [[1, 2], [3, 4]], classes: [["f", "f"], ["f", "f"]] }] };
+  const generated = ["gggg", "gppg", "gggg"];
+  const placed = SL.apply_paint_stroke({ remembered_cells: { "1,1": "p" }, remembered_objects: [], palette, generated_class_rows: generated,
+    cells: { "1,0": "f#1", "2,0": "f#2", "1,1": "f#3", "2,1": "f#4" }, objects: [{ object: "pine", x: 1, y: 0 }] });
+  assert.deepStrictEqual(placed.objects, [{ object: "pine", x: 1, y: 0, under: { "1,1": "p" } }]);
+  assert.deepStrictEqual(placed.restore_cells, []);
+  assert.strictEqual(SL.object_instance_index_at(palette, placed.objects, 2, 1), 0);
+  assert.strictEqual(SL.object_instance_index_at(palette, placed.objects, 3, 1), -1);
+  const painted_over = SL.apply_paint_stroke({ remembered_cells: placed.cells, remembered_objects: placed.objects, palette, generated_class_rows: generated,
+    cells: { "2,1": "t" }, objects: [] });
+  assert.deepStrictEqual(painted_over.objects, []);
+  assert.deepStrictEqual(painted_over.restore_cells.sort(), [[1, 0, "g"], [1, 1, "p"], [2, 0, "g"]].sort());
+  assert.deepStrictEqual(painted_over.cells, { "1,1": "p", "2,1": "t" });
+  const deleted = SL.apply_paint_stroke({ remembered_cells: placed.cells, remembered_objects: placed.objects, lift: placed.objects, palette,
+    generated_class_rows: generated, cells: {}, objects: [] });
+  assert.strictEqual(deleted.restore_cells.length, 4);
+  assert.deepStrictEqual(deleted.cells, { "1,1": "p" });
+});
+
+test("trees: one whole tree on the 2x2 grid; painting over a tree frees its whole block", () => {
+  assert.deepStrictEqual(SL.tree_block_keys_around(3, 4, 10, 10), ["2,4", "3,4", "2,5", "3,5"]);
+  assert.deepStrictEqual(SL.tree_block_keys_around(9, 9, 10, 10), ["8,8", "9,8", "8,9", "9,9"]);
+  const forest = ["ffff", "ffff", "gggg"];
+  const freed = SL.whole_trees_under_stroke([[1, 1, "p"]], forest, "fFR", "g").map(([x, y, code]) => `${x},${y},${code}`).sort();
+  assert.deepStrictEqual(freed, ["0,0,g", "0,1,g", "1,0,g"]);
+  assert.deepStrictEqual(SL.whole_trees_under_stroke([[1, 1, "f"]], forest, "fFR", "g"), [], "a tree painted on a tree frees nothing");
 });
 
 test("event sprite key: npc roles, alternating trainers, other kinds as-is", () => {

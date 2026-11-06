@@ -18,23 +18,6 @@
 
   <!-- menu bar -->
   <header class="menubar" id="menubar">
-    <span class="logo" aria-hidden="true">
-      <svg class="logo-mark" viewBox="0 0 16 16" shape-rendering="crispEdges" focusable="false">
-        <rect x="4" y="0" width="8" height="2" fill="#e4574a"/>
-        <rect x="2" y="2" width="12" height="2" fill="#e4574a"/>
-        <rect x="0" y="4" width="16" height="2" fill="#e4574a"/>
-        <rect x="0" y="6" width="6" height="2" fill="#e4574a"/>
-        <rect x="6" y="6" width="4" height="2" fill="#202020"/>
-        <rect x="10" y="6" width="6" height="2" fill="#e4574a"/>
-        <rect x="0" y="8" width="6" height="2" fill="#f4f4f4"/>
-        <rect x="6" y="8" width="4" height="2" fill="#202020"/>
-        <rect x="10" y="8" width="6" height="2" fill="#f4f4f4"/>
-        <rect x="0" y="10" width="16" height="2" fill="#f4f4f4"/>
-        <rect x="2" y="12" width="12" height="2" fill="#f4f4f4"/>
-        <rect x="4" y="14" width="8" height="2" fill="#f4f4f4"/>
-      </svg>
-      PokeRoutes
-    </span>
     <nav class="menus" id="menus" role="menubar" aria-label="Main menu"></nav>
     <span class="doc-title" id="docTitle"></span>
   </header>
@@ -42,7 +25,7 @@
   <!-- toolbar -->
   <div class="toolbar" id="toolbar" role="toolbar" aria-label="Tools">
     <div class="tb-group" id="tbSceneTools" role="group" aria-label="Scene tools">
-      <button type="button" class="tb-btn on" id="tbMarkings" aria-pressed="true" title="Hide lanes, areas and item markers (they stop being clickable)" aria-label="Show markings">
+      <button type="button" class="tb-btn on" id="tbMarkings" aria-pressed="true" title="Hide markings" aria-label="Show markings">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5C4.6 3.5 2 6.2 1 8c1 1.8 3.6 4.5 7 4.5s6-2.7 7-4.5c-1-1.8-3.6-4.5-7-4.5zm0 7.3A2.8 2.8 0 118 5.2a2.8 2.8 0 010 5.6z" fill="currentColor"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/></svg>
       </button>
       <span class="tb-sep"></span>
@@ -52,44 +35,17 @@
       <button type="button" class="tb-btn" data-tool="pan" title="Pan (H)" aria-label="Pan">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5l2 2.2H8.8v3.5h3.5V6l2.2 2-2.2 2V8.8H8.8v3.5H10l-2 2.2-2-2.2h1.2V8.8H3.7V10L1.5 8l2.2-2v1.2h3.5V3.7H6z" fill="currentColor"/></svg>
       </button>
-      <button type="button" class="tb-btn" data-tool="paint" title="Paint classes (B)" aria-label="Paint">
+      <button type="button" class="tb-btn" data-tool="paint" title="Paint (B)" aria-label="Paint">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.8 1.7l2.5 2.5-6.6 6.6-2.5-2.5zM4.6 9.2l2.2 2.2c-.4 1.9-1.8 3-4.3 3.1.6-.7.6-1.4.7-2.3.1-1.6.4-2.6 1.4-3z" fill="currentColor"/></svg>
       </button>
-      <button type="button" class="tb-btn" data-tool="stamp" title="Stamp (S)" aria-label="Stamp">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2h4v4.5l2.5 1.5V10h-9V8L6 6.5zM2.5 11.5h11V14h-11z" fill="currentColor"/></svg>
-      </button>
-      <button type="button" class="tb-btn" data-tool="item" title="Place items (I). Hidden items show a sparkle here only; in game they're invisible" aria-label="Item">
+      <button type="button" class="tb-btn" data-tool="item" title="Item (I)" aria-label="Item">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path fill-rule="evenodd" d="M8 2.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11zM2.6 7.3h3.6a1.9 1.9 0 0 1 3.6 0h3.6v1.4H9.8a1.9 1.9 0 0 1-3.6 0H2.6zM8 7.1a.9.9 0 1 1 0 1.8.9.9 0 0 1 0-1.8z" fill="currentColor"/></svg>
       </button>
       <button type="button" class="tb-btn" data-tool="people" title="People &amp; signs (P)" aria-label="People and signs">
         <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="4.6" r="2.6" fill="currentColor"/><path d="M3.2 14c.3-3.2 2.2-5.2 4.8-5.2s4.5 2 4.8 5.2z" fill="currentColor"/></svg>
       </button>
-      <span class="tb-opts" id="paintOpts" hidden>
-        <select id="paintClass" aria-label="Paint class" title="Class to paint"></select>
-        <span class="ledge-rot" id="ledgeRot" hidden title="Ledge direction (R rotates)">
-          <button type="button" class="ledge-dir-btn" data-dir="s" title="Faces south (R)" aria-label="Ledge faces south">
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v8M4.5 7l3.5 3.5L11.5 7" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-          <button type="button" class="ledge-dir-btn" data-dir="j" title="Faces north (R)" aria-label="Ledge faces north" hidden>
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13.5v-8M4.5 9L8 5.5 11.5 9" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-          <button type="button" class="ledge-dir-btn" data-dir="e" title="Faces east (R)" aria-label="Ledge faces east">
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 8h8M7 4.5l3.5 3.5L7 11.5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-          <button type="button" class="ledge-dir-btn" data-dir="x" title="Faces west (R)" aria-label="Ledge faces west">
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8h-8M9 4.5L5.5 8 9 11.5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-        </span>
-        <select id="brushSize" aria-label="Brush size" title="Brush size">
-          <option value="1">1 cell</option><option value="2">2 cells</option><option value="3">3 cells</option><option value="5">5 cells</option>
-        </select>
-        <span class="tb-count" id="paintN"></span>
-      </span>
-      <span class="tb-opts" id="stampOpts" hidden>
-        <select id="stampKind" aria-label="Stamp" title="Stamp"></select>
-      </span>
       <span class="tb-opts" id="itemOpts" hidden>
-        <select id="itemKind" aria-label="Item kind" title="Visible Poké Ball, or a hidden item (the sparkle shows in the editor only; in game hidden items are invisible)"></select>
+        <select id="itemKind" aria-label="Item kind" title="Item kind"></select>
         <input id="itemName" class="item-name" list="itemConstants" value="ITEM_POTION" spellcheck="false" aria-label="Item constant" title="Item constant (ITEM_*)">
         <datalist id="itemConstants"></datalist>
         <span class="tb-count" id="itemN"></span>
@@ -102,7 +58,7 @@
       </span>
     </div>
 
-    <!-- geography / route design / story tools: filled in by editor/app.js when one of those views is open -->
+    <!-- geography / map tools: filled in by editor/app.js when one of those views is open -->
     <div class="tb-group" id="tbMapTools" role="group" aria-label="Map tools" hidden></div>
     <div class="tb-group" id="tbHistory" role="group" aria-label="Undo and redo">
       <span class="tb-sep"></span>
@@ -166,7 +122,7 @@
   <section class="dock" id="dockLeft" data-dock="left" aria-label="Hierarchy">
     <header class="dock-head">
       <button type="button" class="dock-tab on" data-left-tab="hierarchy">Hierarchy</button>
-      <button type="button" class="dock-tab" data-left-tab="tiles" title="Terrain, objects and exact tiles to paint with the Paint tool">Tiles</button>
+      <button type="button" class="dock-tab" data-left-tab="tiles">Tiles</button>
       <button type="button" class="dock-collapse" data-collapse="left" aria-label="Collapse Hierarchy" title="Collapse"></button>
     </header>
     <div class="dock-strip" data-expand="left" title="Show Hierarchy"><span>Hierarchy</span></div>
@@ -177,35 +133,36 @@
         <ul class="tree" id="mapTree" role="tree" aria-label="Places and layers" hidden></ul>
       </div>
       <div id="leftBiomes" class="tiles-pane" hidden>
-        <p class="tiles-note">Pick a biome, then paint it on the map. Painted biomes stay through every recompute.</p>
         <div class="terrain-grid" id="biomeGrid"></div>
       </div>
       <div id="leftTiles" class="tiles-pane" hidden>
-        <p class="tiles-note">Pick anything this route's tileset can draw and paint it on the map: terrain joins its edges and corners like the generator's own, objects go down as their exact tiles with their own collision. Generate starts a fresh map without the paint.</p>
+        <div class="brush-size" id="brushSizeRow" role="group" aria-label="Brush size"></div>
         <div id="paletteSections"></div>
       </div>
     </div>
     <div class="dock-extra imp-docked" id="dockLeftExtra" hidden></div>
   </section>
 
-  <!-- centre: routes (scene) / geography / map / story -->
+  <!-- centre: routes (scene) / geography / map; a tab dragged to a side splits the centre -->
   <section class="dock center" id="dockCenter" aria-label="Views">
     <header class="dock-head">
       <div class="tabs" role="tablist">
         <button type="button" class="dock-tab" data-center="scene" role="tab">Routes</button>
-        <button type="button" class="dock-tab" data-center="geography" role="tab" title="Heights, coast, rivers, biomes, legendary spots">Geography</button>
-        <button type="button" class="dock-tab" data-center="region" role="tab" title="Towns and routes laid on the geography; double-click a route to open it in Routes">Map</button>
-        <button type="button" class="dock-tab" data-center="story" role="tab" title="Story beats by hand: what happens where, which field move it gives">Story</button>
+        <button type="button" class="dock-tab" data-center="geography" role="tab">Geography</button>
+        <button type="button" class="dock-tab" data-center="region" role="tab">Map</button>
       </div>
     </header>
     <div class="dock-body views">
-      <div class="view scene" id="viewScene">
+      <div class="view scene" id="viewScene" data-center-view="scene">
         <canvas id="map"></canvas>
-        <div class="scene-msg" id="sceneMsg">No route yet. Generate &rarr; Generate.</div>
+        <div class="scene-msg" id="sceneMsg">No route yet</div>
+        <button type="button" class="scene-back" id="sceneBack" hidden></button>
         <div class="busy" id="busy" hidden><span class="spin"></span><span id="busyText">generating</span></div>
         <div class="tip" id="tip" hidden></div>
       </div>
-      <div class="view map-editor" id="viewMap" hidden></div>
+      <div class="center-splitter" id="centerSplitter" role="separator" aria-orientation="vertical" aria-label="Resize split views" hidden></div>
+      <div class="view map-editor" id="viewMap" data-center-view="geography region" hidden></div>
+      <div class="dock-drop center-drop" id="centerDrop" hidden></div>
     </div>
   </section>
 
@@ -218,9 +175,9 @@
     <div class="dock-strip" data-expand="right" title="Show Inspector"><span>Inspector</span></div>
     <div class="dock-body" id="inspector">
       <form id="form" autocomplete="off" onsubmit="return false">
-        <details class="fold" data-fold="selection" id="foldSel" open>
-          <summary>Selection</summary>
-          <div class="fold-body" id="selBody"><p class="muted">Nothing selected. Click something in the Scene or Hierarchy.</p></div>
+        <details class="fold" data-fold="selection" id="foldSel" open hidden>
+          <summary id="selSummary">Selection</summary>
+          <div class="fold-body" id="selBody"></div>
         </details>
         <details class="fold" data-fold="route" open>
           <summary>Route</summary>
@@ -228,25 +185,21 @@
             <div class="prop"><label for="name">Name</label><input id="name" type="text" value="Testweg" maxlength="40"></div>
             <div class="prop">
               <label for="seed">Seed</label>
-              <span class="inline"><input id="seed" type="number" min="0" step="1" value="7" class="num grow">
-                <button type="button" class="btn icon" id="dice" title="Random seed and generate" aria-label="Random seed">
-                  <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="5.5" cy="5.5" r="1.1" fill="currentColor"/><circle cx="10.5" cy="10.5" r="1.1" fill="currentColor"/><circle cx="8" cy="8" r="1.1" fill="currentColor"/><circle cx="10.5" cy="5.5" r="1.1" fill="currentColor"/><circle cx="5.5" cy="10.5" r="1.1" fill="currentColor"/></svg>
-                </button></span>
+              <input id="seed" type="number" min="0" step="1" value="7">
             </div>
             <div id="g-route"></div>
-            <p class="warn" id="sizewarn" hidden>Too big for the GBA map buffer: generates, but won't export.</p>
+            <p class="warn" id="sizewarn" hidden title="Bigger than the GBA map buffer">Too big to export</p>
           </div>
         </details>
         <details class="fold" data-fold="shape" open><summary>Shape</summary><div class="fold-body" id="g-shape"></div></details>
         <details class="fold" data-fold="secrets" open><summary>Secrets</summary><div class="fold-body" id="g-secrets"></div></details>
-        <details class="fold" data-fold="encounters-spec" id="sec-encounters" hidden><summary>Encounter levels</summary><div class="fold-body" id="g-encounters"></div></details>
-        <details class="fold" data-fold="other" id="sec-other" hidden><summary>Other</summary><div class="fold-body" id="g-other"></div></details>
+        <details class="fold" data-fold="advanced" id="sec-advanced"><summary>Advanced</summary><div class="fold-body" id="g-advanced"></div></details>
         <details class="fold" data-fold="specials" open>
           <summary>Special areas</summary>
           <div class="fold-body">
             <ul class="chips" id="chips"></ul>
             <div class="prop"><label for="areaInput">Add</label>
-              <span class="inline"><input id="areaInput" list="areaList" placeholder="auto, pond, a species" class="grow"><button type="button" id="areaAdd" class="btn">Add</button></span></div>
+              <span class="inline"><input id="areaInput" list="areaList" class="grow"><button type="button" id="areaAdd" class="btn">Add</button></span></div>
             <datalist id="areaList"></datalist>
           </div>
         </details>
@@ -268,6 +221,7 @@
         <details class="fold" data-fold="encounters" open>
           <summary>Wild encounters</summary>
           <div class="fold-body">
+            <div id="g-encounters"></div>
             <div class="seg small" role="tablist">
               <button type="button" class="seg-btn on" data-enc="dex" role="tab">By rarity</button>
               <button type="button" class="seg-btn" data-enc="slots" role="tab">Emerald slots</button>
@@ -342,7 +296,7 @@
   <form method="dialog">
     <header>Keyboard shortcuts</header>
     <div class="dlg-body" id="keysBody"></div>
-    <footer><span class="hint">Single keys only work when no text field has focus.</span><span class="grow"></span><button class="btn primary" value="ok">Close</button></footer>
+    <footer><span class="grow"></span><button class="btn primary" value="ok">Close</button></footer>
   </form>
 </dialog>
 <dialog class="dlg" id="dlgAsk" aria-label="Question">
