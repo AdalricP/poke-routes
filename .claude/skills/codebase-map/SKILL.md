@@ -49,6 +49,9 @@ Use this instead of exploring with grep/sed. Jump straight to the file and funct
    - **Reading tilesets and rendering metatiles**: `pokeroutes/tileset.py`, `load_pair`.
    - **Tile editor overlay** (hand-drawn pixels, palettes, new metatiles and coalesced classes on top of the Ark ROM tiles): `pokeroutes/tileset_overlay.py`, edits in `tile_editing.py`, `tile_coalesce.py`, `tile_operations.py`; applied by `ArkTiler.load` / `ArkTiler.pair`.
    - **Scene-preview breeze** (tree crowns, tall grass, flowers swaying 1 px; preview only, not in the ROM): `pokeroutes/breeze.py`, added to the atlas `anim` and listed in `meta.breeze` by `webui/server.py` `build_atlas`.
+   - **Idle motions and per-tile animation** (preview only): `pokeroutes/idle_motion.py` (motions sway/tips/nod/bop/dance/roll/wobble, whole props move together), baked into the atlas by `webui/server.py` `build_atlas` (`meta.anim`, `meta.motion`). Per-tileset overrides: `webui/tile_looks.py` (`/api/tile-looks`, stored in `webui/tile-looks.json`); UI `webui/static/tile-motion.js` (M over a map tile, or right-click a Tiles-palette entry). Event sprites (item ball, berry tree, boulder) move in `route-items.js`.
+   - **Under-tree shade** (spec `tree_shade`): `pokeroutes/tree_shade.py` tints the Ark tree floor pixels (`floor_masks` in the class table) in the Ark atlas (`shell_api.ark_atlas`, `?shade=`).
+   - **Ark fences** (class `c`, autotile `fence4`, NESW arms) and cross-colour tree crowns / coloured bushes: `ruletile.py` (`fence_arm_key`, `crown_from_other_colour_below`, `bush_in_neighbouring_tree_colour`).
 7. **Export**: `pokeroutes/export.py`.
    - `seal_edges`, `write_emerald` (map.bin, border.bin, map.json, scripts.inc)
    - `write_scene` (scene.json), `report` (report.json)

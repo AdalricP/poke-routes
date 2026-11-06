@@ -96,16 +96,27 @@ def ark_palette() -> dict:
     unavailable = [{"code": code, "name": class_name(code),
                     "reason": f"no PokeRoutes art; draws as {class_name(FALLBACK[code])}"}
                    for code in CLASS_NAMES if code not in tiler.C and code in FALLBACK and code != OBJECT_CLASS]
-    objects = [ark_object_entry(prop_name, prop) for prop_name, prop in tiler.c.get("props", {}).items()]
+    objects = [ark_object_entry(prop_name, prop) for prop_name, prop in tiler.c.get("props", {}).items()
+               if not is_replaced_by_fence_class(tiler, prop_name)]
     return {"tiler": "ark", "tileset": "ark", "terrain": sorted_terrain(terrain), "unavailable": unavailable,
             "objects": objects, "tiles": ark_exact_tile_classes(tiler)}
+
+
+FENCE_AUTOTILE = "fence4"
+OLD_FENCE_PROP_PREFIX = "fence_"
+
+
+def is_replaced_by_fence_class(tiler, prop_name: str) -> bool:
+    has_fence_class = any(entry.get("autotile") == FENCE_AUTOTILE for entry in tiler.C.values())
+    is_old_fence_piece = has_fence_class and prop_name.startswith(OLD_FENCE_PROP_PREFIX)
+    return is_old_fence_piece
 
 
 def ark_terrain_entry(tiler, letter: str, entry: dict) -> dict:
     autotile_kind = entry.get("autotile")
     is_tree = autotile_kind == "tree2x2"
     sample_grid = sample_class_grid(letter, runs_vertically=autotile_kind == "column",
-                                    is_ledge=autotile_kind in ("row", "column"))
+                                    is_ledge=autotile_kind in ("row", "column", FENCE_AUTOTILE))
     sample = crop_sample(tiler.tile(sample_grid).metatile)
     return {"code": letter, "name": entry.get("name") or class_name(letter),
             "group": ark_group(letter, entry), "sample": sample, "snap_blocks": is_tree, "two_wide": is_tree or letter == "w"}

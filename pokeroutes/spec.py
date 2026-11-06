@@ -20,6 +20,7 @@ BIOME_TILESET = {
     "volcanic": "general_lavaridge",  # Mt. Chimney / Jagged Pass rock (the Route 113 model draws cliff interiors as brick)
 }
 ROUTE_EFFECTS = ("none", "leaves", "snow", "rain", "ash")
+TREE_SHADES = ("auto", "leaves", "meadow", "green", "yellow", "red")
 
 
 @dataclass
@@ -59,6 +60,7 @@ class RouteSpec:
     music: str = "MUS_ROUTE104"
     weather: str = "WEATHER_SUNNY"
     effect: str = "none"
+    tree_shade: str = "auto"  # ground under trees in the preview: auto | leaves | meadow | green | yellow | red
     exclude_areas: List[str] = field(default_factory=list)  # special areas already used elsewhere
     # braided-linear skeleton (see braid.py): the route is a line of sections; in each,
     # the main lane may split into 2-3 parallel lanes that rejoin at the next node
@@ -86,6 +88,8 @@ class RouteSpec:
             self.tileset = BIOME_TILESET.get(self.biome, "general_fortree")
         if self.effect not in ROUTE_EFFECTS:
             raise ValueError(f"route {self.name!r}: effect {self.effect!r} is not one of {', '.join(ROUTE_EFFECTS)}")
+        if self.tree_shade not in TREE_SHADES:
+            raise ValueError(f"route {self.name!r}: tree_shade {self.tree_shade!r} is not one of {', '.join(TREE_SHADES)}")
 
     @property
     def width(self) -> int:

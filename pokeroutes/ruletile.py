@@ -50,7 +50,7 @@ FALLBACK = {
     "k": "r", "l": "r", "u": "r",                        # cliff, lava, boulder -> rock
     "o": "g",
     "j": "s",
-    "c": "p", "i": "p",                                  # snow, ice -> path until the Ark set has snow art
+    "m": "p", "i": "p",                                  # snow, ice -> path until the Ark set has snow art
 }
 DIRS = {"N": (0, -1), "NE": (1, -1), "E": (1, 0), "SE": (1, 1),
         "S": (0, 1), "SW": (-1, 1), "W": (-1, 0), "NW": (-1, -1)}
@@ -211,6 +211,8 @@ class ArkTiler:
                     u = y > 0 and grid[y - 1][x] == c
                     d = y < H - 1 and grid[y + 1][x] == c
                     ids[y, x] = k["parts"]["mid" if u and d else "top" if d else "bottom" if u else "single"]
+                elif kind == "fence4":
+                    ids[y, x] = k["by_arms"].get(fence_arm_key(grid, x, y, set(k.get("joins", c))), k["base"][0])
                 elif kind == "waterfall":
                     u = y > 0 and grid[y - 1][x] == c
                     d = y < H - 1 and grid[y + 1][x] == c
@@ -276,10 +278,10 @@ class ArkTiler:
                     key = f"{(bx + by) % nph},{px},{py},{b}"
                     c = grid[y][x]
                     if own:
-                        ids[y, x] = ctx[key]
+                        ids[y, x] = crown_from_other_colour_below(k, blk, letter, letters, bx, by, px, py, b) or ctx[key]
                         blocked[y, x] = True
                     elif c == letter:
-                        ids[y, x] = ov["bush"].get(key, k["bush"])
+                        ids[y, x] = bush_in_neighbouring_tree_colour(C, grid, blk, letters, x, y)
                         blocked[y, x] = True
                     elif c == "g":
                         ids[y, x] = ov["g"].get(key, ids[y, x])
@@ -290,6 +292,77 @@ class ArkTiler:
                         tab = ov[c].get(str(m)) or ov[c].get(str(m & orth))
                         if tab and key in tab:
                             ids[y, x] = tab[key]
+
+
+FENCE_SIDE_OFFSETS = (("N", 0, -1), ("E", 1, 0), ("S", 0, 1), ("W", -1, 0))
+GREEN_TREE_LETTER = "f"
+TREE_CONTEXT_BELOW_OFFSETS = ((0, 1, 8, 1), (-1, 1, 16, 2), (1, 1, 32, 4))
+
+
+def fence_arm_key(grid: List[str], x: int, y: int, joining_letters: set) -> str:
+    height, width = len(grid), len(grid[0])
+    arms = [side if 0 <= x + dx < width and 0 <= y + dy < height and grid[y + dy][x + dx] in joining_letters else "-"
+            for side, dx, dy in FENCE_SIDE_OFFSETS]
+    arm_key = "".join(arms)
+    return arm_key
+
+
+def tree_block_letter(blocks, block_x: int, block_y: int):
+    if not (0 <= block_y < len(blocks) and 0 <= block_x < len(blocks[0])):
+        return None
+    return blocks[block_y][block_x]
+
+
+def other_colour_below(blocks, letter: str, tree_letters, block_x: int, block_y: int):
+    below_letters = [tree_block_letter(blocks, block_x + dx, block_y + dy) for dx, dy, _bit, _other_bit in TREE_CONTEXT_BELOW_OFFSETS]
+    other_letters = [below for below in below_letters if below in tree_letters and below != letter]
+    if not other_letters:
+        return None
+    return other_letters[0]
+
+
+def crown_from_other_colour_below(tree_class: dict, blocks, letter: str, tree_letters, block_x: int, block_y: int,
+                                  px: int, py: int, context_bits: int):
+    other_letter = other_colour_below(blocks, letter, tree_letters, block_x, block_y)
+    crowns = tree_class.get("crowns_from_below", {}).get(other_letter)
+    if not crowns:
+        return None
+    same_colour_bits, other_colour_bits = context_bits, 0
+    for dx, dy, bit, other_bit in TREE_CONTEXT_BELOW_OFFSETS:
+        below_letter = tree_block_letter(blocks, block_x + dx, block_y + dy)
+        if below_letter != letter:
+            same_colour_bits &= ~bit
+        if below_letter == other_letter:
+            other_colour_bits |= other_bit
+    crown_metatile = crowns.get(f"{px},{py},{same_colour_bits},{other_colour_bits}")
+    return crown_metatile
+
+
+def bush_colour_letter(grid: List[str], letter: str, tree_letters, x: int, y: int) -> str:
+    if letter != GREEN_TREE_LETTER:
+        return letter
+    height, width = len(grid), len(grid[0])
+    neighbour_letters = [grid[y + dy][x + dx] for dx, dy in ((0, 1), (-1, 0), (1, 0), (0, -1))
+                         if 0 <= x + dx < width and 0 <= y + dy < height]
+    coloured_neighbours = [neighbour for neighbour in neighbour_letters if neighbour in tree_letters and neighbour != letter]
+    colour_letter = coloured_neighbours[0] if coloured_neighbours else letter
+    return colour_letter
+
+
+def same_colour_neighbour_bits(blocks, colour_letter: str, block_x: int, block_y: int) -> int:
+    neighbour_bits = sum(bit for dx, dy, bit in ((-1, 0, 2), (1, 0, 4), (0, 1, 8), (-1, 1, 16), (1, 1, 32))
+                         if tree_block_letter(blocks, block_x + dx, block_y + dy) == colour_letter)
+    return neighbour_bits
+
+
+def bush_in_neighbouring_tree_colour(classes: dict, grid: List[str], blocks, tree_letters, x: int, y: int) -> int:
+    block_x, block_y, px, py = x // 2, y // 2, x % 2, y % 2
+    colour_letter = bush_colour_letter(grid, grid[y][x], tree_letters, x, y)
+    colour_class = classes[colour_letter]
+    phase_count = colour_class.get("phases", 1)
+    bits = same_colour_neighbour_bits(blocks, colour_letter, block_x, block_y)
+    bush_metatile = colour_class["overlays"]["bush"].get(f"{(block_x + block_y) % phase_count},{px},{py},{bits}", colour_class["bush"])
+    return bush_metatile
 
 
 def write_ark_emerald(route, layout: Layout, out: Path, tiler: ArkTiler, offsets=None) -> None:
