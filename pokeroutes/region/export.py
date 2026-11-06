@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import numpy as np
 import yaml
@@ -301,13 +301,65 @@ def chain_map_specs(w: World) -> List[dict]:
     chain_maps = chain_maps_of_world(w)
     attach_seam_bands(w, chain_maps)
     route_index_by_name = {route["name"]: route_index for route_index, route in enumerate(w.routes)}
-    specs = [chain_map_spec(w, chain_map, route_index_by_name[chain_map["chain"]["route"]]) for chain_map in chain_maps]
+    whole_route_specs_by_name = {route_name: whole_route_spec(w, w.routes[route_index], [chain_map for chain_map in chain_maps
+                                                                                          if chain_map["chain"]["route"] == route_name], route_index)
+                                 for route_name, route_index in route_index_by_name.items()}
+    specs = [chain_map_spec(w, chain_map, route_index_by_name[chain_map["chain"]["route"]], whole_route_specs_by_name.get(chain_map["chain"]["route"]))
+             for chain_map in chain_maps]
     return specs
 
 
-def chain_map_spec(w: World, chain_map: dict, route_index: int) -> dict:
+def bounding_rect_of_chain_maps(chain_maps: List[dict]) -> List[int]:
+    bounding_rect = [min(int(chain_map["rect"][0]) for chain_map in chain_maps), min(int(chain_map["rect"][1]) for chain_map in chain_maps),
+                     max(int(chain_map["rect"][2]) for chain_map in chain_maps), max(int(chain_map["rect"][3]) for chain_map in chain_maps)]
+    return bounding_rect
+
+
+def is_exit_on_rect_edge(route_exit: dict, rect: List[int]) -> bool:
+    exit_column, exit_row = int(route_exit["cell"][0]), int(route_exit["cell"][1])
+    edge_coordinate_of_side = {"west": (exit_column, rect[0]), "east": (exit_column, rect[2] - 1),
+                               "north": (exit_row, rect[1]), "south": (exit_row, rect[3] - 1)}
+    exit_coordinate, edge_coordinate = edge_coordinate_of_side[route_exit["side"]]
+    is_on_edge = exit_coordinate == edge_coordinate
+    return is_on_edge
+
+
+def square_in_whole_route_metatiles(chain_map: dict, bounding_rect: List[int]) -> List[int]:
+    square = [(int(chain_map["rect"][0]) - bounding_rect[0]) * CELL, (int(chain_map["rect"][1]) - bounding_rect[1]) * CELL,
+              (int(chain_map["rect"][2]) - bounding_rect[0]) * CELL, (int(chain_map["rect"][3]) - bounding_rect[1]) * CELL]
+    return square
+
+
+def whole_route_spec(w: World, route: dict, chain_maps: List[dict], route_index: int) -> Optional[dict]:
+    if len(chain_maps) < 2:
+        return None
+    bounding_rect = bounding_rect_of_chain_maps(chain_maps)
+    exits_on_bounding_edge = [dict(route_exit, offset=None) for route_exit in route.get("exits") or [] if is_exit_on_rect_edge(route_exit, bounding_rect)]
+    if not exits_on_bounding_edge:
+        return None
+    whole_route_record = {key: value for key, value in route.items() if key not in ("chain", "seams")}
+    whole_route_record.update(rect=bounding_rect, exits=exits_on_bounding_edge)
+    spec = route_spec(w, whole_route_record, route_index)
+    spec["region"]["whole_route"] = {"squares": [square_in_whole_route_metatiles(chain_map, bounding_rect) for chain_map in chain_maps]}
+    spec["region"]["seams"] = []
+    return spec
+
+
+def is_seam_band_to_another_place(seam_band: dict, chain_maps_names: set) -> bool:
+    is_to_another_place = seam_band.get("to") not in chain_maps_names
+    return is_to_another_place
+
+
+def chain_map_spec(w: World, chain_map: dict, route_index: int, whole_spec: Optional[dict] = None) -> dict:
     spec = route_spec(w, chain_map, route_index)
     spec["seed"] = int(spec["seed"]) + CHAIN_PIECE_SEED_STRIDE * int(chain_map["chain"]["index"])
+    if whole_spec is None:
+        return spec
+    whole_squares = whole_spec["region"]["whole_route"]["squares"]
+    chain_maps_names = {f"{chain_map['chain']['route']} ({piece_number}/{len(whole_squares)})" for piece_number in range(1, len(whole_squares) + 1)}
+    spec["region"]["seams"] = [seam_band for seam_band in spec["region"].get("seams") or []
+                               if is_seam_band_to_another_place(seam_band, chain_maps_names)]
+    spec["region"]["whole_route_map"] = {"spec": whole_spec, "square": whole_squares[int(chain_map["chain"]["index"])]}
     return spec
 
 

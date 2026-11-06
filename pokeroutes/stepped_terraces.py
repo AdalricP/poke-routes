@@ -74,7 +74,9 @@ def open_back_to_back_ledges(route, frozen_cells: np.ndarray) -> None:
 
 
 def seam_band_cells(route) -> np.ndarray:
-    is_band_cell = np.zeros(route.cls.shape, dtype=bool)
+    from .whole_route import void_and_its_border_mask
+
+    is_band_cell = void_and_its_border_mask(route)
     for seam_band in seam_bands_of_route(route):
         side, start_along_edge = seam_band["side"], int(seam_band["start"])
         edge_length = edge_length_of_side(route, side)

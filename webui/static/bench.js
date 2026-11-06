@@ -2303,7 +2303,7 @@
     Shell.status(message);
   }
   function move_painted_cells_along_the_chain(old_chain_maps, new_chain_maps, metatiles_per_region_cell) {
-    for (const memory_key of [SL.PAINT_KEY, SL.PAINT_OBJECTS_KEY]) {
+    for (const memory_key of [SL.PAINT_KEY, SL.PAINT_OBJECTS_KEY, SL.PLACED_ITEMS_KEY]) {
       const followed_memory = SL.paint_memory_after_chain_change(sget(memory_key) || {}, old_chain_maps, new_chain_maps, metatiles_per_region_cell);
       sset(memory_key, followed_memory);
     }
