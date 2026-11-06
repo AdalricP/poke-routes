@@ -10,6 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Pixelify+Sans:wght@600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="shell.css">
 <link rel="stylesheet" href="tile-editor.css">
+<link rel="stylesheet" href="playtest.css">
 </head>
 <body>
 <div class="shell" id="shell">
@@ -123,6 +124,9 @@
         <span class="tb-sep"></span>
       </span>
       <button type="button" class="tb-primary" id="tbGenerate">Generate</button>
+      <button type="button" class="tb-btn" id="tbPlaytest" title="Play-test" aria-label="Play-test">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M4.5 4h7a3.5 3.5 0 013.4 4.3l-.7 3a1.9 1.9 0 01-3.2.9L9.4 10.5H6.6L5 12.2a1.9 1.9 0 01-3.2-.9l-.7-3A3.5 3.5 0 014.5 4zM4.2 6v1.2H3v1.2h1.2v1.2h1.2V8.4h1.2V7.2H5.4V6zm6.6 1a.8.8 0 100 1.6.8.8 0 000-1.6zm1.6 1.4a.8.8 0 100 1.6.8.8 0 000-1.6z"/></svg>
+      </button>
     </div>
 
     <div class="tb-group tb-right" role="group" aria-label="View">
@@ -355,6 +359,8 @@
 <script src="editor/app.js"></script>
 <script src="route-items.js"></script>
 <script src="bench.js"></script>
+<script src="playtest-logic.js"></script>
+<script src="playtest.js"></script>
 <script src="improve.js"></script>
 <script src="session-graph.js"></script>
 <script src="agent.js"></script>

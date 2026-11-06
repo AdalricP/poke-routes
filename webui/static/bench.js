@@ -958,29 +958,43 @@
     if (particle.y_fraction <= 1.02) return;
     Object.assign(particle, new_particle_for(preset, false));
   }
-  function draw_particle(particle, preset, rectangle, pixel_scale) {
+  function draw_particle(target_context, particle, preset, rectangle, pixel_scale) {
     const screen_x = Math.round(rectangle.left + particle.x_fraction * rectangle.width);
     const screen_y = Math.round(rectangle.top + particle.y_fraction * rectangle.height);
     const square_size = particle.size * pixel_scale;
-    particle_context.fillStyle = particle.colour;
+    target_context.fillStyle = particle.colour;
     switch (preset.shape) {
       case "streak":
-        draw_rain_streak(screen_x, screen_y, particle, pixel_scale);
+        draw_rain_streak(target_context, screen_x, screen_y, particle, pixel_scale);
         break;
       case "leaf": {
         const tumble_width = Math.abs(Math.sin(particle.sway_phase)) > 0.35 ? square_size : pixel_scale;
-        particle_context.fillRect(screen_x, screen_y, tumble_width, square_size);
+        target_context.fillRect(screen_x, screen_y, tumble_width, square_size);
         break;
       }
       default:
-        particle_context.fillRect(screen_x, screen_y, square_size, square_size);
+        target_context.fillRect(screen_x, screen_y, square_size, square_size);
     }
   }
-  function draw_rain_streak(screen_x, screen_y, particle, pixel_scale) {
+  function draw_rain_streak(target_context, screen_x, screen_y, particle, pixel_scale) {
     const slant_per_pixel_of_fall = particle.drift_speed / particle.fall_speed;
     for (let streak_step = 0; streak_step < rain_streak_length_in_map_pixels; streak_step++) {
       const step_x = Math.round(screen_x - streak_step * slant_per_pixel_of_fall * pixel_scale);
-      particle_context.fillRect(step_x, screen_y - streak_step * pixel_scale, pixel_scale, pixel_scale);
+      target_context.fillRect(step_x, screen_y - streak_step * pixel_scale, pixel_scale, pixel_scale);
+    }
+  }
+  // the play-test window keeps its own particles and draws them over its own canvas
+  function draw_route_effect_particles_into(target_context, particle_set, rectangle, pixel_scale, elapsed_in_seconds) {
+    const effect = current_route_effect();
+    const preset = route_effect_presets[effect];
+    if (!preset) return;
+    if (particle_set.effect !== effect) {
+      particle_set.effect = effect;
+      particle_set.particles = particles_for_effect(effect);
+    }
+    for (const particle of particle_set.particles) {
+      advance_particle(particle, preset, elapsed_in_seconds, rectangle, pixel_scale);
+      draw_particle(target_context, particle, preset, rectangle, pixel_scale);
     }
   }
   function clear_route_effect_canvas() {
@@ -1029,7 +1043,7 @@
     const pixel_scale = particle_pixel_scale();
     for (const particle of route_effect_particles.particles) {
       advance_particle(particle, preset, elapsed_in_seconds, rectangle, pixel_scale);
-      draw_particle(particle, preset, rectangle, pixel_scale);
+      draw_particle(particle_context, particle, preset, rectangle, pixel_scale);
     }
     particle_context.restore();
   }
@@ -2381,6 +2395,7 @@
       { sep: true },
       { id: "w-tools", label: "Tools", items: [
         { id: "w-tile-editor", label: "Tile editor", checked: () => !!window.TileEditor && window.TileEditor.is_open(), run: () => window.TileEditor && window.TileEditor.open() },
+        { id: "w-playtest", label: "Play-test", enabled: hasRoute, run: open_playtest },
       ] },
       { sep: true },
       { id: "w-reset", label: "Reset layout", run: () => Shell.resetLayout() },
@@ -2781,6 +2796,35 @@
     return improve_tab_is_shown;
   }
 
-  window.Bench = { generate, state, params, setParams, undoStack, menus, extras, loadSpecText };
+  // ------------------------------------------------------------ play-test window (playtest.js)
+  function open_playtest() {
+    if (!window.Playtest) return;
+    Shell.setCenter("scene");
+    window.Playtest.open();
+  }
+  function show_final_stage() {
+    stopPlay();
+    if (state.result) setStage(state.result.stages.length - 1, false);
+  }
+  function final_route_events() {
+    const final_events = state.result ? state.result.events.concat(route_items.visible_items()) : [];
+    return final_events;
+  }
+  function final_tile_canvas() {
+    const final_canvas = state.tileCanvases[state.tileCanvases.length - 1] || null;
+    return final_canvas;
+  }
+  function playtest_route_name() {
+    const route_name = state.region ? state.region.name : (state.result ? state.result.name : "");
+    return route_name;
+  }
+  const playtest_hooks = {
+    show_final_stage, final_route_events, final_tile_canvas, playtest_route_name, scene_connections, follow_connection,
+    draw_route_effect_particles_into, fetchJSON,
+    draw_event_sprite: (graphics_context, route_event, origin_x, origin_y, cell_size) => route_items.draw_event_sprite(graphics_context, route_event, origin_x, origin_y, cell_size, animFrame),
+  };
+  $("tbPlaytest").onclick = open_playtest;
+
+  window.Bench = { generate, state, params, setParams, undoStack, menus, extras, loadSpecText, playtest_hooks };
   boot();
 })();

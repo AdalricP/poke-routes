@@ -23,6 +23,14 @@ The page is laid out like a small game-engine editor (Unity's dark theme was the
 
 Extra API: `GET /api/tilers`, `GET /api/atlas?tiler=ark` (+ `.png`), `POST /api/generate {..., tiler: "ark"}`, `GET /api/scene?id=`, `GET /api/region-specs.zip?seed=`, `POST /api/spec-parse {text}`.
 
+## Play-test window (first try)
+
+The gamepad button next to Generate (or Window > Tools > Play-test) covers the Routes view with a 15x10-tile GBA screen and drops Brendan (read from a ROM tree on this machine; a plain marker if none has him) at the south exit. Arrows or WASD walk tile by tile, holding X or Shift runs, Z / Space / Enter is A, Esc closes; − and + change the integer zoom. Collision is the tiled layout's real collision bits plus the class grid: ledges hop one way (with the shadow), water needs the Surf toggle, waterfalls need Waterfall, Cut / Rock Smash clear their objects with A, Strength pushes boulders. Signs and people show the text the Porymap export writes, items and hidden items pop a small toast, and each step in tall grass rolls the Emerald land table ("Wild PIDGEY appeared!", no battle). Tile animation and the route effect particles keep playing. Walking off an exit that leads to another route in the open region opens that route through the same path as the Routes view's exit labels and keeps playing from the exit back; towns and unlinked exits just say so.
+
+- Files: `static/playtest.js` (screen, input, drawing), `static/playtest-logic.js` (pure: steps, ledges, surf, field moves, encounters, camera, arrival), `static/playtest.css`, `webui/playtest_api.py` (`GET /api/playtest/route?id=` collision rows and sign/person text, `GET /api/playtest/sheet.png?pose=walking|running|surfing|surf_blob|tall_grass|jump_shadow`). Bench hands it a few hooks as `Bench.playtest_hooks`.
+- Still rough: no bike, no NPC movement, sign events have no signpost metatile, so they get a small drawn post; the player always starts at the south exit, which on some seeds is behind a one-way ledge.
+- Tests: `node webui/tests/playtest-logic.test.js`, `python3 -m pytest -q webui/tests/test_playtest_api.py`.
+
 ## Improve box (rough, unattended)
 
 An attempt at Patrick Collison's "liquid software" idea: the **Improve** tab in the editor's bottom dock (or a small floating button on any other page that includes `static/improve.js`) is where you type how the software should be different. The server queues it and runs Claude Code headless on it, and the run logs stream into the panel.

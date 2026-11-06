@@ -109,6 +109,7 @@ Walkable: `gptdhyvzqn`. Surfable: `wb`. Blocked: `frkul`.
   - `editor/app.js` and `editor/logic.js`: the region editor (Geography, Map, Story tabs; route gates are set in the Map inspector).
   - `agent.js`: the Agent tab.
   - `tile-editor.js`, `tile-editor-logic.js` (pure), `tile-editor.css`: the Tile editor window.
+  - `playtest.js` + `playtest-logic.js` (pure, node-tested): the Play-test window over the Routes view; data from `webui/playtest_api.py` (`/api/playtest/route`, `/api/playtest/sheet.png`), hooks from `Bench.playtest_hooks`.
 - **Reloading after edits**:
   - Generator edits (`pokeroutes/*.py`) are picked up by the running server automatically (`server.G()` reloads when file mtimes change).
   - Static files are read on every request.
@@ -121,6 +122,7 @@ python3 -m pytest -q webui/tests            # job queue (with fake_claude.py) + 
 node webui/tests/shell-logic.test.js        # shell pure logic
 node webui/tests/editor-logic.test.js       # region editor pure logic
 node webui/tests/tile-editor-logic.test.js  # tile editor pure logic
+node webui/tests/playtest-logic.test.js     # play-test movement, collision, encounters
 node --check webui/static/<changed>.js
 python3 -m pokeroutes generate examples/bernsteinweg.yaml   # also erlenbruch.yaml, kiefernheide.yaml
 ```

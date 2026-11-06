@@ -128,6 +128,10 @@ def handle(h, method: str, u, srv) -> bool:
         import tile_overrides
 
         return tile_overrides.handle(h, method, u, q, srv)
+    import playtest_api
+
+    if playtest_api.handle(h, method, u, q, srv):
+        return True
     if method == "GET":
         if u.path in ("/", ""):
             return h._send(200, (STATIC / "shell.html").read_bytes(), "text/html; charset=utf-8") or True
