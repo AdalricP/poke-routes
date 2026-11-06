@@ -7,6 +7,14 @@ GET  /api/editor/list                              -> saved regions under region
 POST /api/editor/load       {name}                 -> document from region_out/<name>/region.json
 POST /api/editor/recompute  {doc, stages: [...]}   -> document with those stages re-run
                             stages: water | climate | biomes | routes | all
+                            routes: every run lays a new network variant (route_variant
+                            in the document); pinned routes stay. With fewer than two
+                            towns a routes-only run answers 400 {"error": "place at least
+                            two towns first"}; mixed with other stages it skips routes
+                            and sets "message"
+POST /api/editor/generate-map {doc}                -> document with towns placed on the land
+                            (unpinned towns replaced, pinned kept) and a fresh network;
+                            "added_towns" and a "message" for the log
 POST /api/editor/add-route  {doc, src, dst}        -> document with a new link laid between two
                             places; refs are {"city": id} | {"route": name} | {"landmark": id}
 POST /api/editor/add-town   {doc, x, y, name?}     -> document with a town placed on land at cell (x, y)
@@ -111,6 +119,8 @@ def post(h, u, srv) -> None:
         if p == "/api/editor/recompute":
             stages = [s for s in b.get("stages", []) if s in edit.STAGES or s == "all"]
             return h._json(edit.recompute(b["doc"], stages))
+        if p == "/api/editor/generate-map":
+            return h._json(edit.generate_map(b["doc"]))
         if p == "/api/editor/add-route":
             return h._json(edit.add_route(b["doc"], b.get("src") or {}, b.get("dst") or {}))
         if p == "/api/editor/add-town":
@@ -141,6 +151,8 @@ def post(h, u, srv) -> None:
                            {"Content-Disposition": f'attachment; filename="{name}_specs.zip"'})
         if p == "/api/retile":
             return h._json(retile(srv, b))
+    except edit.RegionEditRefused as refusal:
+        return h._json({"error": str(refusal)}, 400)
     except (KeyError, ValueError, TypeError) as e:
         import traceback
 

@@ -119,13 +119,14 @@ def sea_run_length_from_start(line: List[bool]) -> int:
 
 
 def coast_along_an_edge(water_grid_rows: List[str]) -> Tuple[str, float]:
-    best_side, best_depth_share = "", 0.0
+    best_side, best_depth_share, best_score = "", 0.0, 0.0
     for side in ("north", "east", "south", "west"):
         edge_sea_share, depth_share = sea_depth_share_from_side(water_grid_rows, side)
         if edge_sea_share < SMALLEST_EDGE_SEA_SHARE_THAT_MAKES_A_COAST:
             continue
-        if depth_share > best_depth_share:
-            best_side, best_depth_share = side, depth_share
+        score_of_side = edge_sea_share * depth_share
+        if score_of_side > best_score:
+            best_side, best_depth_share, best_score = side, depth_share, score_of_side
     if not best_side or best_depth_share < SMALLEST_SEA_DEPTH_SHARE_THAT_MAKES_A_COAST:
         return "", 0.0
     sea_share = min(LARGEST_SEA_SHARE_KEPT, max(SMALLEST_SEA_SHARE_KEPT, best_depth_share + EXTRA_SEA_SHARE_KEPT_FOR_THE_SHORE))
@@ -160,7 +161,7 @@ def geography_spec_fields(region_block: dict, is_sea_route: bool) -> dict:
         fields["max_walkable"] = MAXIMUM_WALKABLE_SHARE_BY_WOODLAND[woodland]
     if share_of(shares, MOUNTAIN_BIOME_CODES) >= SMALLEST_MOUNTAIN_SHARE_THAT_MAKES_A_PASS and spec_biome != "mountain":
         fields["meander"] = MEANDER_THROUGH_A_MOUNTAIN_PASS
-        fields["ledge_chance"] = min(LARGEST_LEDGE_CHANCE, fields["ledge_chance"] + 0.15)
+        fields["ledge_chance"] = round(min(LARGEST_LEDGE_CHANCE, fields["ledge_chance"] + 0.15), 3)
     coast_side, sea_share = ("", 0.0) if is_sea_route else coast_along_an_edge((region_block.get("water") or {}).get("grid") or [])
     if coast_side:
         fields["coast_side"], fields["sea_share"] = coast_side, sea_share
