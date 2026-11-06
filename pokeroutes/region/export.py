@@ -235,9 +235,9 @@ def route_spec(w: World, r: dict, idx: int) -> dict:
         "region": reg,
     }
     apply_geography_to_spec(spec, reg, r["mode"] == "sea")
-    for chain_key in ("seams", "chain"):
-        if r.get(chain_key):
-            reg[chain_key] = r[chain_key]
+    if isinstance(r.get("chain"), dict):
+        reg["chain"] = r["chain"]
+        reg["seams"] = list(r.get("seams") or [])
     if role == "dead_end" and reg["goal"]:
         spec["endings"] = [{"kind": "special", "side": reg["goal"]["side"], "area": reg["goal"]["landmark"] or "auto"}]
     # route design B: what it takes to get onto this route (field move, story beat)

@@ -337,6 +337,7 @@ body.resizing.h * { cursor: row-resize !important; }
 .sel-contents button { border: 0; background: none; color: var(--text); padding: 2px 4px; font: inherit; cursor: default; }
 .sel-contents button:hover { background: #474747; }
 .brush-size { display: flex; align-items: center; margin: 0 0 8px; }
+.chain-row { display: flex; align-items: center; margin: 6px 0 8px; }
 .brush-size-label { color: var(--text-2); margin-right: 8px; font-size: 11px; }
 .exits li::before { content: counter(ex); color: var(--text-3); text-align: right; }
 .exits li input[type=number] { width: 100%; }

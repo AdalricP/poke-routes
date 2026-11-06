@@ -416,6 +416,15 @@
     return String(s).replace(/[äöüßÄÖÜ]/g, (c) => map[c]).replace(/[^\p{L}\p{N}]/gu, "");
   }
   function routeByName(doc, name) { return doc.routes.find((r) => r.name === name) || null; }
+  function route_or_chain_map_by_name(doc, name) {
+    const chain_map = doc.routes.flatMap((route) => route.chain || []).find((candidate) => candidate.name === name);
+    const route_or_chain_map = chain_map || routeByName(doc, name);
+    return route_or_chain_map;
+  }
+  function first_map_of_route(route) {
+    const first_map = route.chain && route.chain.length > 1 ? route.chain[0] : route;
+    return first_map;
+  }
   function nodeRect(doc, name) {
     const r = routeByName(doc, name);
     if (r) return { kind: "route", rect: r.rect, route: r };
@@ -1072,7 +1081,7 @@
     History, snapshot, restore, touch, markStale, stagesFor,
     brushCells, lineCells, bbox, brushRaise, brushFlatten, brushSmooth, paintBiome, paintWater,
     shadeGrid, cellColor, renderBase,
-    asciiId, routeByName, nodeRect, placeAt, refOf, renameRoute, renamePlace, moveCity, moveLandmark,
+    asciiId, routeByName, route_or_chain_map_by_name, first_map_of_route, nodeRect, placeAt, refOf, renameRoute, renamePlace, moveCity, moveLandmark,
     TOWN_SIZE, next_town_name, town_spot_problem,
     exitAlong, sideRange, edgeCell, mirrorExit, moveExit, sizeOk, resizeRoute, deleteRoute, routeWarnings,
     setSpecField, benchParams, HMS, routeNeeds, reachableAt, storyWarnings, moveBeat, removeBeat,

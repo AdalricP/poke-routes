@@ -457,8 +457,15 @@ def spec_from(params: dict):
     kw["species_file"] = SPECIES_FILE
     kw["name"] = str(params.get("name") or "Testweg")[:40]
     spec = RouteSpec(**kw)
-    spec.id = "".join(ch for ch in spec.name.title() if ch.isalnum()) or "Route"
+    spec.id = chain_map_id_of_spec(spec) or "".join(ch for ch in spec.name.title() if ch.isalnum()) or "Route"
     return spec
+
+
+def chain_map_id_of_spec(spec) -> str:
+    region_block = spec.region if isinstance(spec.region, dict) else {}
+    chain_block = region_block.get("chain") if isinstance(region_block.get("chain"), dict) else {}
+    chain_map_id = str(chain_block.get("map_id") or "")
+    return chain_map_id
 
 
 def spec_json(spec) -> dict:

@@ -2133,10 +2133,25 @@
     add("tags", (r.tags || []).join(", "));
     add("gate", describe_region_gate(r.gate));
     box.append(dl);
+    const chain_row = chain_map_row(reg.name);
+    if (chain_row) box.append(chain_row);
     const b = el("button", "btn", "Detach from region");
     b.type = "button";
     b.onclick = detach_from_region;
     box.append(b);
+  }
+  function chain_map_row(open_map_name) {
+    const chain = SL.chain_of_map(open_region_document(), open_map_name);
+    if (!chain.length) return null;
+    const chain_row = el("div", "chain-row");
+    chain_row.append(el("span", "brush-size-label", "Maps"));
+    chain.forEach((chain_map, chain_index) => {
+      const is_open = chain_map.name === open_map_name;
+      const map_button = Object.assign(el("button", "seg-btn" + (is_open ? " on" : ""), String(chain_index + 1)), { type: "button", title: chain_map.name });
+      map_button.onclick = () => { if (!is_open) walk_to(chain_map, [...state.route_trail, open_map_name]); };
+      chain_row.append(map_button);
+    });
+    return chain_row;
   }
   function detach_from_region() {
     state.region = null;
@@ -2194,7 +2209,7 @@
     if (!state.route_trail.length) return;
     const previous_name = state.route_trail[state.route_trail.length - 1];
     const region_document = open_region_document();
-    const previous_route = region_document && (region_document.routes || []).find((route) => route.name === previous_name);
+    const previous_route = SL.region_route_named(region_document, previous_name);
     if (!previous_route) { log("warn", `${previous_name} is not in the open region any more.`); return; }
     walk_to(previous_route, state.route_trail.slice(0, -1));
   }
@@ -2246,6 +2261,8 @@
   }
   function readable_map_name(map_constant) {
     if (!map_constant) return "";
+    const chain_map = SL.chain_map_with_constant(open_region_document(), map_constant);
+    if (chain_map) return chain_map.name;
     const without_prefix = String(map_constant).replace(/^MAP_/, "");
     const route_match = without_prefix.match(/^ROUTE_?(\d+)$/);
     if (route_match) return `Route ${Number(route_match[1])}`;

@@ -257,10 +257,10 @@ def role_of_piece(route: dict, shape: str) -> str:
 
 def empty_piece(route: dict, map_grid: MapGrid, grid_cell: Sequence[int], piece_index: int, piece_count: int) -> dict:
     rect = region_rect_of_grid_cell(map_grid, grid_cell)
-    piece = {key: value for key, value in route.items() if key not in ("exits", "path", "rect", "goal", "goal_landmark", "gate")}
+    piece = {key: value for key, value in route.items() if key not in ("exits", "path", "rect", "goal", "goal_landmark", "gate", "spec", "chain")}
     piece.update(chain_piece_names(route, piece_index, piece_count))
     piece.update(rect=rect, exits=[], path=[list(cell) for cell in route.get("path") or [] if is_inside_rect(cell, rect)])
-    piece["chain"] = {"route": route["name"], "index": piece_index, "count": piece_count, "grid_cell": list(grid_cell),
+    piece["chain"] = {"route": route["name"], "map_id": piece["id"], "index": piece_index, "count": piece_count, "grid_cell": list(grid_cell),
                       "map_section": route["map"]}
     return piece
 
