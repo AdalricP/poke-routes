@@ -308,6 +308,13 @@
     <footer><span class="hint">Single keys only work when no text field has focus.</span><span class="grow"></span><button class="btn primary" value="ok">Close</button></footer>
   </form>
 </dialog>
+<dialog class="dlg" id="dlgAsk" aria-label="Question">
+  <form method="dialog">
+    <header id="askTitle"></header>
+    <div class="dlg-body"><p id="askMessage"></p><input type="text" id="askInput" class="ask-input" hidden></div>
+    <footer><span class="grow"></span><button class="btn" value="cancel" id="askCancel">Cancel</button><button class="btn primary" value="ok" id="askOk">OK</button></footer>
+  </form>
+</dialog>
 <dialog class="dlg" id="dlgAbout" aria-label="About">
   <form method="dialog">
     <header>About poke-routes</header>

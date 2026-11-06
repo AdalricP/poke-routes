@@ -615,6 +615,29 @@
   });
 
   // ------------------------------------------------------------ dialogs
+  function ask_in_page(question) {
+    const ask_dialog = $("dlgAsk");
+    const ask_input = $("askInput");
+    const wants_text = typeof question.input === "string";
+    $("askTitle").textContent = question.title || "";
+    $("askMessage").textContent = question.message || "";
+    $("askOk").textContent = question.ok_label || "OK";
+    ask_input.hidden = !wants_text;
+    ask_input.value = wants_text ? question.input : "";
+    closeMenus();
+    const answer_promise = new Promise((resolve_answer) => {
+      ask_dialog.addEventListener("close", () => {
+        const was_confirmed = ask_dialog.returnValue === "ok";
+        if (!was_confirmed) { resolve_answer(null); return; }
+        resolve_answer(wants_text ? ask_input.value : true);
+      }, { once: true });
+    });
+    ask_dialog.returnValue = "";
+    ask_dialog.showModal();
+    if (wants_text) { ask_input.focus(); ask_input.select(); }
+    return answer_promise;
+  }
+
   function openDialog(id) {
     closeMenus();
     const d = $(id);
@@ -661,6 +684,7 @@
     setMenus(m, extra) { menus = m; extraKeys = extra || []; renderMenubar(); },
     closeMenus,
     openDialog,
+    ask: ask_in_page,
     showShortcuts() { renderKeys(); openDialog("dlgKeys"); },
     fmt: (s) => SL.formatShortcut(s, mac),
   };
