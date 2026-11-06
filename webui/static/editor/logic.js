@@ -535,7 +535,8 @@
   function routeWarnings(doc, r) {
     const out = [];
     const wc = r.rect[2] - r.rect[0], hc = r.rect[3] - r.rect[1];
-    if (!sizeOk(wc, hc)) out.push(`${wc * CELL} x ${hc * CELL} metatiles is over the GBA map budget`);
+    const is_chain_of_maps = (r.grid_cells || []).length > 1;
+    if (!is_chain_of_maps && !sizeOk(wc, hc)) out.push(`${wc * CELL} x ${hc * CELL} metatiles is over the GBA map budget`);
     for (const e of r.exits) {
       const nb = nodeRect(doc, e.to);
       if (!nb) { out.push(`exit ${e.side} goes to ${e.to || "nothing"}, which is gone`); continue; }

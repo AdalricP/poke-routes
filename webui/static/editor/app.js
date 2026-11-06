@@ -1488,7 +1488,8 @@
 
     const wc = r.rect[2] - r.rect[0], hc = r.rect[3] - r.rect[1];
     const route_cell_count = (r.grid_cells || []).length;
-    box.append(el("p", { class: "sub" }, `${route_cell_count} map cell${route_cell_count === 1 ? "" : "s"} · ${wc * ED.CELL} x ${hc * ED.CELL} metatiles`));
+    const route_size_text = route_cell_count > 1 ? `${route_cell_count} maps joined edge to edge` : `1 map · ${wc * ED.CELL} x ${hc * ED.CELL} metatiles`;
+    box.append(el("p", { class: "sub" }, route_size_text));
 
     for (const [k, step] of SPEC_FIELDS) {
       const v = k in ov ? ov[k] : spec[k] != null ? spec[k] : SPEC_DEFAULTS[k];
