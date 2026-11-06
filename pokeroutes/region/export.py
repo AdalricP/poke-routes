@@ -61,6 +61,20 @@ def _gradient(codes: np.ndarray, path: List[List[int]], rect) -> dict:
             "axis": axis, "along": "critical path"}
 
 
+SURROUNDING_MARGIN_IN_REGION_CELLS = 3
+OUTSIDE_THE_WORLD_BIOME_CODE = "~"
+
+
+def biome_surroundings_of_rect(w: World, rect) -> dict:
+    x0, y0, x1, y1 = (int(edge) for edge in rect)
+    margin = SURROUNDING_MARGIN_IN_REGION_CELLS
+    surrounding_rows = ["".join(str(w.biome[y, x]) if 0 <= y < w.H and 0 <= x < w.W else OUTSIDE_THE_WORLD_BIOME_CODE
+                                for x in range(x0 - margin, x1 + margin))
+                        for y in range(y0 - margin, y1 + margin)]
+    surroundings = {"margin": margin, "grid": surrounding_rows}
+    return surroundings
+
+
 def route_region(w: World, r: dict, idx: int) -> dict:
     x0, y0, x1, y1 = r["rect"]
     sub = (slice(y0, y1), slice(x0, x1))
@@ -162,7 +176,8 @@ def route_region(w: World, r: dict, idx: int) -> dict:
         "coast": {"sides": coast_sides, "sea_fraction": round(float(sea.mean()), 3)},
         "biome": {"dominant": BIOME_NAMES.get(r.get("biome_code"), "meadow"), "mix": mix_named,
                   "grid": _rows(biome), "legend": {k: v for k, v in BIOME_NAMES.items()},
-                  "gradient": _gradient(w.biome, r["path"], r["rect"])},
+                  "gradient": _gradient(w.biome, r["path"], r["rect"]),
+                  "surroundings": biome_surroundings_of_rect(w, r["rect"])},
         "path": path,
         "grid_cells": [list(cell) for cell in r.get("grid_cells") or []],
         "goal": goal,

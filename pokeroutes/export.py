@@ -173,6 +173,7 @@ def seal_edges(route: Route) -> int:
     reads as a road into nothing and is a wall in-game. Walkable pockets that were only
     reachable along the edge are filled with trees (cliff on a desert / volcanic route,
     whatever the biome walls its lanes with). Returns the number of cells changed."""
+    from .scenery_layer import RAISED_GROUND_CLASS
     from .stages import wall_class
 
     h, w, d = route.h, route.w, SEAL_DEPTH
@@ -187,7 +188,7 @@ def seal_edges(route: Route) -> int:
                 keep[yy, xx] = True
     before = route.cls.copy()
     # rock-mass tops and trees (a plains verge's tree line) are wall already
-    route.cls[~keep & ~np.isin(route.cls, [wall, "r", "f"] + list(WATER_THAT_RUNS_OFF_THE_MAP_EDGE))] = wall
+    route.cls[~keep & ~np.isin(route.cls, [wall, "r", "f", RAISED_GROUND_CLASS, "s", "e", "x", "j"] + list(WATER_THAT_RUNS_OFF_THE_MAP_EDGE))] = wall
     seen = reachable(class_grid_with_route_gates_open(route), route.exits[0][1])
     orphan = np.isin(route.cls, list("gpt")) & ~seen
     route.cls[orphan] = wall

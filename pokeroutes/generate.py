@@ -390,6 +390,26 @@ def stage_route_gate(route: Route) -> None:
     build_route_gates(route)
 
 
+def stage_open_land(route: Route) -> None:
+    from .open_land import open_land_by_woodland
+    from .walkability_guard import run_keeping_walkability
+
+    run_keeping_walkability(route, "open land", open_land_by_woodland)
+
+
+def stage_worn_paths(route: Route) -> None:
+    from .worn_ground import wear_paths_into_patches
+
+    wear_paths_into_patches(route)
+
+
+def stage_stepped_terraces(route: Route) -> None:
+    from .stepped_terraces import lay_stepped_terraces
+    from .walkability_guard import run_keeping_walkability
+
+    run_keeping_walkability(route, "stepped terraces", lay_stepped_terraces)
+
+
 def stage_seams(route: Route) -> None:
     from .seams import stage_seams as stamp_seam_bands_shared_with_neighbours
 
@@ -418,6 +438,9 @@ STAGES: List[Tuple[str, Callable[[Route], None]]] = [
     ("surf", stage_surf_crossings),
     ("gate", stage_route_gate),
     ("seams", stage_seams),
+    ("open land", stage_open_land),
+    ("worn paths", stage_worn_paths),
+    ("stepped terraces", stage_stepped_terraces),
 ]
 
 

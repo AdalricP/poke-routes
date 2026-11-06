@@ -16,6 +16,9 @@ BRIDGE_BAND_CLASS = "q"
 TREE_BAND_CLASS = "f"
 ROCK_BAND_CLASS = "r"
 TOWN_SIDE_BIOME = "meadow"
+RAISED_GRASS_BAND_CLASS = "o"
+WOODED_REGION_BIOME_CODES = "fFgB"
+OPEN_LAND_REGION_BIOME_CODES = "mbw"
 
 
 @dataclass(frozen=True)
@@ -98,6 +101,28 @@ def road_class_between(spec_biome: str, neighbour_spec_biome: str) -> str:
     return shared_road_class
 
 
+def region_biome_code(world, region_cell) -> str:
+    x, y = int(region_cell[0]), int(region_cell[1])
+    if not (0 <= x < world.W and 0 <= y < world.H):
+        return ""
+    biome_code = str(world.biome[y, x])
+    return biome_code
+
+
+def is_open_land_on_both_sides(world, rect: Sequence[int], shared_edge: SharedEdge, along_in_region_cells: int) -> bool:
+    biome_codes = [region_biome_code(world, region_cell)
+                   for step in (-1, 0, 1)
+                   for region_cell in region_cells_either_side(rect, shared_edge, along_in_region_cells + step)]
+    is_open_land = all(biome_code in OPEN_LAND_REGION_BIOME_CODES for biome_code in biome_codes if biome_code) and any(biome_codes)
+    return is_open_land
+
+
+def wall_class_along_edge(world, rect: Sequence[int], shared_edge: SharedEdge, along_in_region_cells: int, wall_class: str) -> str:
+    if wall_class != TREE_BAND_CLASS or not is_open_land_on_both_sides(world, rect, shared_edge, along_in_region_cells):
+        return wall_class
+    return RAISED_GRASS_BAND_CLASS
+
+
 def opening_class(road_class: str, water_class: str, is_sea_crossing: bool) -> str:
     if is_sea_crossing:
         return SEA_BAND_CLASS
@@ -148,11 +173,12 @@ def band_classes_along_shared_edge(world, chain_map: dict, neighbour_rect: Seque
             if position_in_metatiles in opening_positions:
                 band_classes.append(opening_class(road_class, water_class, is_sea_crossing))
                 continue
-            band_classes.append(water_class or wall_class)
+            band_classes.append(water_class or wall_class_along_edge(world, chain_map["rect"], shared_edge, along_in_region_cells, wall_class))
     corner_positions = positions_near_map_corners(chain_map["rect"], neighbour_rect, shared_edge)
     band_classes_with_walled_corners = [TREE_BAND_CLASS if band_index + shared_edge.start_along_in_region_cells * CELL in corner_positions
                                         else band_class for band_index, band_class in enumerate(band_classes)]
-    shared_band_classes = "".join(without_single_wall_cells(band_classes_with_walled_corners, wall_class))
+    without_single_trees = without_single_wall_cells(band_classes_with_walled_corners, wall_class)
+    shared_band_classes = "".join(without_single_wall_cells(without_single_trees, RAISED_GRASS_BAND_CLASS))
     return shared_band_classes
 
 
