@@ -26,7 +26,7 @@ import numpy as np
 from scipy import ndimage as ndi
 
 from . import drawn, network, terrain
-from .world import CELL, City, Landmark, World
+from .world import CELL, LEGACY_BIOME_REPLACEMENT, City, Landmark, World
 
 FORMAT = "pokeroutes-region-edit"
 STAGES = ["water", "climate", "biomes", "routes"]
@@ -115,14 +115,13 @@ def doc_to_world(doc: dict) -> World:
     if doc.get("format") != FORMAT:
         raise ValueError("not a region editor document")
     W, H = doc["size"]
-    w = World(int(doc["seed"]), W=int(W), H=int(H), preset=doc.get("preset", "arklarna"),
-              geography=doc.get("geography", ""))
+    w = World(int(doc["seed"]), W=int(W), H=int(H), preset="generic", geography=doc.get("geography", ""))
     shape = (w.H, w.W)
     g = with_landmass_grid(doc["grids"])
     for k in WGRIDS:
         a = dec(g[k], shape)
         if k == "biome":
-            a = _chars(a)
+            a = with_legacy_biomes_replaced(_chars(a))
         elif k in BOOL:
             a = a.astype(bool)
         elif k == "landmass" or k == "tiers":
@@ -136,8 +135,9 @@ def doc_to_world(doc: dict) -> World:
         a = dec(g[k], shape)
         w.overrides[k] = a.astype(bool) if k in BOOL else a.astype(float)
     lb = dec(g["legend_biome"], shape)
-    w.overrides["biome"] = [(chr(c), lb == c) for c in np.unique(lb) if c]
+    w.overrides["biome"] = [(chr(c), lb == c) for c in np.unique(lb) if c and chr(c) not in LEGACY_BIOME_REPLACEMENT]
     w.overrides["_edit"] = {k: dec(g[k], shape) for k in EGRIDS if k != "legend_biome"}
+    w.overrides["_edit"]["paint_biome"] = with_legacy_paint_replaced(w.overrides["_edit"]["paint_biome"])
     for k, v in (doc.get("meta") or {}).items():
         w.overrides[k] = np.array(v) if k == "tier_q" else (tuple(v) if isinstance(v, list) and k != "preyl" else v)
     w.sea = ~w.land
@@ -150,6 +150,20 @@ def doc_to_world(doc: dict) -> World:
     w.overrides["story"] = list(doc.get("story") or [])
     w.log = list(doc.get("log", []))
     return w
+
+
+def with_legacy_biomes_replaced(biome_chars: np.ndarray) -> np.ndarray:
+    replaced = biome_chars.copy()
+    for legacy_code, replacement_code in LEGACY_BIOME_REPLACEMENT.items():
+        replaced[replaced == legacy_code] = replacement_code
+    return replaced
+
+
+def with_legacy_paint_replaced(paint_biome: np.ndarray) -> np.ndarray:
+    replaced = paint_biome.copy()
+    for legacy_code, replacement_code in LEGACY_BIOME_REPLACEMENT.items():
+        replaced[replaced == ord(legacy_code)] = ord(replacement_code)
+    return replaced
 
 
 def with_landmass_grid(grids: dict) -> dict:
@@ -466,7 +480,7 @@ def generate_doc(seed: int, preset: str = "generic", geography_kind: Optional[st
     w.overrides.pop("network", None)
     out = world_to_doc(w)
     out["routes"] = with_specs(w)
-    out["name"] = f"seed-{seed}" if preset == "generic" else f"{preset}-{seed}"
+    out["name"] = f"seed-{seed}"
     return out
 
 
@@ -494,11 +508,11 @@ def load(path: Path) -> dict:
     if "editor" in rj:
         doc = rj["editor"]
         doc["grids"] = with_landmass_grid(doc["grids"])
-        doc.setdefault("preset", "arklarna")
+        doc["preset"] = "generic"
         w = doc_to_world(doc)  # validates
         doc["routes"] = with_specs(w)
         return doc
-    return generate_doc(int(rj.get("seed", 1)), rj.get("preset", "arklarna"), rj.get("geography") or None)
+    return generate_doc(int(rj.get("seed", 1)), geography_kind=rj.get("geography") or None)
 
 
 def render_png(doc: dict, scale: int = 6) -> bytes:

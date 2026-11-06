@@ -74,13 +74,13 @@ Walkable: `gptdhyvzqn`. Surfable: `wb`. Blocked: `frkul`.
 
 ## Region generator (`pokeroutes/region/`)
 
-- **Pipeline**: `pipeline.build(seed, preset="generic", geography_kind=None)`. Generic: land and sea (`geography.py`, `land_and_sea` picks an archetype, `heightmap`) → erosion and rivers → climate and biomes → routes between hand-placed towns (`network.py`, `town_links`); no landmarks, no towns. Preset `arklarna`: `terrain.arklarna_coastline` / `arklarna_heightmap` → same terrain stages → legendary carving (`legends.py`) → towns (`settle.py`) → `arklarna_links`. `w.landmass` labels land components (was `w.half`); `w.strait` is None outside the preset.
+- **Pipeline**: `pipeline.build(seed, geography_kind=None)`: land and sea (`geography.py`, `land_and_sea` picks an archetype, `heightmap`) → erosion and rivers (`terrain.hydrology`: rain + snowmelt + springs, `meandering_receivers`) → climate and biomes → routes between towns (`network.py`, `town_links`; links between landmasses beyond bridge reach are surf links, `sea_cost`). No towns until the editor places them or Generate map runs (`edit.generate_map` → `town_sites.pick_town_sites`, towns per landmass). `w.landmass` labels land components. The Arklarna preset and legends are gone; old documents load as generic (`world.LEGACY_BIOME_REPLACEMENT`).
 - **Specs**:
   - `export.route_spec` turns each region route into a RouteSpec dict.
   - `export.write_all` writes `region_out/<seed>/routes/*.yaml`.
 - **Hand editing**: `edit.py`, used by the editor's recompute, add-route, draw-route and town actions (`recompute`, `add_route`, `draw_route`, `add_town`, `delete_town`, `generate_doc`, `save`, `load`).
 - **Drawn routes**: `drawn.py` (freehand stroke corners → cells → pieces between the towns/routes it touches → route rects via `Network._grow`; open-ground ends are dead ends; `add_drawn_line`, `without_drawn_line`). `network.build_network` keeps drawn links (`kept_drawn_links`) and skips tree links between towns a drawn line joins (`TownGroups`).
-- **CLI**: `python3 -m pokeroutes.region generate --seed N [--preset arklarna] [--geography KIND]` (`region/cli.py`, `generate`) writes `region_out/N/`.
+- **CLI**: `python3 -m pokeroutes.region generate --seed N [--geography KIND]` (`region/cli.py`, `generate`) writes `region_out/N/`.
 
 ## Web UI (`webui/`)
 

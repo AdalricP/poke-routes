@@ -51,10 +51,10 @@ The generator only produces terrain classes. Two tilers turn them into metatiles
 
 `pokeroutes.region` generates a whole region and then a spec for every route in it. It builds terrain with erosion, rivers and lakes, works out climate and biomes, and lays out a route graph between towns. Each route in the graph gets a role (straight, turn, crossroads, loop, dead end, mountain pass, river crossing, coastal, sea), and that role shapes how the route generator builds it.
 
-Until now every seed drew the same map (the owner's Arklarna: a mainland, a strait, a sand spit and a lagoon) with only the proportions changing. The owner asked for any geography, for any hack, so the default is now generic: the seed picks a kind of land (continent, coast, peninsula, two to four islands, archipelago, inland lakes, crescent bay) and then its size, ragged coast, bays, headlands and islets. `--geography KIND` forces one. The generic map has no legendary landmarks and no towns; those are the owner's to place, so a fresh region has no routes until towns are added in the editor (routes are then laid along the shortest tree between them). Arklarna is still there as an opt-in preset, unchanged: `python3 -m pokeroutes.region generate --seed N --preset arklarna`. The kinds still lean on a handful of hand-tuned shapes, so whether they feel different enough over many seeds is still open.
+Until now every seed drew the same map (the owner's Arklarna: a mainland, a strait, a sand spit and a lagoon) with only the proportions changing. The owner asked for any geography, for any hack, so the default is now generic: the seed picks a kind of land (continent, coast, peninsula, two to four islands, archipelago, inland lakes, crescent bay) and then its size, ragged coast, bays, headlands and islets. `--geography KIND` forces one. A fresh map has no towns; the owner places them in the editor, or "Generate map" puts 4 to 14 of them on the land (more on more land, at least one on every island big enough) and lays routes along the shortest tree between them. Towns on islands too far apart for a short bridge are joined by Surf routes over open sea. Rivers come from rain, snowmelt off the peaks and a few springs, so they start up in the mountains and bend through flat lowland. The Arklarna preset and its legendary carving are gone from the tool; they belong with the owner's ROM project. The kinds still lean on a handful of hand-tuned shapes, so whether they feel different enough over many seeds is still open.
 
 <p align="center">
-  <img src="docs/img/region-stages.png" alt="Region generation with the Arklarna preset in six steps: terrain, erosion, climate, legendaries, cities, routes">
+  <img src="docs/img/region-stages.png" alt="Region generation in steps: terrain, erosion and rivers, climate and biomes">
 </p>
 
 ## Quickstart
@@ -133,7 +133,7 @@ The three specs in `examples/` give these routes:
 And a region, seed 1:
 
 <p align="center">
-  <img src="docs/img/region-map.png" alt="A generated region with towns, routes and legendary landmarks">
+  <img src="docs/img/region-map.png" alt="A generated region with towns placed by Generate map and the routes between them">
 </p>
 
 ## Status
