@@ -188,7 +188,7 @@
     keys: "Mod+/",
     // not in a menu: scene tools and plain-key zoom
     "tool-select": "v", "tool-pan": "h", "tool-paint": "b", "tool-stamp": "s", "x-zin": "=", "x-zout": "-", "x-zfit": "0", "x-help": "?",
-    "x-ledge-rot": "r",
+    "x-ledge-rot": "r", "tool-item": "i", "x-item-delete": "Delete",
   };
   const ALT_SHORTCUTS = { redo: "Mod+y", zin: "Mod+Shift+=" };
   // Modifier shortcuts that still must not fire while typing.
@@ -506,6 +506,40 @@
   function paintList(map) {
     return Object.entries(map || {}).map(([k, c]) => { const [x, y] = k.split(",").map(Number); return [x, y, c]; });
   }
+  // Items placed by hand in the Routes view ([{kind, x, y, item}]), remembered per route
+  // name + size like paint and sent to /api/route-items after every generate.
+  const PLACED_ITEMS_KEY = "pokeroutes-placed-items-v1";
+  const PLACEABLE_ITEM_KINDS = ["item_ball", "hidden_item"];
+  function placed_item_index(items, x, y) {
+    return (items || []).findIndex((item) => item.x === x && item.y === y);
+  }
+  function place_item(items, new_item) {
+    const others = (items || []).filter((item) => item.x !== new_item.x || item.y !== new_item.y);
+    return others.concat([Object.assign({}, new_item)]);
+  }
+  function update_placed_item(items, index, changes) {
+    return (items || []).map((item, item_index) => (item_index === index ? Object.assign({}, item, changes) : item));
+  }
+  function remove_placed_item(items, index) {
+    return (items || []).filter((item, item_index) => item_index !== index);
+  }
+  // memory: {paintKey: items}; an empty list forgets the route
+  function remember_placed_items(memory, route_key, items) {
+    const out = Object.assign({}, memory || {});
+    if (items && items.length) out[route_key] = items.map((item) => Object.assign({}, item));
+    else delete out[route_key];
+    return out;
+  }
+  // After a regenerate the server answers {placed, skipped}: the placed ones are what the
+  // map now shows; skipped ones stay remembered so they come back when the cell is walkable again.
+  function merge_placement_result(remembered, result) {
+    const placed = (result && result.placed) || [];
+    const skipped = ((result && result.skipped) || []).map((entry) => entry.item).filter((item) => item && typeof item === "object");
+    const shown = placed.map((item) => Object.assign({}, item));
+    const kept = shown.concat(skipped.filter((item) => placed_item_index(shown, item.x, item.y) < 0));
+    const order = (item) => placed_item_index(remembered, item.x, item.y);
+    return { shown, remembered: kept.sort((a, b) => order(a) - order(b)) };
+  }
   // Classes GBA metatiles draw at least 2 cells wide (trees are 2x2, a 1-cell pond has no tiles).
   const TWO_WIDE = "fw";
   // The generator's stage_cleanup (pokeroutes/generate.py) for a paint stroke: around the
@@ -551,6 +585,8 @@
     computeRects, dragSize, nearHomeEdge, MIN_CENTER, MIN_SIDE,
     History, RECENT_KEY, pushRecent, recentLabel, specToParams, paramsToSpecFile, safeFileName,
     STAMPS, brushCells, stampCells, lineCells, PAINT_KEY, paintKey, mergePaint, paintList,
+    PLACED_ITEMS_KEY, PLACEABLE_ITEM_KINDS, placed_item_index, place_item, update_placed_item, remove_placed_item,
+    remember_placed_items, merge_placement_result,
     TWO_WIDE, tidyPaint,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
