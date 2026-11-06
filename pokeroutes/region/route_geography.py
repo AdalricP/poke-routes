@@ -28,6 +28,8 @@ LEDGE_CHANCE_ON_FLAT_GROUND = 0.2
 LEDGE_CHANCE_PER_HEIGHT_STEP_ALONG_THE_PATH = 0.08
 LARGEST_LEDGE_CHANCE = 0.75
 MEANDER_THROUGH_A_MOUNTAIN_PASS = 0.4
+TERRAIN_SPEC_BIOMES_THAT_NEED_A_MAJORITY = ("mountain", "snow", "volcanic", "desert")
+SMALLEST_TERRAIN_SHARE_THAT_TAKES_THE_WHOLE_MAP = 0.5
 
 
 def land_biome_codes(biome_grid_rows: List[str]) -> List[str]:
@@ -55,11 +57,30 @@ def looks_like_open_plains(shares: Dict[str, float]) -> bool:
     return is_open_meadow
 
 
+def spec_biome_shares(shares: Dict[str, float]) -> Dict[str, float]:
+    share_by_spec_biome: Dict[str, float] = {}
+    for code, share in shares.items():
+        spec_biome = SPEC_BIOME.get(code, "meadow")
+        share_by_spec_biome[spec_biome] = share_by_spec_biome.get(spec_biome, 0.0) + share
+    return share_by_spec_biome
+
+
+def dominant_spec_biome(shares: Dict[str, float]) -> str:
+    share_by_spec_biome = spec_biome_shares(shares)
+    ranked_spec_biomes = sorted(share_by_spec_biome, key=lambda spec_biome: -share_by_spec_biome[spec_biome])
+    softer_spec_biomes = [spec_biome for spec_biome in ranked_spec_biomes if spec_biome not in TERRAIN_SPEC_BIOMES_THAT_NEED_A_MAJORITY]
+    top_spec_biome = ranked_spec_biomes[0]
+    is_terrain_biome_short_of_a_majority = (top_spec_biome in TERRAIN_SPEC_BIOMES_THAT_NEED_A_MAJORITY
+                                            and share_by_spec_biome[top_spec_biome] < SMALLEST_TERRAIN_SHARE_THAT_TAKES_THE_WHOLE_MAP)
+    if is_terrain_biome_short_of_a_majority and softer_spec_biomes:
+        return softer_spec_biomes[0]
+    return top_spec_biome
+
+
 def majority_spec_biome(shares: Dict[str, float]) -> Optional[str]:
     if not shares:
         return None
-    majority_code = next(iter(shares))
-    spec_biome = SPEC_BIOME.get(majority_code, "meadow")
+    spec_biome = dominant_spec_biome(shares)
     if spec_biome == "meadow" and looks_like_open_plains(shares):
         return "plains"
     return spec_biome

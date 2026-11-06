@@ -120,6 +120,8 @@ def drain_thin_pond_water(route, was_pond: np.ndarray) -> None:
 
 
 def round_ponds(route) -> None:
+    from .glitches import crooked_bridges
+
     is_pond = pond_cells(route)
     if not is_pond.any():
         return
@@ -131,6 +133,10 @@ def round_ponds(route) -> None:
         on_the_rim = neighbour_classes.count(WATER_CLASS) < 4
         if is_outer_corner(neighbour_classes, WATER_CLASS) or (on_the_rim and noise[cell_y, cell_x] < POND_BITE_NOISE):
             bitten_cells.append((cell_y, cell_x))
+    crooked_bridges_before = len(crooked_bridges(route.cls))
     for cell_y, cell_x in bitten_cells:
+        class_before = str(route.cls[cell_y, cell_x])
         route.cls[cell_y, cell_x] = land_class_beside(route, cell_y, cell_x)
+        if len(crooked_bridges(route.cls)) > crooked_bridges_before:
+            route.cls[cell_y, cell_x] = class_before
     drain_thin_pond_water(route, is_pond)

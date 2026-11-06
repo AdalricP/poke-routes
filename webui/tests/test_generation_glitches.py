@@ -91,8 +91,7 @@ def test_a_bank_beside_a_river_is_not_a_river_end():
     assert walkable_river_end_steps(grid, grid == "w") == []
 
 
-@pytest.mark.parametrize("seed", [pytest.param(seed, marks=pytest.mark.xfail(reason="lively-route stages leave small river pieces open", strict=False)) if seed == 1 else seed
-                                  for seed in RIVERLAND_SEEDS])
+@pytest.mark.parametrize("seed", RIVERLAND_SEEDS)
 def test_riverland_routes_have_straight_bridges_and_closed_river_ends(seed):
     route = riverland_route(seed)
 

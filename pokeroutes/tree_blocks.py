@@ -89,7 +89,7 @@ def can_flood_block_with_water(route: Route, original_classes: np.ndarray, block
 
 def can_clear_block_to_ground(route: Route, original_classes: np.ndarray, block_cells: List[Cell]) -> bool:
     tree_cells = [cell for cell in block_cells if original_classes[cell] == TREE_CLASS]
-    if len(tree_cells) > 2:
+    if any(route.protect[cell] for cell in tree_cells):
         return False
     block_cell_set = set(block_cells)
     ground_beyond = [neighbour for cell in tree_cells for neighbour in walkable_neighbours_outside_block(route, original_classes, cell, block_cell_set)]
