@@ -368,10 +368,8 @@
   }
 
   function center_dock_rect() {
-    const center_dock = document.getElementById("dockCenter");
-    if (!center_dock) return null;
-    const dock_rect = center_dock.getBoundingClientRect();
-    const rect = { x: Math.round(dock_rect.left), y: Math.round(dock_rect.top), w: Math.round(dock_rect.width), h: Math.round(dock_rect.height) };
+    if (!window.Shell || !window.Shell.focused_view_group_rect) return null;
+    const rect = window.Shell.focused_view_group_rect();
     return rect;
   }
 

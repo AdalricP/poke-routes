@@ -15,386 +15,439 @@
     return e;
   };
 
-  // ------------------------------------------------------------ layout
-  let layout = SL.loadLayout(store);
+  // ------------------------------------------------------------ docking layout
+  const DOCK = window.DOCK_LAYOUT;
+  let layout = DOCK.load_layout(store);
   const resizeCbs = [];
   const centerCbs = [];
-  const bottomCbs = [];
-  const docks = { left: $("dockLeft"), center: $("dockCenter"), right: $("dockRight"), bottom: $("dockBottom") };
-  const parts = { menu: $("menubar"), toolbar: $("toolbar"), status: $("statusbar"),
-    splitLeft: $("splitLeft"), splitRight: $("splitRight"), splitBottom: $("splitBottom") };
+  const panel_shown_callbacks = [];
+  const dock_area = $("dockArea");
+  const dock_parking = $("dockParking");
+  const parked_tabs = $("dockTabs");
+  const drop_highlight = $("dockDropHighlight");
+  const tab_ghost = $("dockTabGhost");
+  const panel_elements = Object.fromEntries([...document.querySelectorAll("[data-panel]")].map((panel_element) => [panel_element.dataset.panel, panel_element]));
+  const tab_buttons = Object.fromEntries([...document.querySelectorAll("[data-panel-tab]")].map((tab_button) => [tab_button.dataset.panelTab, tab_button]));
+  const panel_titles = Object.fromEntries(Object.entries(tab_buttons).map(([panel_id, tab_button]) => [panel_id, tab_button.firstChild.textContent.trim()]));
+  const unavailable_panels = new Set(["improve"]);
+  const tab_drag_start_distance_in_pixels = 5;
+  const smallest_panel_side_in_pixels = 90;
+  const middle_mouse_button = 1;
+  let rendered_group_geometry_sources = [];
+  let previously_visible_panels = [];
+  let previously_shown_views_signature = "";
 
-  function place(node, r) {
-    node.style.left = r.x + "px";
-    node.style.top = r.y + "px";
-    node.style.width = r.w + "px";
-    node.style.height = r.h + "px";
+  function effective_dock_tree() {
+    const tree = DOCK.tree_without_panels(layout.dock, [...unavailable_panels]);
+    return tree;
   }
 
-  let lastRects = null;
-  function applyLayout() {
-    const rects = SL.computeRects(layout, window.innerWidth, window.innerHeight);
-    lastRects = rects;
-    place(parts.menu, rects.menu);
-    place(parts.toolbar, rects.toolbar);
-    place(parts.status, rects.status);
-    for (const k of ["left", "center", "right", "bottom"]) place(docks[k], rects[k]);
-    place(parts.splitLeft, rects.splitLeft);
-    place(parts.splitRight, rects.splitRight);
-    place(parts.splitBottom, rects.splitBottom);
-    for (const k of ["left", "right", "bottom"]) {
-      docks[k].classList.toggle("collapsed", rects.collapsed[k]);
-      docks[k].classList.toggle("floating", rects.floating[k]);
+  function saveLayout() { DOCK.save_layout(store, layout); }
+
+  function is_panel_open(panel_id) {
+    const tree = effective_dock_tree();
+    const is_open = !!tree && DOCK.panels_in_tree(tree).includes(panel_id);
+    return is_open;
+  }
+
+  function is_panel_visible(panel_id) {
+    const tree = effective_dock_tree();
+    const is_visible = !!tree && DOCK.visible_panels(tree).includes(panel_id);
+    return is_visible;
+  }
+
+  function shown_views() {
+    const tree = effective_dock_tree();
+    const view_panel_ids = tree ? DOCK.visible_view_panels(tree) : [];
+    return view_panel_ids;
+  }
+
+  function add_close_button_to_tab(panel_id) {
+    const close_button = el("span", "dock-tab-close");
+    close_button.setAttribute("role", "button");
+    close_button.setAttribute("aria-label", `Close ${panel_titles[panel_id]}`);
+    close_button.addEventListener("pointerdown", (pointer_event) => pointer_event.stopPropagation());
+    close_button.addEventListener("click", (click_event) => { click_event.stopPropagation(); close_panel(panel_id); });
+    tab_buttons[panel_id].append(close_button);
+  }
+
+  function tab_button_for_group(panel_id, group) {
+    const tab_button = tab_buttons[panel_id];
+    const is_active_tab = group.active === panel_id;
+    tab_button.classList.toggle("on", is_active_tab);
+    tab_button.setAttribute("aria-selected", is_active_tab);
+    return tab_button;
+  }
+
+  function element_of_group(group, group_path) {
+    const group_element = el("div", "dock-group");
+    const tab_bar = el("div", "dock-group-tabs");
+    const group_body = el("div", "dock-group-body");
+    tab_bar.setAttribute("role", "tablist");
+    for (const panel_id of group.tabs) tab_bar.append(tab_button_for_group(panel_id, group));
+    group_body.append(panel_elements[group.active]);
+    group_element.append(tab_bar, group_body);
+    rendered_group_geometry_sources.push({ group_path, group_element, tab_bar, group_body, tabs: group.tabs });
+    return group_element;
+  }
+
+  function divider_element(split, split_path, divider_index) {
+    const divider = el("div", `dock-divider ${split.direction}`);
+    divider.setAttribute("role", "separator");
+    divider.setAttribute("aria-orientation", split.direction === "row" ? "vertical" : "horizontal");
+    divider.addEventListener("pointerdown", (pointer_event) => start_divider_drag(pointer_event, divider, split_path, divider_index));
+    return divider;
+  }
+
+  function append_split_child(split_element, split, split_path, child_index) {
+    if (child_index > 0) split_element.append(divider_element(split, split_path, child_index - 1));
+    const child_element = element_of_dock_node(split.children[child_index], split_path.concat([child_index]));
+    child_element.style.flex = `${split.sizes[child_index]} 1 0px`;
+    split_element.append(child_element);
+  }
+
+  function element_of_split(split, split_path) {
+    const split_element = el("div", `dock-split ${split.direction}`);
+    split.children.forEach((child_node, child_index) => append_split_child(split_element, split, split_path, child_index));
+    return split_element;
+  }
+
+  function element_of_dock_node(dock_node, node_path) {
+    const node_element = dock_node.kind === "group" ? element_of_group(dock_node, node_path) : element_of_split(dock_node, node_path);
+    return node_element;
+  }
+
+  function scroll_positions_of_panels() {
+    const scrollable_elements = [...dock_area.querySelectorAll(".dock-panel, .panel-scroll, .con-list, .imp-sec")];
+    const scroll_positions = scrollable_elements.filter((scroll_element) => scroll_element.scrollTop > 0).map((scroll_element) => [scroll_element, scroll_element.scrollTop]);
+    return scroll_positions;
+  }
+
+  function park_hidden_panels(tree) {
+    const shown_panel_ids = tree ? DOCK.visible_panels(tree) : [];
+    const open_panel_ids = tree ? DOCK.panels_in_tree(tree) : [];
+    for (const [panel_id, panel_element] of Object.entries(panel_elements)) if (!shown_panel_ids.includes(panel_id)) dock_parking.append(panel_element);
+    for (const [panel_id, tab_button] of Object.entries(tab_buttons)) if (!open_panel_ids.includes(panel_id)) parked_tabs.append(tab_button);
+  }
+
+  function render_dock_layout() {
+    const tree = effective_dock_tree();
+    const scroll_positions = scroll_positions_of_panels();
+    rendered_group_geometry_sources = [];
+    park_hidden_panels(tree);
+    dock_area.replaceChildren(tree ? element_of_dock_node(tree, []) : el("div", "dock-empty"));
+    for (const [scroll_element, scroll_top] of scroll_positions) scroll_element.scrollTop = scroll_top;
+    announce_layout_changes(tree);
+  }
+
+  function focus_first_shown_view_if_focus_hidden(view_panel_ids) {
+    if (!view_panel_ids.length || view_panel_ids.includes(layout.center)) return false;
+    layout.center = view_panel_ids[0];
+    return true;
+  }
+
+  function mark_focused_view() {
+    const view_panel_ids = shown_views();
+    for (const view_panel_id of DOCK.VIEW_PANEL_IDS) {
+      const is_focused_view = view_panel_id === layout.center && view_panel_ids.includes(view_panel_id);
+      panel_elements[view_panel_id].classList.toggle("active-pane", is_focused_view && view_panel_ids.length > 1);
+      tab_buttons[view_panel_id].classList.toggle("focused", is_focused_view);
     }
-    parts.splitLeft.classList.toggle("off", rects.collapsed.left || rects.floating.left);
-    parts.splitRight.classList.toggle("off", rects.collapsed.right || rects.floating.right);
-    parts.splitBottom.classList.toggle("off", rects.collapsed.bottom || rects.floating.bottom);
-    // tabs
-    const shown_center_tabs = SL.center_tabs_shown(layout);
-    document.querySelectorAll("[data-center]").forEach((b) => {
-      const on = shown_center_tabs.includes(b.dataset.center);
-      b.classList.toggle("on", on);
-      b.classList.toggle("active", on && !!layout.split && b.dataset.center === layout.center);
-      b.setAttribute("aria-selected", on);
-    });
-    place_center_views();
-    document.querySelectorAll("[data-bottom]").forEach((b) => {
-      const on = b.dataset.bottom === layout.bottom.tab;
-      b.classList.toggle("on", on);
-      b.setAttribute("aria-selected", on);
-    });
-    $("paneConsole").hidden = layout.bottom.tab !== "console";
-    $("paneImprove").hidden = layout.bottom.tab !== "improve";
-    $("paneAgent").hidden = layout.bottom.tab !== "agent";
-    $("paneEvents").hidden = layout.bottom.tab !== "events";
-    resizeCbs.forEach((f) => f(rects));
   }
 
-  function saveLayout() { SL.saveLayout(store, layout); }
-
-  function setCenter(tab) {
-    if (!SL.CENTER_TABS.includes(tab)) return;
-    const changed = layout.center !== tab;
-    layout.split = SL.split_after_activating_tab(layout.split, tab, layout.center);
-    layout.center = tab;
-    applyLayout();
-    saveLayout();
-    if (changed) centerCbs.forEach((f) => f(tab));
-  }
-  function setBottom(tab, reveal) {
-    if (!SL.BOTTOM_TABS.includes(tab)) return;
-    layout.bottom.tab = tab;
-    if (reveal !== false) layout.bottom.open = true;
-    applyLayout();
-    saveLayout();
-    if (tab === "console") seenProblems = problems();
+  function announce_panel_shown(panel_id) {
+    if (panel_id === "console") seenProblems = problems();
     updateConsoleBadge();
-    bottomCbs.forEach((f) => f(tab));
+    panel_shown_callbacks.forEach((panel_shown_callback) => panel_shown_callback(panel_id));
   }
-  function toggleDock(which, open) {
-    const d = layout[which];
-    d.open = open == null ? !d.open : !!open;
-    if (!d.open) d.float = null; // a closed window goes back to its strip in the dock
-    applyLayout();
+
+  function announce_layout_changes(tree) {
+    const visible_panel_ids = tree ? DOCK.visible_panels(tree) : [];
+    const newly_visible_panel_ids = visible_panel_ids.filter((panel_id) => !previously_visible_panels.includes(panel_id));
+    previously_visible_panels = visible_panel_ids;
+    const view_panel_ids = shown_views();
+    const has_focus_moved = focus_first_shown_view_if_focus_hidden(view_panel_ids);
+    const shown_views_signature = view_panel_ids.join(" ");
+    const have_shown_views_changed = shown_views_signature !== previously_shown_views_signature;
+    previously_shown_views_signature = shown_views_signature;
+    mark_focused_view();
+    newly_visible_panel_ids.forEach(announce_panel_shown);
+    if (has_focus_moved || have_shown_views_changed) centerCbs.forEach((center_callback) => center_callback(layout.center));
+    resizeCbs.forEach((resize_callback) => resize_callback());
+  }
+
+  function apply_dock_tree(new_tree) {
+    layout.dock = new_tree;
+    const open_panel_ids = new_tree ? DOCK.panels_in_tree(new_tree) : [];
+    layout.closed_panels = layout.closed_panels.filter((panel_id) => !open_panel_ids.includes(panel_id));
+    render_dock_layout();
     saveLayout();
   }
+
+  function focus_view(view_panel_id) {
+    if (!DOCK.VIEW_PANEL_IDS.includes(view_panel_id) || layout.center === view_panel_id) return;
+    layout.center = view_panel_id;
+    mark_focused_view();
+    saveLayout();
+    centerCbs.forEach((center_callback) => center_callback(view_panel_id));
+  }
+
+  function show_panel(panel_id) {
+    if (!DOCK.PANEL_IDS.includes(panel_id) || unavailable_panels.has(panel_id)) return;
+    const tree = effective_dock_tree();
+    if (tree && DOCK.visible_panels(tree).includes(panel_id)) return;
+    apply_dock_tree(DOCK.tree_with_panel_opened(tree, panel_id));
+  }
+
+  function setCenter(view_panel_id) {
+    if (!DOCK.VIEW_PANEL_IDS.includes(view_panel_id)) return;
+    show_panel(view_panel_id);
+    focus_view(view_panel_id);
+  }
+
+  function close_panel(panel_id) {
+    const tree = effective_dock_tree();
+    if (!tree || DOCK.panels_in_tree(tree).length <= 1) return;
+    layout.closed_panels = layout.closed_panels.concat([panel_id]);
+    apply_dock_tree(DOCK.tree_without_panel(tree, panel_id));
+  }
+
+  function first_other_tab_beside(tree, panel_id) {
+    const tabs_of_group = DOCK.node_at_path(tree, DOCK.group_path_of_panel(tree, panel_id)).tabs;
+    const first_other_tab = tabs_of_group.find((other_panel_id) => other_panel_id !== panel_id) || panel_id;
+    return first_other_tab;
+  }
+
+  function tree_with_returning_panel(panel_id) {
+    const is_missing_from_layout = !layout.dock || !DOCK.panels_in_tree(layout.dock).includes(panel_id);
+    if (!is_missing_from_layout || layout.closed_panels.includes(panel_id)) return layout.dock;
+    const tree_with_panel = DOCK.tree_with_panel_opened(layout.dock, panel_id);
+    const tree_keeping_neighbour_in_front = DOCK.tree_with_active_tab(tree_with_panel, first_other_tab_beside(tree_with_panel, panel_id));
+    return tree_keeping_neighbour_in_front;
+  }
+
+  function set_panel_available(panel_id, is_available) {
+    const was_available = !unavailable_panels.has(panel_id);
+    if (was_available === !!is_available) return;
+    if (is_available) unavailable_panels.delete(panel_id); else unavailable_panels.add(panel_id);
+    if (is_available) layout.dock = tree_with_returning_panel(panel_id);
+    render_dock_layout();
+  }
+
+  function set_panel_title(panel_id, title) {
+    const tab_button = tab_buttons[panel_id];
+    if (tab_button && tab_button.firstChild.textContent !== title) tab_button.firstChild.textContent = title;
+  }
+
   function resetLayout() {
-    layout = SL.defaultLayout();
+    layout = DOCK.default_layout();
     applyFolds();
-    applyLayout();
+    render_dock_layout();
     saveLayout();
     log("info", "Layout reset to the default.");
   }
 
-  // tab strips: drag a tab left/right within its own strip to reorder it, remembered per layout
-  function orderTabs(which, order) {
-    const strip = docks[which].querySelector(".tabs");
-    if (!strip) return;
-    const attr = "data-" + which;
-    for (const key of order) {
-      const b = strip.querySelector(`[${attr}="${key}"]`);
-      if (b) strip.append(b);
-    }
-  }
-  function makeTabsReorderable(which, orderKey) {
-    const strip = docks[which].querySelector(".tabs");
-    if (!strip) return;
-    const attr = "data-" + which;
-    let dragging = null;
-    strip.querySelectorAll(`.dock-tab[${attr}]`).forEach((btn) => {
-      btn.draggable = true;
-      btn.addEventListener("pointerdown", (ev) => ev.stopPropagation()); // don't also start a window-drag
-      btn.addEventListener("dragstart", (ev) => {
-        dragging = btn;
-        if (which === "center") dragged_center_tab = btn.getAttribute(attr);
-        btn.classList.add("tab-dragging");
-        ev.dataTransfer.effectAllowed = "move";
-        ev.dataTransfer.setData("text/plain", btn.getAttribute(attr));
-      });
-      btn.addEventListener("dragover", (ev) => {
-        if (!dragging || dragging === btn) return;
-        ev.preventDefault();
-        const r = btn.getBoundingClientRect();
-        const before = ev.clientX < r.left + r.width / 2;
-        strip.insertBefore(dragging, before ? btn : btn.nextSibling);
-      });
-      btn.addEventListener("dragend", () => {
-        dragged_center_tab = null;
-        if (which === "center") center_drop_hint.hidden = true;
-        if (dragging) dragging.classList.remove("tab-dragging");
-        dragging = null;
-        layout[orderKey] = [...strip.querySelectorAll(`.dock-tab[${attr}]`)].map((b) => b.getAttribute(attr));
-        saveLayout();
-      });
-    });
-  }
-  // ------------------------------------------------------------ split centre (two views side by side)
-  // Drag a centre tab to the left or right third of the views to show it beside another view
-  // (Routes, Geography and Map pair any two ways); drop it in the middle, or double-click a tab, to show one.
-  const center_views = [...document.querySelectorAll("[data-center-view]")];
-  const center_splitter = $("centerSplitter");
-  const center_drop_hint = $("centerDrop");
-  const views_box = docks.center.querySelector(".views");
-  const center_view_gap_in_pixels = 2;
-
-  function center_view_tabs(view_element) {
-    const view_tabs = view_element.dataset.centerView.split(" ");
-    return view_tabs;
-  }
-
-  function shown_tab_of_view(view_element) {
-    const tab_of_each_view = SL.center_tab_of_each_view(center_views.map(center_view_tabs), SL.center_tabs_shown(layout));
-    const shown_tab = tab_of_each_view[center_views.indexOf(view_element)] || null;
-    return shown_tab;
-  }
-
-  function place_one_center_view(view_element) {
-    const shown_tab = shown_tab_of_view(view_element);
-    view_element.hidden = !shown_tab;
-    view_element.classList.toggle("active-pane", !!layout.split && shown_tab === layout.center);
-    if (!shown_tab || !layout.split) { view_element.style.left = ""; view_element.style.width = ""; return; }
-    const percent_left = layout.split.ratio * 100;
-    const is_left_pane = layout.split.left === shown_tab;
-    view_element.style.left = is_left_pane ? "0" : `calc(${percent_left}% + ${center_view_gap_in_pixels}px)`;
-    view_element.style.width = is_left_pane ? `calc(${percent_left}% - ${center_view_gap_in_pixels}px)` : `calc(${100 - percent_left}% - ${center_view_gap_in_pixels}px)`;
-  }
-
-  function place_center_views() {
-    center_views.forEach(place_one_center_view);
-    center_splitter.hidden = !layout.split;
-    if (layout.split) center_splitter.style.left = `calc(${layout.split.ratio * 100}% - ${center_view_gap_in_pixels}px)`;
-  }
-
-  function split_center(dragged_tab, drop_side) {
-    const new_split = SL.split_after_center_tab_drop(layout, dragged_tab, drop_side);
-    if (!new_split) return;
-    layout.split = new_split;
-    const changed = layout.center !== dragged_tab;
-    layout.center = dragged_tab;
-    applyLayout();
-    saveLayout();
-    centerCbs.forEach((f) => f(dragged_tab, changed));
-  }
-
-  function unsplit_center(kept_tab) {
-    layout.split = null;
-    const changed = layout.center !== kept_tab;
-    layout.center = kept_tab;
-    applyLayout();
-    saveLayout();
-    centerCbs.forEach((f) => f(kept_tab, changed));
-  }
-
-  function show_center_drop_hint(drop_side) {
-    center_drop_hint.hidden = false;
-    center_drop_hint.style.left = drop_side === "right" ? "50%" : "0";
-    center_drop_hint.style.width = drop_side === "middle" ? "100%" : "50%";
-  }
-
-  let dragged_center_tab = null;
-  views_box.addEventListener("dragover", (ev) => {
-    if (!dragged_center_tab) return;
-    ev.preventDefault();
-    const box = views_box.getBoundingClientRect();
-    show_center_drop_hint(SL.center_drop_side(ev.clientX, box.left, box.width));
-  });
-  views_box.addEventListener("dragleave", (ev) => { if (!views_box.contains(ev.relatedTarget)) center_drop_hint.hidden = true; });
-  views_box.addEventListener("drop", (ev) => {
-    if (!dragged_center_tab) return;
-    ev.preventDefault();
-    center_drop_hint.hidden = true;
-    const box = views_box.getBoundingClientRect();
-    const drop_side = SL.center_drop_side(ev.clientX, box.left, box.width);
-    if (drop_side === "middle") unsplit_center(dragged_center_tab); else split_center(dragged_center_tab, drop_side);
-  });
-  for (const view_element of center_views) {
-    view_element.addEventListener("pointerdown", () => {
-      const shown_tab = shown_tab_of_view(view_element);
-      if (layout.split && shown_tab && shown_tab !== layout.center) setCenter(shown_tab);
-    }, true);
-  }
-  center_splitter.addEventListener("pointerdown", (ev) => {
-    if (ev.button !== 0 || !layout.split) return;
-    ev.preventDefault();
-    center_splitter.setPointerCapture(ev.pointerId);
-    document.body.classList.add("resizing", "v");
-    const move = (e) => {
-      const box = views_box.getBoundingClientRect();
-      layout.split = SL.sanitize_center_split(Object.assign({}, layout.split, { ratio: (e.clientX - box.left) / Math.max(1, box.width) }));
-      place_center_views();
+  function window_menu_item_of_panel(panel_id) {
+    const menu_item = {
+      id: "w-panel-" + panel_id, label: panel_titles[panel_id],
+      checked: () => is_panel_open(panel_id), enabled: () => !unavailable_panels.has(panel_id),
+      run: () => (DOCK.VIEW_PANEL_IDS.includes(panel_id) ? setCenter(panel_id) : show_panel(panel_id)),
     };
-    const up = () => {
-      center_splitter.removeEventListener("pointermove", move);
-      center_splitter.removeEventListener("pointerup", up);
-      document.body.classList.remove("resizing", "v");
-      saveLayout();
+    return menu_item;
+  }
+
+  function window_menu_items() {
+    const panel_menu_items = DOCK.PANEL_IDS.map(window_menu_item_of_panel);
+    return panel_menu_items;
+  }
+
+  function rect_of_element(measured_element) {
+    const measured_rect = measured_element.getBoundingClientRect();
+    const rect = { x: measured_rect.left, y: measured_rect.top, w: measured_rect.width, h: measured_rect.height };
+    return rect;
+  }
+
+  function focused_view_group_rect() {
+    const focused_view_element = panel_elements[layout.center];
+    const group_element = focused_view_element && focused_view_element.closest(".dock-group");
+    const measured_rect = rect_of_element(group_element || dock_area);
+    const rounded_rect = { x: Math.round(measured_rect.x), y: Math.round(measured_rect.y), w: Math.round(measured_rect.w), h: Math.round(measured_rect.h) };
+    return rounded_rect;
+  }
+
+  function geometry_of_rendered_group(geometry_source) {
+    const group_geometry = {
+      group_path: geometry_source.group_path,
+      rect: rect_of_element(geometry_source.group_element),
+      tab_bar_rect: rect_of_element(geometry_source.tab_bar),
+      body_rect: rect_of_element(geometry_source.group_body),
+      tab_rects: geometry_source.tabs.map((panel_id) => rect_of_element(tab_buttons[panel_id])),
     };
-    center_splitter.addEventListener("pointermove", move);
-    center_splitter.addEventListener("pointerup", up);
-  });
-
-  orderTabs("center", layout.centerOrder);
-  orderTabs("bottom", layout.bottomOrder);
-  makeTabsReorderable("center", "centerOrder");
-  makeTabsReorderable("bottom", "bottomOrder");
-
-  // splitters
-  for (const sp of [parts.splitLeft, parts.splitRight, parts.splitBottom]) {
-    const which = sp.dataset.split;
-    sp.addEventListener("pointerdown", (ev) => {
-      if (ev.button !== 0) return;
-      ev.preventDefault();
-      const r = lastRects[which];
-      const start = which === "bottom" ? r.h : r.w;
-      const x0 = ev.clientX, y0 = ev.clientY;
-      sp.setPointerCapture(ev.pointerId);
-      sp.classList.add("drag");
-      document.body.classList.add("resizing", which === "bottom" ? "h" : "v");
-      const move = (e) => {
-        layout[which].size = SL.dragSize(which, start, e.clientX - x0, e.clientY - y0);
-        applyLayout();
-      };
-      const up = () => {
-        sp.removeEventListener("pointermove", move);
-        sp.removeEventListener("pointerup", up);
-        sp.removeEventListener("pointercancel", up);
-        sp.classList.remove("drag");
-        document.body.classList.remove("resizing", "h", "v");
-        // store what is actually shown (computeRects clamps)
-        const rr = lastRects[which];
-        layout[which].size = which === "bottom" ? rr.h : rr.w;
-        saveLayout();
-      };
-      sp.addEventListener("pointermove", move);
-      sp.addEventListener("pointerup", up);
-      sp.addEventListener("pointercancel", up);
-    });
-    sp.addEventListener("keydown", (ev) => {
-      const step = ev.shiftKey ? 64 : 16;
-      const r = lastRects[which];
-      const cur = which === "bottom" ? r.h : r.w;
-      let d = 0;
-      if (which === "bottom") { if (ev.key === "ArrowUp") d = step; else if (ev.key === "ArrowDown") d = -step; }
-      else if (ev.key === "ArrowLeft") d = which === "left" ? -step : step;
-      else if (ev.key === "ArrowRight") d = which === "left" ? step : -step;
-      if (!d) return;
-      ev.preventDefault();
-      layout[which].size = cur + d;
-      applyLayout();
-      saveLayout();
-    });
-    sp.addEventListener("dblclick", () => toggleDock(which, false));
+    return group_geometry;
   }
-  // floating windows: drag a dock's tab strip to tear it off and move it (Unity-style);
-  // drop it on its home edge, double-click the strip or press its arrow to dock it again
-  function redock(which) {
-    layout[which].float = null;
-    layout[which].open = true;
-    applyLayout();
+
+  function place_fixed_element(fixed_element, rect) {
+    fixed_element.style.transform = `translate(${Math.round(rect.x)}px, ${Math.round(rect.y)}px)`;
+    fixed_element.style.width = `${Math.round(rect.w)}px`;
+    fixed_element.style.height = `${Math.round(rect.h)}px`;
+  }
+
+  function show_drop_highlight(drop_target, geometries, dock_area_rect) {
+    const highlight_rect = DOCK.highlight_rect_of_drop_target(drop_target, geometries, dock_area_rect);
+    drop_highlight.hidden = !highlight_rect;
+    if (!highlight_rect) return;
+    drop_highlight.classList.toggle("tab-marker", drop_target.kind === "tabs");
+    place_fixed_element(drop_highlight, highlight_rect);
+  }
+
+  function listen_until_released(capturing_element, on_move, on_release) {
+    const finish_listening = (release_event) => {
+      capturing_element.removeEventListener("pointermove", on_move);
+      capturing_element.removeEventListener("pointerup", finish_listening);
+      capturing_element.removeEventListener("pointercancel", finish_listening);
+      on_release(release_event.type === "pointerup");
+    };
+    capturing_element.addEventListener("pointermove", on_move);
+    capturing_element.addEventListener("pointerup", finish_listening);
+    capturing_element.addEventListener("pointercancel", finish_listening);
+  }
+
+  function start_tab_gesture(pointer_event, panel_id) {
+    if (pointer_event.button === middle_mouse_button) { pointer_event.preventDefault(); close_panel(panel_id); return; }
+    if (pointer_event.button !== 0) return;
+    const tab_button = tab_buttons[panel_id];
+    const tab_drag = {
+      panel_id, start_point: { x: pointer_event.clientX, y: pointer_event.clientY }, is_dragging: false,
+      geometries: null, dock_area_rect: null, drop_target: null, pending_point: null, frame_request: 0,
+    };
+    tab_button.setPointerCapture(pointer_event.pointerId);
+    listen_until_released(tab_button,
+      (move_event) => follow_tab_drag(tab_drag, { x: move_event.clientX, y: move_event.clientY }),
+      (was_released_normally) => finish_tab_gesture(tab_drag, was_released_normally));
+  }
+
+  function begin_tab_drag(tab_drag) {
+    tab_drag.is_dragging = true;
+    tab_drag.geometries = rendered_group_geometry_sources.map(geometry_of_rendered_group);
+    tab_drag.dock_area_rect = rect_of_element(dock_area);
+    tab_ghost.textContent = panel_titles[tab_drag.panel_id];
+    tab_ghost.hidden = false;
+    tab_buttons[tab_drag.panel_id].classList.add("tab-dragging");
+    document.body.classList.add("dock-dragging");
+  }
+
+  function follow_tab_drag(tab_drag, point) {
+    const distance_moved = Math.hypot(point.x - tab_drag.start_point.x, point.y - tab_drag.start_point.y);
+    if (!tab_drag.is_dragging && distance_moved < tab_drag_start_distance_in_pixels) return;
+    if (!tab_drag.is_dragging) begin_tab_drag(tab_drag);
+    tab_drag.pending_point = point;
+    if (!tab_drag.frame_request) tab_drag.frame_request = requestAnimationFrame(() => show_tab_drag_frame(tab_drag));
+  }
+
+  function show_tab_drag_frame(tab_drag) {
+    tab_drag.frame_request = 0;
+    if (!tab_drag.is_dragging || !tab_drag.pending_point) return;
+    const point = tab_drag.pending_point;
+    tab_ghost.style.transform = `translate(${Math.round(point.x + 12)}px, ${Math.round(point.y + 10)}px)`;
+    tab_drag.drop_target = DOCK.drop_target_at_point(tab_drag.geometries, point, tab_drag.dock_area_rect);
+    show_drop_highlight(tab_drag.drop_target, tab_drag.geometries, tab_drag.dock_area_rect);
+  }
+
+  function end_tab_drag_visuals(panel_id) {
+    tab_ghost.hidden = true;
+    drop_highlight.hidden = true;
+    tab_buttons[panel_id].classList.remove("tab-dragging");
+    document.body.classList.remove("dock-dragging");
+  }
+
+  function finish_tab_gesture(tab_drag, was_released_normally) {
+    if (tab_drag.frame_request) cancelAnimationFrame(tab_drag.frame_request);
+    if (!tab_drag.is_dragging) { if (was_released_normally) activate_tab(tab_drag.panel_id); return; }
+    show_tab_drag_frame(tab_drag);
+    end_tab_drag_visuals(tab_drag.panel_id);
+    if (!was_released_normally || !tab_drag.drop_target) return;
+    drop_panel(tab_drag.panel_id, tab_drag.drop_target);
+  }
+
+  function drop_panel(panel_id, drop_target) {
+    const tree = effective_dock_tree();
+    const new_tree = DOCK.tree_after_dropping_panel(tree, panel_id, drop_target);
+    if (new_tree !== tree) apply_dock_tree(new_tree);
+    if (DOCK.VIEW_PANEL_IDS.includes(panel_id)) focus_view(panel_id);
+  }
+
+  function activate_tab(panel_id) {
+    const tree = effective_dock_tree();
+    const group_path = DOCK.group_path_of_panel(tree, panel_id);
+    if (!group_path) return;
+    if (DOCK.node_at_path(tree, group_path).active !== panel_id) apply_dock_tree(DOCK.tree_with_active_tab(tree, panel_id));
+    if (DOCK.VIEW_PANEL_IDS.includes(panel_id)) focus_view(panel_id);
+  }
+
+  function start_divider_drag(pointer_event, divider, split_path, divider_index) {
+    if (pointer_event.button !== 0) return;
+    pointer_event.preventDefault();
+    const split_element = divider.parentElement;
+    const is_row = split_element.classList.contains("row");
+    const split_rect = rect_of_element(split_element);
+    const split_node = DOCK.node_at_path(effective_dock_tree(), split_path);
+    const divider_drag = {
+      split_path, divider_index, is_row,
+      split_length_in_pixels: Math.max(1, is_row ? split_rect.w : split_rect.h),
+      child_elements: [...split_element.children].filter((child_element) => !child_element.classList.contains("dock-divider")),
+      start_position: is_row ? pointer_event.clientX : pointer_event.clientY,
+      start_sizes: split_node.sizes.slice(), sizes: split_node.sizes.slice(), pending_position: null, frame_request: 0,
+    };
+    divider.setPointerCapture(pointer_event.pointerId);
+    divider.classList.add("drag");
+    document.body.classList.add("resizing", is_row ? "v" : "h");
+    listen_until_released(divider,
+      (move_event) => follow_divider_drag(divider_drag, is_row ? move_event.clientX : move_event.clientY),
+      () => finish_divider_drag(divider_drag, divider));
+  }
+
+  function follow_divider_drag(divider_drag, pointer_position) {
+    divider_drag.pending_position = pointer_position;
+    if (!divider_drag.frame_request) divider_drag.frame_request = requestAnimationFrame(() => show_divider_drag_frame(divider_drag));
+  }
+
+  function show_divider_drag_frame(divider_drag) {
+    divider_drag.frame_request = 0;
+    if (divider_drag.pending_position == null) return;
+    const moved_fraction = (divider_drag.pending_position - divider_drag.start_position) / divider_drag.split_length_in_pixels;
+    const smallest_fraction = smallest_panel_side_in_pixels / divider_drag.split_length_in_pixels;
+    divider_drag.sizes = DOCK.sizes_after_divider_drag(divider_drag.start_sizes, divider_drag.divider_index, moved_fraction, smallest_fraction);
+    for (const child_index of [divider_drag.divider_index, divider_drag.divider_index + 1]) divider_drag.child_elements[child_index].style.flex = `${divider_drag.sizes[child_index]} 1 0px`;
+  }
+
+  function finish_divider_drag(divider_drag, divider) {
+    if (divider_drag.frame_request) cancelAnimationFrame(divider_drag.frame_request);
+    show_divider_drag_frame(divider_drag);
+    divider.classList.remove("drag");
+    document.body.classList.remove("resizing", "v", "h");
+    layout.dock = DOCK.tree_with_split_sizes(effective_dock_tree(), divider_drag.split_path, divider_drag.sizes);
     saveLayout();
+    resizeCbs.forEach((resize_callback) => resize_callback());
   }
-  let floatZ = 20;
-  const FLOAT_Z_MAX = 49; // the menu layer sits at z-index 50 (shell.css); stay under it
-  function raiseFloat(which) {
-    if (floatZ >= FLOAT_Z_MAX) {
-      // renormalize: keep relative front-to-back order of the floating docks, reset the counter
-      const floating = ["left", "right", "bottom"].filter((w) => layout[w].float);
-      floating.sort((a, b) => (parseInt(docks[a].style.zIndex, 10) || 20) - (parseInt(docks[b].style.zIndex, 10) || 20));
-      floatZ = 20;
-      for (const w of floating) docks[w].style.zIndex = ++floatZ;
-    }
-    docks[which].style.zIndex = ++floatZ;
+
+  function wire_tab_button(panel_id) {
+    const tab_button = tab_buttons[panel_id];
+    add_close_button_to_tab(panel_id);
+    tab_button.setAttribute("role", "tab");
+    tab_button.addEventListener("pointerdown", (pointer_event) => start_tab_gesture(pointer_event, panel_id));
+    tab_button.addEventListener("auxclick", (click_event) => click_event.preventDefault());
+    tab_button.addEventListener("keydown", (key_event) => { if (key_event.key === "Enter" || key_event.key === " ") { key_event.preventDefault(); activate_tab(panel_id); } });
   }
-  const dropHint = el("div", "dock-drop");
-  dropHint.hidden = true;
-  $("shell").append(dropHint);
-  function homeRect(which) {
-    const docked = Object.assign({}, layout, { [which]: Object.assign({}, layout[which], { float: null, open: true }) });
-    return SL.computeRects(docked, window.innerWidth, window.innerHeight)[which];
-  }
-  for (const which of ["left", "right", "bottom"]) {
-    const dock = docks[which];
-    const head = dock.querySelector(".dock-head");
-    head.addEventListener("pointerdown", (ev) => {
-      if (ev.button !== 0 || ev.target.closest(".dock-collapse, input, select")) return;
-      const x0 = ev.clientX, y0 = ev.clientY;
-      let grab = null;
-      if (layout[which].float) raiseFloat(which); // the floating window you grab comes to the front
-      const move = (e) => {
-        if (!grab) {
-          if (Math.hypot(e.clientX - x0, e.clientY - y0) < 6) return;
-          const r = lastRects[which];
-          const size = layout[which].float ? r : homeRect(which);
-          const w = layout[which].float ? r.w : Math.min(size.w, 560), h = layout[which].float ? r.h : Math.min(size.h, 420);
-          grab = { dx: Math.min(x0 - r.x, w - 40), dy: y0 - r.y, w, h };
-          document.body.classList.add("moving");
-          if (!layout[which].float) raiseFloat(which); // tearing off a docked panel: bring it to front
-        }
-        layout[which].open = true;
-        layout[which].float = { x: e.clientX - grab.dx, y: e.clientY - grab.dy, w: grab.w, h: grab.h };
-        const snap = SL.nearHomeEdge(which, e.clientX, e.clientY, window.innerWidth, window.innerHeight);
-        dropHint.hidden = !snap;
-        if (snap) place(dropHint, homeRect(which));
-        applyLayout();
-      };
-      const up = (e) => {
-        window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", up);
-        window.removeEventListener("pointercancel", up);
-        if (!grab) return;
-        document.body.classList.remove("moving");
-        dropHint.hidden = true;
-        // the release would otherwise click the tab under the pointer
-        const swallow = (c) => { c.stopPropagation(); c.preventDefault(); };
-        window.addEventListener("click", swallow, true);
-        setTimeout(() => window.removeEventListener("click", swallow, true), 0);
-        if (SL.nearHomeEdge(which, e.clientX, e.clientY, window.innerWidth, window.innerHeight)) { redock(which); return; }
-        const rr = lastRects[which];
-        layout[which].float = { x: rr.x, y: rr.y, w: rr.w, h: rr.h };
-        saveLayout();
-      };
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", up);
-      window.addEventListener("pointercancel", up);
-    });
-    head.addEventListener("dblclick", (ev) => {
-      if (layout[which].float && !ev.target.closest(".dock-collapse")) redock(which);
-    });
-    // floating windows resize from their corner grip (CSS resize); keep the new size
-    new ResizeObserver(() => {
-      const f = layout[which].float;
-      if (!f || (dock.offsetWidth === f.w && dock.offsetHeight === f.h)) return;
-      f.w = dock.offsetWidth;
-      f.h = dock.offsetHeight;
-      applyLayout();
-      saveLayout();
-    }).observe(dock);
-  }
+
+  Object.keys(tab_buttons).forEach(wire_tab_button);
+  for (const view_panel_id of DOCK.VIEW_PANEL_IDS) panel_elements[view_panel_id].addEventListener("pointerdown", () => focus_view(view_panel_id), true);
+  window.addEventListener("resize", () => resizeCbs.forEach((resize_callback) => resize_callback()));
 
   // pinned panels: another module (e.g. improve.js) offers a panel via registerPanel();
-  // dragging its header onto Hierarchy or Inspector parks it there, beneath that dock's
+  // dragging its header onto Hierarchy or Inspector parks it there, beneath that panel's
   // own content, until it's dragged back out or its "Unpin" button is clicked
   const pinHosts = { left: $("dockLeftExtra"), right: $("dockRightExtra") };
+  const pin_zones = { left: panel_elements.hierarchy, right: panel_elements.inspector };
   const panelRegistry = new Map();
   function pinPanel(side, key) {
     const entry = panelRegistry.get(key);
@@ -434,7 +487,7 @@
     for (const side of ["left", "right"]) if (layout.pins[side] === key) unpinPanel(side);
   }
   for (const side of ["left", "right"]) {
-    const zone = docks[side];
+    const zone = pin_zones[side];
     zone.addEventListener("dragover", (ev) => {
       if (!ev.dataTransfer.types.includes("application/x-pin-panel")) return;
       ev.preventDefault();
@@ -449,18 +502,7 @@
       if (key) pinPanel(side, key);
     });
   }
-  window.addEventListener("dragend", () => { docks.left.classList.remove("drop-target"); docks.right.classList.remove("drop-target"); });
-
-  document.querySelectorAll("[data-collapse]").forEach((b) => {
-    b.onclick = () => (layout[b.dataset.collapse].float ? redock(b.dataset.collapse) : toggleDock(b.dataset.collapse));
-  });
-  document.querySelectorAll("[data-expand]").forEach((b) => { b.onclick = () => toggleDock(b.dataset.expand, true); });
-  document.querySelectorAll("[data-center]").forEach((b) => {
-    b.onclick = () => setCenter(b.dataset.center);
-    b.ondblclick = () => { if (layout.split) unsplit_center(b.dataset.center); };
-  });
-  document.querySelectorAll("[data-bottom]").forEach((b) => { b.onclick = () => setBottom(b.dataset.bottom); });
-  window.addEventListener("resize", applyLayout);
+  window.addEventListener("dragend", () => { pin_zones.left.classList.remove("drop-target"); pin_zones.right.classList.remove("drop-target"); });
 
   // inspector foldouts remember their state
   function applyFolds() {
@@ -494,7 +536,7 @@
     }
     status(text, level);
     renderConsole();
-    if (layout.bottom.tab === "console" && layout.bottom.open) seenProblems = problems();
+    if (is_panel_visible("console")) seenProblems = problems();
     updateConsoleBadge();
   }
 
@@ -790,10 +832,11 @@
   window.Shell = {
     mac, store, el,
     get layout() { return layout; },
-    applyLayout, saveLayout, setCenter, center_tab_shown_in: shown_tab_of_view, setBottom, toggleDock, resetLayout, split_center, unsplit_center,
+    saveLayout, setCenter, show_panel, close_panel, is_panel_open, is_panel_visible, shown_views, set_panel_available, set_panel_title,
+    window_menu_items, focused_view_group_rect, resetLayout,
     onResize: (f) => resizeCbs.push(f),
     onCenter: (f) => centerCbs.push(f),
-    onBottom: (f) => bottomCbs.push(f),
+    on_panel_shown: (panel_shown_callback) => panel_shown_callbacks.push(panel_shown_callback),
     log, status,
     registerPanel,
     unpinPanel: unpinByKey,
@@ -806,5 +849,5 @@
   };
 
   applyFolds();
-  applyLayout();
+  render_dock_layout();
 })();

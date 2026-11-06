@@ -1,5 +1,5 @@
-/* poke-routes editor shell: a Unity-style dark editor theme. Docks are positioned by
-   shell.js from SL.computeRects(), so this file only styles them. */
+/* poke-routes editor shell: a Unity-style dark editor theme. The docking tree is built by
+   shell.js (dock-layout-logic.js) out of nested flex rows and columns. */
 :root {
   color-scheme: dark;
   --app: #191919;          /* behind everything, gaps between docks */
@@ -53,7 +53,8 @@ code, kbd { font-family: var(--mono); font-size: 11px; }
 ::-webkit-scrollbar-track { background: transparent; }
 
 /* ------------------------------------------------------------ positioned regions */
-.shell > .menubar, .shell > .toolbar, .shell > .dock, .shell > .splitter, .shell > .statusbar { position: absolute; }
+.shell { display: grid; grid-template-rows: 26px 34px minmax(0, 1fr) 22px; height: 100%; }
+.shell > .toolbar { position: relative; }
 
 /* ------------------------------------------------------------ menu bar */
 .menubar { display: flex; align-items: stretch; background: var(--chrome); border-bottom: 1px solid var(--line); user-select: none; }
@@ -148,46 +149,55 @@ input[type=range]::-moz-range-thumb { width: 9px; height: 11px; background: #9b9
 .seg-btn b { font-weight: 500; margin-left: 4px; color: inherit; }
 
 /* ------------------------------------------------------------ docks */
-.dock { display: flex; flex-direction: column; background: var(--panel); overflow: hidden; }
-.dock-head { flex: none; display: flex; align-items: stretch; height: 26px; background: var(--chrome); border-bottom: 1px solid var(--line); user-select: none; }
-.dock-head .tabs { display: flex; }
-.dock-tab { display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 0; border-right: 1px solid var(--line);
-  background: transparent; color: var(--text-2); cursor: default; border-radius: 0; font-weight: 500; }
+.dock-area { position: relative; display: flex; min-width: 0; min-height: 0; background: var(--app); }
+.dock-area > * { flex: 1 1 0px; }
+.dock-split { display: flex; min-width: 0; min-height: 0; }
+.dock-split.row { flex-direction: row; }
+.dock-split.column { flex-direction: column; }
+.dock-group { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); overflow: hidden; }
+.dock-group-tabs { flex: none; display: flex; align-items: stretch; height: 24px; background: var(--chrome); border-bottom: 1px solid var(--line);
+  overflow: hidden; user-select: none; }
+.dock-group-body { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.dock-panel { position: absolute; inset: 0; overflow: auto; }
+.dock-panel.stacked { display: flex; flex-direction: column; overflow: hidden; }
+.panel-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; position: relative; }
+.dock-parking { display: none; }
+.dock-empty { background: var(--app); }
+
+.dock-tab { position: relative; display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 0 22px 0 10px; border: 0;
+  border-right: 1px solid var(--line); background: transparent; color: var(--text-2); cursor: default; border-radius: 0; font-weight: 500;
+  white-space: nowrap; touch-action: none; }
 .dock-tab:hover { color: var(--text); background: #303030; }
-.dock-tab.on { background: var(--panel); color: var(--text); box-shadow: inset 0 2px 0 var(--focus); }
-span.dock-tab.on { cursor: default; }
+.dock-tab.on { background: var(--panel); color: var(--text); box-shadow: inset 0 1px 0 #5a5a5a; }
+.dock-tab.on.focused { box-shadow: inset 0 2px 0 var(--focus); }
 .dock-tab .count { padding: 0 5px; border-radius: 7px; background: #5a4a1f; color: #f4dc9a; font-size: 10px; line-height: 14px; }
 .dock-tab .count.err { background: #6a2b28; color: #ffc9c4; }
 .dock-tab .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--focus); }
-.dock-tab.tab-dragging { opacity: .4; }
-.dock-tab.on:not(.active) { box-shadow: inset 0 2px 0 #5a5a5a; }
-.dock-tab.on.active { box-shadow: inset 0 2px 0 var(--focus); }
-.dock-collapse { margin-left: auto; width: 26px; border: 0; background: none; color: var(--text-3); cursor: default; position: relative; }
-.dock-collapse::before { content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; border: solid currentColor;
-  border-width: 0 1.5px 1.5px 0; transform: translate(-50%, -70%) rotate(45deg); }
-.dock-collapse:hover { color: var(--text); background: #303030; }
-.dock[data-dock="left"] .dock-collapse::before { transform: translate(-30%, -50%) rotate(135deg); }
-.dock[data-dock="right"] .dock-collapse::before { transform: translate(-70%, -50%) rotate(-45deg); }
-.dock[data-dock="bottom"] .dock-collapse::before { transform: translate(-50%, -70%) rotate(45deg); }
-.dock.collapsed[data-dock="bottom"] .dock-collapse::before { transform: translate(-50%, -30%) rotate(-135deg); }
-.dock-body { flex: 1 1 auto; min-height: 0; overflow: auto; position: relative; }
-.dock-strip { display: none; }
-.dock.collapsed[data-dock="left"] > *, .dock.collapsed[data-dock="right"] > * { display: none; }
-.dock.collapsed[data-dock="left"] > .dock-strip, .dock.collapsed[data-dock="right"] > .dock-strip {
-  display: flex; flex: 1; justify-content: center; padding-top: 10px; background: var(--chrome); cursor: default; color: var(--text-2); }
-.dock.collapsed .dock-strip:hover { color: var(--text); background: #303030; }
-.dock-strip span { writing-mode: vertical-rl; font-weight: 500; }
-.dock.collapsed[data-dock="bottom"] .dock-body { display: none; }
-.dock.collapsed[data-dock="bottom"] .dock-tab.on { box-shadow: none; background: transparent; }
+.dock-tab.tab-dragging { opacity: .45; }
+.dock-tab-close { position: absolute; right: 5px; top: 50%; width: 12px; height: 12px; margin-top: -6px; border-radius: 2px; opacity: 0; color: var(--text-3); }
+.dock-tab-close::before, .dock-tab-close::after { content: ""; position: absolute; left: 2px; right: 2px; top: 5.5px; height: 1px; background: currentColor; }
+.dock-tab-close::before { transform: rotate(45deg); }
+.dock-tab-close::after { transform: rotate(-45deg); }
+.dock-tab:hover .dock-tab-close { opacity: 1; }
+.dock-tab.tab-dragging .dock-tab-close, body.dock-dragging .dock-tab-close { opacity: 0; }
+.dock-tab-close:hover { color: var(--text); background: #4a4a4a; }
 
-.splitter { z-index: 5; background: var(--app); }
-.splitter.v { cursor: col-resize; }
-.splitter.h { cursor: row-resize; }
-.splitter:hover, .splitter.drag, .splitter:focus-visible { background: var(--focus); outline: none; }
-.splitter.off { pointer-events: none; }
+.dock-divider { position: relative; flex: 0 0 2px; background: var(--app); z-index: 5; }
+.dock-divider::after { content: ""; position: absolute; inset: 0 -3px; }
+.dock-divider.column::after { inset: -3px 0; }
+.dock-divider.row { cursor: col-resize; }
+.dock-divider.column { cursor: row-resize; }
+.dock-divider:hover, .dock-divider.drag { background: var(--focus); }
 body.resizing, body.resizing * { user-select: none !important; }
 body.resizing.v * { cursor: col-resize !important; }
 body.resizing.h * { cursor: row-resize !important; }
+
+.dock-drop-highlight { position: fixed; left: 0; top: 0; z-index: 45; pointer-events: none; background: rgba(77,144,214,.22);
+  border: 1px solid rgba(77,144,214,.85); transition: transform 60ms ease-out, width 60ms ease-out, height 60ms ease-out; }
+.dock-drop-highlight.tab-marker { background: var(--focus); border: 0; transition: none; }
+.dock-tab-ghost { position: fixed; left: 0; top: 0; z-index: 46; pointer-events: none; height: 22px; padding: 0 10px; line-height: 22px;
+  background: var(--panel); color: var(--text); font-weight: 500; border: 1px solid #161616; box-shadow: 0 3px 10px rgba(0,0,0,.45); }
+body.dock-dragging, body.dock-dragging * { user-select: none !important; cursor: default !important; }
 
 /* ------------------------------------------------------------ hierarchy */
 .search { padding: 4px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 1; }
@@ -218,12 +228,8 @@ body.resizing.h * { cursor: row-resize !important; }
 .tree .empty { padding: 6px 12px; color: var(--text-3); }
 
 /* ------------------------------------------------------------ views */
-.views { overflow: hidden; }
-.view { position: absolute; inset: 0; }
+.view { position: absolute; inset: 0; overflow: hidden; }
 .view.active-pane::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 2px 0 var(--focus), inset 0 0 0 1px rgba(77,144,214,.35); pointer-events: none; z-index: 2; }
-.center-splitter { position: absolute; top: 0; bottom: 0; width: 4px; background: var(--chrome); cursor: col-resize; z-index: 3; }
-.center-splitter:hover { background: var(--focus); }
-.center-drop { top: 0; bottom: 0; }
 .scene-back { position: absolute; left: 10px; top: 10px; height: 22px; padding: 0 10px; border: 1px solid #1a1a1a; border-radius: 3px;
   background: rgba(32,32,32,.9); color: var(--text); font: 600 12px "Pixelify Sans", var(--font); cursor: pointer; z-index: 2; }
 .scene-back:hover { background: #3a3a3a; }
@@ -367,7 +373,7 @@ table.enc .pct { display: inline-block; height: 6px; margin-right: 6px; backgrou
 .enc-h { margin: 6px 0 2px; color: var(--text-2); font-weight: 600; }
 
 /* ------------------------------------------------------------ bottom panes */
-.pane { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.pane { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; }
 .pane-bar { flex: none; display: flex; align-items: center; gap: 4px; height: 24px; padding: 0 6px; background: #333; border-bottom: 1px solid var(--line); }
 .pane-bar .seg-btn { border-radius: 2px; margin-left: 2px; }
 .con-split { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr minmax(240px, 36%); }
@@ -500,17 +506,10 @@ table.enc .pct { display: inline-block; height: 6px; margin-right: 6px; backgrou
 .keys div { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; border-bottom: 1px solid #333; }
 .keys kbd { color: var(--text-2); }
 
-/* ------------------------------------------------------------ floating windows */
-.dock.floating { z-index: 20; border: 1px solid #111; box-shadow: 0 8px 28px rgba(0,0,0,.55); resize: both; min-width: 160px; min-height: 90px; }
-.dock.floating > .dock-head { cursor: move; }
-.dock.floating .dock-collapse::before { transform: translate(-50%, -50%) rotate(0deg); width: 7px; height: 7px; border-width: 1.5px; }
-.dock-drop { position: absolute; z-index: 19; background: rgba(77,144,214,.18); border: 1px solid var(--focus); pointer-events: none; }
-body.moving, body.moving * { user-select: none !important; cursor: move !important; }
-
 /* ------------------------------------------------------------ pinned panels
    Drag an Improve section's header onto Hierarchy or Inspector to park it there,
-   beneath that dock's own content (Unity-style). */
-.dock.drop-target { outline: 2px dashed var(--focus); outline-offset: -2px; }
+   beneath that panel's own content (Unity-style). */
+.dock-panel.drop-target { outline: 2px dashed var(--focus); outline-offset: -2px; }
 .dock-extra { flex: none; max-height: 220px; overflow: auto; border-top: 1px solid var(--line); }
 .dock-extra[hidden] { display: none; }
 #dockLeftExtra.imp-docked, #dockRightExtra.imp-docked { position: static; inset: auto; display: flex; flex-direction: column; grid-template-columns: none; }
