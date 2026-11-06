@@ -45,9 +45,9 @@ TREE_BIOMES = ("forest", "meadow", "riverland")
 BIOME_CODES = {
     "forest": ("f", "g", "g", "g", "t"),  # no dirt road under the canopy: the main lane is trodden forest floor
     "meadow": ("f", "g", "g", "p", "t"),  # dirt only on the main road; side lanes stay grass
-    # like meadow, but the packed-off ground between lanes is a low hill instead of a
-    # tree mass: open plains, not a forest cut. Cliff while the route is built; the
-    # last stage (generate.stage_plateaus) turns it into grass fenced by ledges
+    # like meadow, but open: the ground between lanes is cliff only while the route is
+    # built; the last stage (plains.stage_open_plains) opens it into grass and groves
+    # and raises a ledge-faced rim along the map's edge
     "plains": (("CLIFF", "r"), "g", "g", "p", "t"),
     "riverland": ("f", "g", "g", "p", "t"),
     "beach": ("f", ("SAND", "p"), ("SAND", "p"), ("SAND", "p"), "t"),

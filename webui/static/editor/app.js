@@ -106,7 +106,7 @@
       <div class="route-list" data-ed="routeList"></div>
     </section>
     <section>
-      <h2>Selection</h2>
+      <h2 data-ed="inspTitle">Selection</h2>
       <div data-ed="insp"><p class="muted">Click a route, town or landmark.</p></div>
     </section>
     <section>
@@ -259,7 +259,7 @@
   }
   async function generate() {
     const seed = Math.max(0, parseInt($("seed").value, 10) || 0);
-    if (st.unsaved && !confirm("Drop the unsaved edits and generate a new region?")) return;
+    if (st.unsaved && !(await ask_before_dropping_edits("generate a new region"))) return;
     await busy(`generating seed ${seed}`, async () => {
       setDoc(await api("/api/editor/generate", Object.assign({ seed }, generate_options($("geoSel").value))));
       st.hist = new ED.History(100);
@@ -272,9 +272,14 @@
     if (geography_choice) return { preset: "generic", geography: geography_choice };
     return { preset: "generic" };
   }
+  async function ask_before_dropping_edits(what_happens_next) {
+    if (!window.Shell || !window.Shell.ask) return true;
+    const drop_confirmed = await window.Shell.ask({ title: "Unsaved edits", message: `Drop the unsaved edits and ${what_happens_next}?`, ok_label: "Drop edits" });
+    return !!drop_confirmed;
+  }
   async function loadSaved(name) {
     if (!name) return;
-    if (st.unsaved && !confirm("Drop the unsaved edits and load " + name + "?")) return;
+    if (st.unsaved && !(await ask_before_dropping_edits("load " + name))) return;
     await busy(`loading ${name}`, async () => {
       setDoc(await api("/api/editor/load", { name }));
       st.hist = new ED.History(100);
@@ -388,8 +393,7 @@
   async function add_town_at(x, y) {
     const problem = ED.town_spot_problem(st.doc, x, y);
     if (problem) { toast(problem, true); return; }
-    const name = prompt("Name the new town", ED.next_town_name(st.doc));
-    if (name === null) return;
+    const name = ED.next_town_name(st.doc);
     await busy("placing a town", async () => {
       const out = await api("/api/editor/add-town", { doc: ED.encodeDoc(st.doc), x, y, name: name.trim() });
       st.hist.begin(st.doc, "add town");
@@ -1119,6 +1123,7 @@
     const box = $("insp");
     box.innerHTML = "";
     const o = findSel(st.sel);
+    show_selection_panel_for(o);
     if (!o) { box.innerHTML = empty_selection_hint(); return; }
     if (st.mode === "story") return inspect_place_for_story(box, o);
     if (st.sel.kind === "route" && st.mode === "gates") return inspect_route_gate(box, o);
@@ -1139,6 +1144,14 @@
       remove.onclick = () => delete_town(o.id);
       box.append(remove);
     }
+  }
+  function show_selection_panel_for(selected_object) {
+    const selection_panel = $("insp").closest("details, section");
+    const has_no_towns_to_start_from = !!(st.doc && !st.doc.cities.length && is_tool_available_in_current_mode("town"));
+    const selection_title = selected_object ? ({ route: "Route", city: "Town", landmark: "Landmark" }[st.sel.kind] || "Selection") : "Towns";
+    if (selection_panel) selection_panel.hidden = !selected_object && !has_no_towns_to_start_from;
+    const title_element = $("inspTitle");
+    if (title_element) title_element.textContent = selection_title;
   }
   function empty_selection_hint() {
     if (st.doc && !st.doc.cities.length && is_tool_available_in_current_mode("town")) {
@@ -1271,7 +1284,7 @@
   }
   function refresh_story() {
     const section = $("storySection");
-    section.hidden = !(st.mode === "story" || st.mode === "gates") || !st.doc;
+    section.hidden = st.mode !== "story" || !st.doc;
     if (section.hidden) return;
     const box = $("storyBody");
     box.innerHTML = "";
@@ -1608,7 +1621,6 @@
     if (ev.key === "Delete" || ev.key === "Backspace") { ev.preventDefault(); deleteSelected(); }
   });
   on(document, "keyup", (ev) => { if (ev.key === " ") { st.space = false; wrap.style.cursor = ""; } });
-  on(window, "beforeunload", (ev) => { if (st.unsaved) { ev.preventDefault(); ev.returnValue = ""; } });
 
   // ------------------------------------------------------------ boot
   set_editor_mode(opts.mode);

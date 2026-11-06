@@ -58,7 +58,7 @@
     tileCanvases: [], classCanvases: [], changedMasks: [], stageInfo: [], animCells: [], flashStart: 0,
     view: { zoom: 1, ox: 0, oy: 0 },
     layer: viewSaved.layer === "classes" ? "classes" : "tiles",
-    ov: Object.assign({ areas: true, events: true, grid: false }, viewSaved.ov || {}),
+    ov: Object.assign({ areas: true, events: true, grid: false, markings: true }, viewSaved.ov || {}),
     hover: null, hoverArea: null, sel: null,
     playing: false, timer: null, busy: false,
     specials: [], exits: [], tab: "dex",
@@ -532,14 +532,19 @@
   // scene isn't a dead frame. Only touches the few cells that actually animate.
   const ANIM_MS = 200;
   const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const tile_animation_speeds = [0.25, 0.5, 1, 2, 4];
+  const tile_animation = { is_playing: !reduceMotion, speed_index: 2 };
   let animLast = 0, animFrame = 0;
   function tickAnim(t) {
     requestAnimationFrame(tickAnim);
-    if (reduceMotion || t - animLast < ANIM_MS) return;
-    const cells = state.animCells[state.stage];
-    if (!state.atlas || !cells || !cells.length) return;
+    if (!tile_animation.is_playing || t - animLast < ANIM_MS / tile_animation_speeds[tile_animation.speed_index]) return;
     animLast = t;
     animFrame++;
+    draw_tile_animation_frame();
+  }
+  function draw_tile_animation_frame() {
+    const cells = state.animCells[state.stage];
+    if (!state.atlas || !cells || !cells.length) return;
     const { meta, img } = state.atlas;
     const g = state.tileCanvases[state.stage].getContext("2d");
     for (const c of cells) {
@@ -551,6 +556,30 @@
     draw();
   }
   requestAnimationFrame(tickAnim);
+  function toggle_tile_animation() {
+    tile_animation.is_playing = !tile_animation.is_playing;
+    sync_tile_animation_buttons();
+  }
+  function step_tile_animation(frame_delta) {
+    tile_animation.is_playing = false;
+    animFrame = Math.max(0, animFrame + frame_delta);
+    draw_tile_animation_frame();
+    sync_tile_animation_buttons();
+  }
+  function change_tile_animation_speed(speed_step) {
+    tile_animation.speed_index = Math.max(0, Math.min(tile_animation_speeds.length - 1, tile_animation.speed_index + speed_step));
+    sync_tile_animation_buttons();
+    Shell.status(`Tile animation speed ${tile_animation_speeds[tile_animation.speed_index]}×`);
+  }
+  function sync_tile_animation_buttons() {
+    const play_button = $("tbPlay");
+    play_button.classList.toggle("playing", tile_animation.is_playing);
+    play_button.setAttribute("aria-label", tile_animation.is_playing ? "Pause tile animation" : "Play tile animation");
+    play_button.title = (tile_animation.is_playing ? "Pause" : "Play") + " tile animation (Space)";
+    const current_speed = tile_animation_speeds[tile_animation.speed_index];
+    $("tbPrev").title = `Slower animation, now ${current_speed}× (Left arrow)`;
+    $("tbNext").title = `Faster animation, now ${current_speed}× (Right arrow)`;
+  }
 
   // ------------------------------------------------------------ scene view
   const wrap = $("viewScene");
@@ -723,7 +752,7 @@
     if (label) { follow_connection(label.i); return; }
     const r = state.result;
     const c = r && cellOf(sx, sy);
-    if (!c) { select(null); return; }
+    if (!c || !state.ov.markings) { select(null); return; }
     const zones = PR.zonesAt(r, state.stage);
     const nz = zones.length;
     const evs = PR.eventsAt(r, state.stage);
@@ -798,11 +827,11 @@
     const s = CELL * zoom;
     if (state.ov.grid && s >= 8) drawGrid(g, r, ox, oy, s);
     const zones = PR.zonesAt(r, state.stage);
-    if (state.ov.events) drawEvents(g, PR.eventsAt(r, state.stage), ox, oy, s);
-    if (state.ov.areas) drawAreas(g, zones, ox, oy, s);
+    if (state.ov.markings && state.ov.events) drawEvents(g, PR.eventsAt(r, state.stage), ox, oy, s);
+    if (state.ov.markings && state.ov.areas) drawAreas(g, zones, ox, oy, s);
     if (!opt.interactive) return;
-    drawSelection(g, ox, oy, s);
-    draw_connection_labels(g, ox, oy, s);
+    if (state.ov.markings) drawSelection(g, ox, oy, s);
+    if (state.ov.markings) draw_connection_labels(g, ox, oy, s); else state.connection_labels = [];
     if (state.paint.cells.size) {
       g.globalAlpha = 0.7;
       for (const [k, cls] of state.paint.cells) {
@@ -1335,7 +1364,15 @@
     renderTree();
     draw();
   }
+  function sync_markings_button() {
+    const markings_button = $("tbMarkings");
+    if (!markings_button) return;
+    markings_button.classList.toggle("on", !!state.ov.markings);
+    markings_button.setAttribute("aria-pressed", String(!!state.ov.markings));
+    markings_button.title = state.ov.markings ? "Hide lanes, areas and item markers (they stop being clickable)" : "Show lanes, areas and item markers";
+  }
   function syncViewButtons() {
+    sync_markings_button();
     document.querySelectorAll("[data-layer]").forEach((b) => { const on = b.dataset.layer === state.layer; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); });
     document.querySelectorAll("[data-ov]").forEach((b) => { const on = !!state.ov[b.dataset.ov]; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); });
   }
@@ -1351,8 +1388,6 @@
     else { state.prevStage = null; state.flashStart = 0; }
     state.stage = i;
     const label = `${i + 1} / ${r.stages.length} · ${r.stages[i].name}`;
-    $("tbStage").textContent = label;
-    $("tbStage").title = label;
     renderTree();
     draw();
   }
@@ -1382,7 +1417,7 @@
   }
   function togglePlay() { state.playing ? stopPlay() : startPlay(); }
   function syncPlay() {
-    for (const b of [$("tbPlay")]) {
+    for (const b of []) {
       b.classList.toggle("playing", state.playing);
       b.setAttribute("aria-label", state.playing ? "Pause" : "Play stages");
     }
@@ -1594,7 +1629,7 @@
   function follow_connection(exit_index) {
     const connection = scene_connections()[exit_index];
     if (!connection) return;
-    if (connection.kind === "unknown") { log("warn", `Open the region in Routes A first to follow the way to ${connection.name}.`); return; }
+    if (connection.kind === "unknown") { log("warn", `Open the region in the Map view first to follow the way to ${connection.name}.`); return; }
     if (connection.kind === "town") { show_town_in_routes_view(connection.town); return; }
     walk_to(connection.route, [...state.route_trail, state.region.name]);
   }
@@ -1612,7 +1647,7 @@
   function show_town_in_routes_view(town) {
     Shell.setCenter("region");
     region_editor().select({ kind: "city", id: town.id });
-    log("info", `${town.name} is a town; towns can't open in the Scene yet, so it is selected in Routes A.`);
+    log("info", `${town.name} is a town; towns can't open in the Routes view yet, so it is selected on the Map.`);
   }
   function connection_label_at(sx, sy) {
     return state.connection_labels.find((box) => sx >= box.x && sx < box.x + box.w && sy >= box.y && sy < box.y + box.h) || null;
@@ -2025,16 +2060,16 @@
         { id: "t-ark", label: "Ark rule tiles", radio: true, checked: () => prefs.tiler === "ark", enabled: () => !state.tilers || state.tilers.some((t) => t.id === "ark" && t.ok), run: () => setTiler("ark") },
       ] },
       { sep: true },
-      { id: "play", label: "Play / pause stages", enabled: sceneRoute, run: (ev) => { if (ev && document.activeElement && document.activeElement.tagName === "BUTTON") document.activeElement.blur(); togglePlay(); } },
-      { id: "next", label: "Next stage", enabled: sceneRoute, run: () => step(1) },
-      { id: "prev", label: "Previous stage", enabled: sceneRoute, run: () => step(-1) },
-      { id: "first", label: "First stage", enabled: sceneRoute, run: () => stageEnd(false) },
-      { id: "last", label: "Final stage", enabled: sceneRoute, run: () => stageEnd(true) },
+      { id: "play", label: "Play / pause tile animation", enabled: sceneRoute, run: (ev) => { if (ev && document.activeElement && document.activeElement.tagName === "BUTTON") document.activeElement.blur(); toggle_tile_animation(); } },
+      { id: "next", label: "Faster tile animation", enabled: sceneRoute, run: () => change_tile_animation_speed(1) },
+      { id: "prev", label: "Slower tile animation", enabled: sceneRoute, run: () => change_tile_animation_speed(-1) },
+      { id: "first", label: "Previous animation frame", enabled: sceneRoute, run: () => step_tile_animation(-1) },
+      { id: "last", label: "Next animation frame", enabled: sceneRoute, run: () => step_tile_animation(1) },
     ] },
     { label: "Window", items: [
-      { id: "w-scene", label: "Route bench (Scene)", radio: true, checked: () => Shell.layout.center === "scene", run: () => Shell.setCenter("scene") },
+      { id: "w-scene", label: "Routes", radio: true, checked: () => Shell.layout.center === "scene", run: () => Shell.setCenter("scene") },
       { id: "w-geography", label: "Geography editor", radio: true, checked: () => Shell.layout.center === "geography", run: () => Shell.setCenter("geography") },
-      { id: "w-region", label: "Route design A", radio: true, checked: () => Shell.layout.center === "region", run: () => Shell.setCenter("region") },
+      { id: "w-region", label: "Map", radio: true, checked: () => Shell.layout.center === "region", run: () => Shell.setCenter("region") },
       { id: "w-story", label: "Story", radio: true, checked: () => Shell.layout.center === "story", run: () => Shell.setCenter("story") },
       { id: "w-gates", label: "Route design B", radio: true, checked: () => Shell.layout.center === "gates", run: () => Shell.setCenter("gates") },
       { sep: true },
@@ -2068,11 +2103,12 @@
     document.querySelectorAll("[data-tool]").forEach((b) => { b.onclick = () => setTool(b.dataset.tool); });
     document.querySelectorAll("[data-layer]").forEach((b) => { b.onclick = () => setLayer(b.dataset.layer); });
     document.querySelectorAll("[data-ov]").forEach((b) => { b.onclick = () => toggleOv(b.dataset.ov); });
-    $("tbFirst").onclick = () => stageEnd(false);
-    $("tbPrev").onclick = () => step(-1);
-    $("tbNext").onclick = () => step(1);
-    $("tbLast").onclick = () => stageEnd(true);
-    $("tbPlay").onclick = togglePlay;
+    $("tbFirst").onclick = () => step_tile_animation(-1);
+    $("tbPrev").onclick = () => change_tile_animation_speed(-1);
+    $("tbNext").onclick = () => change_tile_animation_speed(1);
+    $("tbLast").onclick = () => step_tile_animation(1);
+    $("tbPlay").onclick = toggle_tile_animation;
+    sync_tile_animation_buttons();
     $("tbGenerate").onclick = doGenerate;
     $("tbGenerate").title = "Generate";
     $("tbZoomIn").onclick = zoomInView;
@@ -2081,6 +2117,8 @@
     $("tbTiler").onchange = () => setTiler($("tbTiler").value);
     $("paintClass").addEventListener("change", () => { choose_terrain_brush($("paintClass").value); });
     document.querySelectorAll("[data-left-tab]").forEach((tab_button) => { tab_button.onclick = () => show_left_tab(tab_button.dataset.leftTab); });
+    $("tbMarkings").onclick = () => toggleOv("markings");
+    sync_markings_button();
     $("dice").onclick = doRegenerate;
     $("name").addEventListener("change", () => edited("name"));
     $("seed").addEventListener("change", () => edited("seed"));

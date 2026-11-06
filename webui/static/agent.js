@@ -142,12 +142,13 @@
   }
 
   async function undo_job(job) {
-    if (!confirm(`Revert "${job.subject || job.request}"?`)) return;
+    const revert_confirmed = await window.Shell.ask({ title: "Undo this task?", message: `Revert "${job.subject || job.request}"?`, ok_label: "Revert" });
+    if (!revert_confirmed) return;
     await call_improve_api(`/api/improve/${job.id}/undo`, {});
   }
 
   async function follow_up_on_job(job) {
-    const follow_up_text = prompt("What should change about this result?");
+    const follow_up_text = await window.Shell.ask({ title: "Follow up", message: "What should change about this result?", input: "", ok_label: "Send" });
     if (!follow_up_text || !follow_up_text.trim()) return;
     const follow_up_job = await call_improve_api(`/api/improve/${job.id}/fix`, { request: follow_up_text.trim() });
     agent_tab_state.shown_job_id = follow_up_job.id;
