@@ -686,6 +686,14 @@
     });
   }
 
+  // which /api/sprites key draws an event: people by npc role, trainers alternate the two
+  // trainer sheets by position (same rule as pokeroutes/route_people.py trainer_sheet)
+  function event_sprite_key(event) {
+    if (event.kind === "npc" && event.role) return "npc_" + event.role;
+    if (event.kind === "trainer") return (Number(event.x) + Number(event.y)) % 2 ? "trainer_f" : "trainer";
+    return event.kind;
+  }
+
   const api = {
     isMacPlatform, parseShortcut, formatShortcut, eventKey, matchShortcut, focusKind, allowedIn,
     flattenMenus, findShortcut, shortcutClashes, SHORTCUTS, ALT_SHORTCUTS, NOT_IN_FIELDS, attachShortcuts,
@@ -698,6 +706,7 @@
     TWO_WIDE, tidyPaint,
     LEDGE_BRUSH, brush_kind, palette_ledge_codes, palette_terrain_entry, palette_object_entry, palette_class_codes,
     next_ledge_code, snap_cells_to_blocks, object_stamp_cells, exact_tile_value, expand_paint_cells,
+    event_sprite_key,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.SL = api;

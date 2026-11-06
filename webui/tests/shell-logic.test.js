@@ -442,6 +442,14 @@ test("paint palette brushes: kinds, ledges, tree blocks, objects, exact tiles", 
     [[1, 2, "F"], [1, 2, "#564"], [3, 4, "p"], [5, 6, "o"], [5, 6, "#709"]]);
 });
 
+test("event sprite key: npc roles, alternating trainers, other kinds as-is", () => {
+  assert.strictEqual(SL.event_sprite_key({ kind: "npc", role: "hiker", x: 1, y: 1 }), "npc_hiker");
+  assert.strictEqual(SL.event_sprite_key({ kind: "npc", x: 1, y: 1 }), "npc");
+  assert.strictEqual(SL.event_sprite_key({ kind: "trainer", x: 2, y: 4 }), "trainer");
+  assert.strictEqual(SL.event_sprite_key({ kind: "trainer", x: 2, y: 5 }), "trainer_f");
+  assert.strictEqual(SL.event_sprite_key({ kind: "story_blocker", x: 0, y: 0 }), "story_blocker");
+});
+
 console.log(`shell-logic: ${n} tests passed`);
 
 test("placed items: one per cell, edit, remove, remembered per route", () => {

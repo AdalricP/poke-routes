@@ -47,6 +47,7 @@ Use this instead of exploring with grep/sed. Jump straight to the file and funct
    - `seal_edges`, `write_emerald` (map.bin, border.bin, map.json, scripts.inc)
    - `write_scene` (scene.json), `report` (report.json)
    - Route `effect` (none/leaves/snow/rain/ash) → Emerald weather and notes: `pokeroutes/route_effects.py`. The Scene draws it as a particle overlay (bench.js, `tick_route_effect`).
+   - People sprites: `pokeroutes/route_people.py` (npc role / trainer → Ark route-people `OBJ_EVENT_GFX_ARK_ROUTE_*` on Ark maps when the ROM defines them, stock ids otherwise). The Routes view reads the same sheets through `webui/route_items.py` (`/api/sprite.png?kind=npc_<role>|trainer|trainer_f`).
    - `debug_image` (plan.png), `stage_sheet` (stages.png), `grade_for_biome`
 8. **CLI**: `pokeroutes/cli.py`. `_generate_and_write` is the whole route path end to end.
    - `python3 -m pokeroutes generate SPEC [-o OUT] [--seed N] [--stages] [--tileset learned|ark]`

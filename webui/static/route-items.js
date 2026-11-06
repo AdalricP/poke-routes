@@ -92,7 +92,8 @@
         draw_glitter(graphics_context, event, left, top, cell_size, animation_frame);
         return true;
       }
-      const sprite = current_sprites()[event.kind];
+      const sprites = current_sprites();
+      const sprite = sprites[SL.event_sprite_key(event)] || sprites[event.kind];
       if (!sprite) return false;
       draw_overworld_sprite(graphics_context, sprite, left, top, cell_size);
       return true;

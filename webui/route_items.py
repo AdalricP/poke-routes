@@ -2,7 +2,10 @@
 hidden-item glitter, the item constant list, and items placed by hand.
 
     GET  /api/sprite.png?kind=item_ball[&tiler=ark|learned]   first frame of the event's overworld sprite
-                                          (404 when no ROM tree has it); tiler picks Ark or Emerald art first
+                                          (404 when no ROM tree has it); tiler picks Ark or Emerald art first.
+                                          People: kind=npc_<role> (npc_hiker ...), trainer, trainer_f,
+                                          story_blocker; Ark routes get the Arklarna route people
+                                          (pokeroutes/route_people.py), learned routes the stock sprites
     GET  /api/sprites[?tiler=ark|learned] which event kinds have a sprite
     GET  /api/glitter.png                 the hidden-item glitter frames (glitter.py)
     GET  /api/item-constants              ITEM_* names, from the ROM's include/constants/items.h when there is one
@@ -18,6 +21,7 @@ from pathlib import Path
 from PIL import Image
 
 import glitter
+from pokeroutes import route_people
 
 ROOT = Path(__file__).resolve().parent.parent
 PICS = Path("graphics/object_events/pics")
@@ -30,8 +34,19 @@ SPRITE_SOURCES = {
     "strength_boulder": [("misc/pushable_boulder.png", 0)],
     "berry_tree": [("berry_trees/oran.png", 4)],
     "npc": [("people/man_3.png", 0)],
-    "trainer": [("people/youngster.png", 0)],
 }
+
+
+def person_sources(sheet: str) -> list:
+    return [(f"{route_people.ARK_SHEET_DIR}/{sheet}.png", 0), (route_people.STOCK_SHEET_FILE[sheet], 0)]
+
+
+SPRITE_SOURCES.update({f"npc_{role}": person_sources(sheet) for role, sheet in route_people.ROLE_SHEET.items()
+                       if role != "story_blocker"})
+SPRITE_SOURCES["story_blocker"] = person_sources(route_people.ROLE_SHEET["story_blocker"])
+SPRITE_SOURCES["trainer"] = person_sources(route_people.TRAINER_SHEETS[0])
+SPRITE_SOURCES["trainer_f"] = person_sources(route_people.TRAINER_SHEETS[1])
+ARK_ONLY_PREFIX = "people/arklarna/"
 FRAME_WIDTH = 16
 SPRITE_TILERS = ("ark", "learned")
 PLACEABLE_KINDS = ("item_ball", "hidden_item")
@@ -78,6 +93,8 @@ def graphics_roots(tiler: str = "") -> list:
 def sprite_file(kind: str, tiler: str = ""):
     for root in graphics_roots(tiler):
         for relative_path, frame_index in SPRITE_SOURCES.get(kind, []):
+            if tiler == "learned" and relative_path.startswith(ARK_ONLY_PREFIX):
+                continue  # Emerald-tiled routes keep the stock people
             candidate = root / PICS / relative_path
             if candidate.is_file():
                 return candidate, frame_index
