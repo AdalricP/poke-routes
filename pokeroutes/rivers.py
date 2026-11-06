@@ -79,11 +79,7 @@ def river_mask_along_course(shape: Tuple[int, int], course: Sequence[Point], hal
 
 
 def exit_mouth_clearance_mask(route: Route) -> np.ndarray:
-    mouths = np.zeros(route.cls.shape, dtype=bool)
-    for _exit, cells in route.exits:
-        for cell in cells:
-            if route.inside(*cell):
-                mouths[cell] = True
+    mouths = exit_mouth_mask(route)
     if not mouths.any():
         return mouths
     clearance = binary_dilation(mouths, iterations=CLEAR_DISTANCE_FROM_EXIT_MOUTHS_IN_METATILES)
@@ -105,11 +101,36 @@ def remembered_river_mask(route: Route) -> np.ndarray:
     return remembered
 
 
+def exit_mouth_mask(route: Route) -> np.ndarray:
+    mouths = np.zeros(route.cls.shape, dtype=bool)
+    for _exit, cells in route.exits:
+        for cell in cells:
+            if route.inside(*cell):
+                mouths[cell] = True
+    return mouths
+
+
+INWARD_STEP_FROM_EXIT_SIDE = {"west": (0, 1), "east": (0, -1), "north": (1, 0), "south": (-1, 0)}
+EXIT_LANE_DEPTH_IN_METATILES = 6
+
+
+def exit_lane_mask(route: Route) -> np.ndarray:
+    lanes = np.zeros(route.cls.shape, dtype=bool)
+    for route_exit, cells in route.exits:
+        step_y, step_x = INWARD_STEP_FROM_EXIT_SIDE.get(getattr(route_exit, "side", ""), (0, 0))
+        for depth in range(EXIT_LANE_DEPTH_IN_METATILES):
+            lane_cells = [(cell[0] + step_y * depth, cell[1] + step_x * depth) for cell in cells]
+            for lane_cell in lane_cells:
+                if route.inside(*lane_cell):
+                    lanes[lane_cell] = True
+    return lanes
+
+
 def paint_river(route: Route, river_mask: np.ndarray, name: str, extra_meta: dict) -> Tuple[int, int]:
     from .stages import code
 
     drawable = river_mask & ~special_area_mask(route)
-    crossing_cells = drawable & np.isin(route.cls, list(WALKABLE))
+    crossing_cells = drawable & (np.isin(route.cls, list(WALKABLE)) | exit_lane_mask(route))
     water_cells = drawable & ~crossing_cells & (route.cls != WATERFALL_CLASS)
     route.cls[water_cells] = WATER_CLASS
     route.cls[crossing_cells] = code("BRIDGE", "q")
