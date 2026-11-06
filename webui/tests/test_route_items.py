@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+from PIL import Image
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
@@ -108,3 +109,22 @@ def test_hidden_items_leave_nothing_visible_in_the_map(tmp_path):
     assert [(event["type"], event["x"], event["y"]) for event in added] == [("hidden_item", x, y)]
     for name in ("map.bin", "border.bin"):
         assert (tmp_path / "after" / layout_dir / name).read_bytes() == (tmp_path / "before" / layout_dir / name).read_bytes()
+
+
+def fake_rom_with_cut_tree(root: Path) -> Path:
+    pic = root / route_items.PICS / "misc/cuttable_tree.png"
+    pic.parent.mkdir(parents=True)
+    Image.new("RGB", (64, 16)).save(pic)
+    return root
+
+
+def test_ark_routes_get_ark_sprites_and_learned_routes_get_emerald_ones(tmp_path, monkeypatch):
+    ark_rom = fake_rom_with_cut_tree(tmp_path / "ark")
+    emerald_rom = fake_rom_with_cut_tree(tmp_path / "emerald")
+    monkeypatch.setattr(route_items, "ark_roots", lambda: [ark_rom])
+    monkeypatch.setattr(route_items, "emerald_roots", lambda: [emerald_rom])
+    assert ark_rom in route_items.sprite_file("cut_tree", "ark")[0].parents
+    assert ark_rom in route_items.sprite_file("cut_tree", "")[0].parents
+    assert emerald_rom in route_items.sprite_file("cut_tree", "learned")[0].parents
+    assert route_items.query_tiler({"tiler": ["learned"]}) == "learned"
+    assert route_items.query_tiler({"tiler": ["../etc"]}) == ""

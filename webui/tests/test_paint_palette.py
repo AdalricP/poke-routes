@@ -43,6 +43,7 @@ def small_ark_table() -> dict:
         "stump": {"cells": [[70, 71], [72, 73]], "collision": 1},
         "flowers0": {"cells": [[80]], "collision": 0},
         "split_oak": {"cells": [[90, 91], [92, 93]], "collision": 1, "blocked": [[0, 1], [1, 1]]},
+        "tree_small": {"cells": [[95]], "collision": 1},
     }
     class_of_metatile = {"1": "g", "40": "r", "70": "o", "80": "o", "99": "o"}
     return {"mask_bits": ["N", "NE", "E", "SE", "S", "SW", "W", "NW"], "classes": classes, "props": props,
@@ -77,6 +78,7 @@ def test_ark_palette_reads_classes_props_and_collision_from_the_class_table(monk
     assert objects["stump"]["classes"] == [["o", "o"], ["o", "o"]]
     assert objects["flowers0"]["classes"] == [["g"]] and objects["flowers0"]["name"] == "flowers 1"
     assert objects["split_oak"]["classes"] == [["g", "o"], ["o", "o"]]
+    assert objects["tree_small"]["classes"] == [["o"]] and objects["tree_small"]["name"] == "small tree"
     assert palette["tiles"]["70"] == "o" and palette["tiles"]["80"] == "g" and palette["tiles"]["99"] == "g"
     assert palette["tiles"]["40"] == "r"
 

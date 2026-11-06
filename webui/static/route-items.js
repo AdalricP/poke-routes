@@ -19,25 +19,45 @@
 
   function create(bench) {
     const { state, $, el } = bench;
-    const sprites = {};
+    const sprites_by_tiler = {};
+    const sprite_loads = {};
     let glitter_strip = null;
     let shown_items = [];
     let route_key = "";
 
     async function load_assets() {
       glitter_strip = await load_image("/api/glitter.png");
-      await load_sprites();
+      await load_sprites(route_tiler());
       await load_item_constants();
       bench.draw();
     }
 
-    async function load_sprites() {
+    // the Ark rule tiler gets the Arklarna ROM's field-object art, learned routes the Emerald art
+    function route_tiler() {
+      return state.result && state.result.tiler === "learned" ? "learned" : "ark";
+    }
+
+    function load_sprites(tiler) {
+      if (!sprite_loads[tiler]) sprite_loads[tiler] = fetch_sprites(tiler);
+      return sprite_loads[tiler];
+    }
+
+    async function fetch_sprites(tiler) {
+      const sprites = {};
       let listing = {};
-      try { listing = (await bench.fetchJSON("/api/sprites")).sprites || {}; } catch (error) { return; }
+      try { listing = (await bench.fetchJSON("/api/sprites?tiler=" + tiler)).sprites || {}; } catch (error) { listing = {}; }
       const kinds = Object.keys(listing).filter((kind) => listing[kind]);
-      const images = await Promise.all(kinds.map((kind) => load_image("/api/sprite.png?kind=" + kind)));
+      const images = await Promise.all(kinds.map((kind) => load_image(`/api/sprite.png?kind=${kind}&tiler=${tiler}`)));
       kinds.forEach((kind, index) => { if (images[index]) sprites[kind] = images[index]; });
+      sprites_by_tiler[tiler] = sprites;
       if (!sprites.item_ball) bench.log("info", "No item-ball sprite found in a ROM tree on this machine; items use the plain markers.");
+    }
+
+    function current_sprites() {
+      const tiler = route_tiler();
+      if (sprites_by_tiler[tiler]) return sprites_by_tiler[tiler];
+      if (!sprite_loads[tiler]) load_sprites(tiler).then(() => bench.draw());
+      return {};
     }
 
     async function load_item_constants() {
@@ -72,7 +92,7 @@
         draw_glitter(graphics_context, event, left, top, cell_size, animation_frame);
         return true;
       }
-      const sprite = sprites[event.kind];
+      const sprite = current_sprites()[event.kind];
       if (!sprite) return false;
       draw_overworld_sprite(graphics_context, sprite, left, top, cell_size);
       return true;
