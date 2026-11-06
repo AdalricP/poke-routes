@@ -25,3 +25,7 @@ Known gaps / next:
   Now lobe count/placement, strait, spit arc, Nehrung size and coast roughness come from the
   seed (lore layout kept). Seeds 1-60 all build; ~1 in 8 drops an optional link
   (often the Huettenau-Pilsau loop), seed 31 loses Pilsau-Kaup. Worth a look.
+- 2026-11-06: still read as the same map every seed (mainland west, spit east, volcano
+  south-west). Now ~40% of seeds get a broad Nehrung just across the strait instead of the long
+  spit, and after legendary carving the whole region is mirrored east-west and/or north-south
+  per seed (World.mirror; climate follows the flipped wind). Seeds 1-40 build.
