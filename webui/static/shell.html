@@ -137,6 +137,10 @@
         <ul class="tree" id="tree" role="tree" aria-label="Route parts"></ul>
         <ul class="tree" id="mapTree" role="tree" aria-label="Places and layers" hidden></ul>
       </div>
+      <div id="leftBiomes" class="tiles-pane" hidden>
+        <p class="tiles-note">Pick a biome, then paint it on the map. Painted biomes stay through every recompute.</p>
+        <div class="terrain-grid" id="biomeGrid"></div>
+      </div>
       <div id="leftTiles" class="tiles-pane" hidden>
         <p class="tiles-note">Pick a terrain or a tree and paint it on the map; edges and corners fix themselves like the generator's own. Generate starts a fresh map without the paint.</p>
         <div class="terrain-grid" id="terrainGrid"></div>

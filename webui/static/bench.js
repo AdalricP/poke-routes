@@ -1559,9 +1559,12 @@
   function show_tiles_tab_only_in_scene(center_tab) {
     const tiles_tab_button = document.querySelector('[data-left-tab="tiles"]');
     if (!tiles_tab_button) return;
-    const is_scene_view = center_tab === "scene";
-    tiles_tab_button.hidden = !is_scene_view;
-    if (!is_scene_view && !$("leftTiles").hidden) show_left_tab("hierarchy");
+    const palette_tab_label = { scene: "Tiles", geography: "Biomes" }[center_tab];
+    tiles_tab_button.hidden = !palette_tab_label;
+    tiles_tab_button.textContent = palette_tab_label || "Tiles";
+    const palette_tab_is_open = !$("leftTiles").hidden || !$("leftBiomes").hidden;
+    if (!palette_tab_label && palette_tab_is_open) { show_left_tab("hierarchy"); return; }
+    if (palette_tab_is_open) show_left_tab("tiles");
   }
   function generate_button_label_for_view(center_tab) {
     switch (center_tab) {
@@ -2050,9 +2053,32 @@
 
   function show_left_tab(left_tab_name) {
     document.querySelectorAll("[data-left-tab]").forEach((tab_button) => tab_button.classList.toggle("on", tab_button.dataset.leftTab === left_tab_name));
+    const is_geography_view = Shell.layout.center === "geography";
     $("leftHierarchy").hidden = left_tab_name !== "hierarchy";
-    $("leftTiles").hidden = left_tab_name !== "tiles";
-    if (left_tab_name === "tiles") render_terrain_brushes();
+    $("leftTiles").hidden = left_tab_name !== "tiles" || is_geography_view;
+    $("leftBiomes").hidden = left_tab_name !== "tiles" || !is_geography_view;
+    if (left_tab_name !== "tiles") return;
+    if (is_geography_view) { render_biome_brushes(); return; }
+    render_terrain_brushes();
+  }
+
+  function render_biome_brushes() {
+    const biome_grid = $("biomeGrid");
+    const editor_actions = region_editor();
+    biome_grid.innerHTML = "";
+    if (!editor_actions || !window.ED) return;
+    const current_paint_biome = editor_actions.paint_biome ? editor_actions.paint_biome() : null;
+    for (const biome_code of window.ED.PAINT_BIOMES) {
+      const biome_rgb = window.ED.BIOME_RGB[biome_code] || [255, 0, 255];
+      const biome_button = el("button", "terrain-brush" + (biome_code === current_paint_biome ? " on" : ""));
+      biome_button.type = "button";
+      biome_button.title = `Paint ${window.ED.BIOME_NAMES[biome_code] || biome_code}`;
+      const biome_swatch = el("span", "biome-swatch");
+      biome_swatch.style.background = `rgb(${biome_rgb.join(",")})`;
+      biome_button.append(biome_swatch, el("span", "", window.ED.BIOME_NAMES[biome_code] || biome_code));
+      biome_button.onclick = () => { editor_actions.set_paint_biome(biome_code); render_biome_brushes(); };
+      biome_grid.append(biome_button);
+    }
   }
 
   const terrain_preview_size_in_pixels = 40;

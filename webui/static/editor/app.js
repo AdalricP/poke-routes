@@ -1626,6 +1626,8 @@
     load: loadSaved, listSaved, exportSpecs, recompute, setTool, toggleLayer, fit, openInBench,
     set_editor_mode, set_route_opener: (route_opener) => { open_route_spec_in_host = route_opener; },
     deleteSelected, help: () => { $("help").hidden = !$("help").hidden; },
+    set_paint_biome: (biome_code) => { st.biome = biome_code; setTool("biome"); refreshTool(); },
+    paint_biome: () => st.biome,
     tools: Object.keys(TOOLS), layers: () => Object.assign({}, st.layers),
     zoomIn: () => $("zIn").onclick(), zoomOut: () => $("zOut").onclick(), getZoomPct: () => Math.round(st.view.z / 6 * 100),
     getDoc: () => st.doc, isUnsaved: () => st.unsaved,
