@@ -34,6 +34,8 @@ import numpy as np
 
 from .classify import seal_waterfalls
 from .layout import Layout
+from .ruletile_terrain import (grid_with_ledge_grounds, shore_metatile, tile_bridges, tile_ledges_over_ground,
+                               tile_sideways_waterfalls)
 
 EXPERIMENTS = Path(__file__).resolve().parents[2]
 ROM_CANDIDATES = [EXPERIMENTS / "arklarna/rom-wt/tiles-outdoor", EXPERIMENTS / "arklarna/rom"]
@@ -155,13 +157,37 @@ class ArkTiler:
         C = self.C
         ids = np.full((H, W), self.grass, np.int32)
         blocked = np.zeros((H, W), bool)
+        self._tile_cells(grid, grid, ids, blocked)
+        ledge_grounds = tile_ledges_over_ground(grid, ids, C)
+        mask_grid = grid_with_ledge_grounds(grid, ledge_grounds)
+        if ledge_grounds:
+            self._tile_cells(grid, mask_grid, ids, blocked)
+            tile_ledges_over_ground(grid, ids, C)
+        self._trees(grid, ids, blocked, mask_grid)
+        col = blocked.astype(np.uint8)
+        el = np.full((H, W), 3, np.uint8)
+        el[blocked] = 0
+        for y in range(H):
+            for x in range(W):
+                if grid[y][x] in ("w", "a"):
+                    el[y, x] = 1
+        return Layout(ids.astype(np.uint16), col, el)
+
+    def _tile_cells(self, grid, mask_grid, ids, blocked):
+        H, W = len(grid), len(grid[0])
+        C = self.C
         for y in range(H):
             for x in range(W):
                 c = grid[y][x]
                 k = C[c]
                 kind = k.get("autotile")
                 if kind == "blob47":
-                    ids[y, x] = k["by_mask"][str(self._mask(grid, x, y, set(k.get("joins", c))))]
+                    ids[y, x] = k["by_mask"][str(self._mask(mask_grid, x, y, set(k.get("joins", c))))]
+                elif kind == "shore":
+                    shore = shore_metatile(grid, x, y, k, self.bits)
+                    body = C[k["body"]]
+                    ids[y, x] = shore if shore is not None else body["by_mask"][
+                        str(self._mask(mask_grid, x, y, set(k.get("joins", c))))]
                 elif kind in ("row", "column") and "corners" in k:
                     ids[y, x] = k["corners"][ledge_arm_key(grid, x, y)]
                 elif kind == "row":
@@ -179,22 +205,19 @@ class ArkTiler:
                     r = x < W - 1 and grid[y][x + 1] == c
                     row = "top" if not u else "bottom" if not d else "mid"
                     col = "mid" if l == r else "left" if r else "right"
-                    ids[y, x] = k["parts"][f"{row}_{col}"]
-                elif kind != "tree2x2":
+                    single = k["parts"].get(f"{row}_single")
+                    is_single_column = not l and not r and single is not None
+                    ids[y, x] = single if is_single_column else k["parts"][f"{row}_{col}"]
+                elif kind not in ("tree2x2", "bridge"):
                     ids[y, x] = k["base"][(x * 7 + y * 13) % len(k["base"])]
                 if k.get("collision"):
                     blocked[y, x] = True
-        self._trees(grid, ids, blocked)
-        col = blocked.astype(np.uint8)
-        el = np.full((H, W), 3, np.uint8)
-        el[blocked] = 0
-        for y in range(H):
-            for x in range(W):
-                if grid[y][x] in ("w", "a"):
-                    el[y, x] = 1
-        return Layout(ids.astype(np.uint16), col, el)
+        if "q" in C:
+            tile_bridges(grid, ids, C["q"])
+        if "a" in C:
+            tile_sideways_waterfalls(grid, ids, C["a"], "w")
 
-    def _trees(self, grid, ids, blocked):
+    def _trees(self, grid, ids, blocked, mask_grid=None):
         C = self.C
         H, W = len(grid), len(grid[0])
         letters = [k for k, v in C.items() if v.get("autotile") == "tree2x2"]
@@ -248,7 +271,7 @@ class ArkTiler:
                     elif c == "g":
                         ids[y, x] = ov["g"].get(key, ids[y, x])
                     elif c == "p" or c in tall:
-                        m = self._mask(grid, x, y, set(C[c].get("joins", c)))
+                        m = self._mask(mask_grid or grid, x, y, set(C[c].get("joins", c)))
                         # crown-over-path art only exists for some masks (no road bottom
                         # edge, 199); fall back to the same mask without the diagonals
                         tab = ov[c].get(str(m)) or ov[c].get(str(m & orth))

@@ -14,14 +14,13 @@
   };
   const BIOME_NAMES = {
     "~": "sea", "=": "deep sea", o: "lake", b: "beach", d: "desert", m: "meadow", f: "forest", F: "deep forest",
-    w: "marsh", M: "mountain", S: "snow peaks", v: "volcanic", l: "lava field", a: "ash badlands",
-    g: "dragon grove", B: "regrown burn",
+    w: "marsh", M: "mountain", S: "snow peaks", v: "volcanic",
   };
-  const PAINT_BIOMES = "mfFwbdMSvlagB";
+  const PAINT_BIOMES = "mfFwbdMSv";
   const BIOME_RGB = {
     "~": [58, 104, 150], "=": [34, 62, 104], o: [78, 132, 170], b: [226, 210, 160], d: [210, 178, 118],
     m: [156, 182, 98], f: [86, 136, 70], F: [52, 98, 56], w: [108, 140, 104], M: [128, 118, 110],
-    S: [232, 234, 238], v: [92, 72, 70], l: [196, 74, 38], a: [196, 182, 160], g: [74, 160, 92], B: [134, 128, 72],
+    S: [232, 234, 238], v: [92, 72, 70],
   };
   const ROLE_RGB = {
     straight: [250, 250, 250], turn: [255, 214, 92], crossroads: [255, 120, 90], dead_end: [190, 140, 255],
@@ -344,6 +343,17 @@
     return [150, 150, 140];
   }
 
+  const GEOGRAPHY_DARKEST_SHADE = 0.4, GEOGRAPHY_SHADE_RANGE = 0.92;
+  const GEOGRAPHY_COAST_RIM = 0.55, GEOGRAPHY_TIER_SHADOW = 0.6, GEOGRAPHY_TIER_LIGHT = 1.16;
+  // the coast gets a dark rim; a tier step reads as a terrace lit from the north-west
+  function geography_rim_factor(g, i, j, has_tiers, faces_the_light) {
+    if (j < 0 || !g.land[i]) return 1;
+    if (!g.land[j]) return GEOGRAPHY_COAST_RIM;
+    if (!has_tiers || g.tiers[j] <= g.tiers[i]) return 1;
+    const rim = faces_the_light ? GEOGRAPHY_TIER_LIGHT : GEOGRAPHY_TIER_SHADOW;
+    return rim;
+  }
+
   // Paint cells [x0, x1) x [y0, y1) into an RGBA buffer of (W*S) x (H*S) pixels.
   // Colour is per cell (crisp, like the server render); shading is interpolated
   // between cell centres; the coast and tier steps get a dark rim.
@@ -355,7 +365,7 @@
     for (let i = 0; i < W * H; i++) if (g.land[i] && g.height[i] > hmax) hmax = g.height[i];
     const PW = W * S;
     const tiers = g.tiers, landG = g.land;
-    const rims = layers.biome && layers.height && tiers;
+    const rims = layers.height && tiers;
     // per sub-pixel offset: which neighbour column/row and the blend weight
     const off = new Float32Array(S), side = new Int8Array(S);
     for (let p = 0; p < S; p++) {
@@ -371,13 +381,8 @@
         const wet = !land || (g.lake[i] && layers.water);
         const iL = cx > 0 ? i - 1 : -1, iR = cx < W - 1 ? i + 1 : -1;
         const iU = cy > 0 ? i - W : -1, iD = cy < H - 1 ? i + W : -1;
-        const rim = (j) => {
-          if (j < 0 || !land) return 1;
-          if (!landG[j]) return 0.55;
-          if (rims && tiers[j] > tiers[i]) return 0.62;
-          return 1;
-        };
-        const kL = rim(iL), kR = rim(iR), kU = rim(iU), kD = rim(iD);
+        const kL = geography_rim_factor(g, i, iL, rims, false), kR = geography_rim_factor(g, i, iR, rims, true);
+        const kU = geography_rim_factor(g, i, iU, rims, false), kD = geography_rim_factor(g, i, iD, rims, true);
         const s0 = shade[i];
         const sL = iL >= 0 ? shade[iL] : s0, sR = iR >= 0 ? shade[iR] : s0;
         const sU = iU >= 0 ? shade[iU] : s0, sD = iD >= 0 ? shade[iD] : s0;
@@ -392,11 +397,11 @@
             const jx = side[px] < 0 ? (iL >= 0 ? iL : i) : (iR >= 0 ? iR : i);
             const diag = shade[jy + (jx - i)] !== undefined ? shade[jy + (jx - i)] : s0;
             const sh = (s0 * (1 - tx) + sx * tx) * (1 - ty) + (sy * (1 - tx) + diag * tx) * ty;
-            let k = layers.height ? (wet ? 0.92 + 0.08 * sh : 0.55 + 0.7 * sh) : (wet ? 1 : 0.95);
+            let k = layers.height ? (wet ? 0.92 + 0.08 * sh : GEOGRAPHY_DARKEST_SHADE + GEOGRAPHY_SHADE_RANGE * sh) : (wet ? 1 : 0.95);
             k *= rowK * (px === 0 ? kL : 1) * (px === S - 1 ? kR : 1);
-            data[o] = col[0] * k;
-            data[o + 1] = col[1] * k;
-            data[o + 2] = col[2] * k;
+            data[o] = Math.min(255, col[0] * k);
+            data[o + 1] = Math.min(255, col[1] * k);
+            data[o + 2] = Math.min(255, col[2] * k);
             data[o + 3] = 255;
             o += 4;
           }
@@ -868,12 +873,12 @@
 
   // ------------------------------------------------------------ town-map style (Sinnoh-like) base raster
   const TOWN_MAP_RGB = {
-    sea: [104, 170, 236], deep_sea: [92, 158, 228], halo: [178, 224, 250], outer_halo: [146, 200, 246], lake: [146, 206, 248],
+    sea: [104, 170, 236], deep_sea: [92, 158, 228], halo: [178, 224, 250], outer_halo: [146, 200, 246], lake: [146, 206, 248], river: [120, 186, 242],
     lowland: [168, 216, 128], midland: [146, 202, 108], upland: [122, 180, 94], highland: [170, 150, 108],
     peak: [200, 186, 160], snow: [240, 242, 246], forest: [140, 200, 110], deep_forest: [120, 184, 100], sand: [228, 218, 156],
-    marsh: [146, 196, 146], ash: [192, 172, 144], volcanic: [176, 140, 120], lava: [212, 132, 92],
+    marsh: [146, 196, 146], volcanic: [176, 140, 120],
   };
-  const TOWN_MAP_BIOME = { f: "forest", F: "deep_forest", g: "forest", b: "sand", d: "sand", w: "marsh", a: "ash", v: "volcanic", l: "lava", S: "snow" };
+  const TOWN_MAP_BIOME = { f: "forest", F: "deep_forest", b: "sand", d: "sand", w: "marsh", v: "volcanic", S: "snow" };
   const HEIGHT_BANDS = [0.28, 0.52, 0.74, 0.9];
   const BAND_RGB = ["lowland", "midland", "upland", "highland", "peak"];
   function sea_distance_to_land(doc, limit) {
@@ -920,9 +925,11 @@
     return TOWN_MAP_RGB[BAND_RGB[band]];
   }
   function relief_factor(shade_value) {
-    if (shade_value < 0.42) return 0.86;
-    if (shade_value < 0.6) return 0.94;
-    if (shade_value > 0.82) return 1.04;
+    if (shade_value < 0.3) return 0.74;
+    if (shade_value < 0.45) return 0.84;
+    if (shade_value < 0.6) return 0.93;
+    if (shade_value > 0.86) return 1.09;
+    if (shade_value > 0.74) return 1.04;
     return 1;
   }
   function sample_grid(grid, W, H, fx, fy) {
@@ -933,19 +940,96 @@
     const bottom = grid[y1 * W + x0] * (1 - tx) + grid[y1 * W + x1] * tx;
     return top * (1 - ty) + bottom * ty;
   }
-  // a cell's edge gets a darker rim where it meets the sea or a higher band: coast line and contour lines
-  function rim_factor(doc, i, j, layers, hmax) {
+  // a cell's edge gets a rim where it meets the sea or another terrace: the coast line, and terrace steps
+  // lit from the north-west (a step up to the north or west casts a shadow, a step up to the south or east catches light)
+  const TERRACE_SHADOW = 0.72, TERRACE_LIGHT = 1.12, MINOR_TERRACE_SHADOW = 0.86, MINOR_TERRACE_LIGHT = 1.05, COAST_RIM = 0.78;
+  const MINOR_TERRACES_PER_BAND = 2;
+  function terrace_level(height, hmax) {
+    const t = height / hmax;
+    let band = height_band(height, hmax);
+    const band_floor = band === 0 ? 0 : HEIGHT_BANDS[band - 1];
+    const band_top = band < HEIGHT_BANDS.length ? HEIGHT_BANDS[band] : 1;
+    const minor_step = Math.min(MINOR_TERRACES_PER_BAND - 1, Math.floor(((t - band_floor) / Math.max(1e-6, band_top - band_floor)) * MINOR_TERRACES_PER_BAND));
+    const level = band * MINOR_TERRACES_PER_BAND + Math.max(0, minor_step);
+    return level;
+  }
+  function rim_factor(doc, i, j, layers, hmax, faces_the_light) {
     const g = doc.grids;
     if (j < 0 || !g.land[i]) return 1;
-    if (!g.land[j]) return 0.8;
-    if (layers.height && height_band(g.height[j], hmax) > height_band(g.height[i], hmax)) return 0.88;
-    return 1;
+    if (!g.land[j]) return COAST_RIM;
+    if (!layers.height || (g.lake[j] && layers.water)) return 1;
+    const own_level = terrace_level(g.height[i], hmax), neighbour_level = terrace_level(g.height[j], hmax);
+    if (neighbour_level <= own_level) return 1;
+    const is_band_step = height_band(g.height[j], hmax) > height_band(g.height[i], hmax);
+    if (faces_the_light) return is_band_step ? TERRACE_LIGHT : MINOR_TERRACE_LIGHT;
+    const shadow = is_band_step ? TERRACE_SHADOW : MINOR_TERRACE_SHADOW;
+    return shadow;
   }
-  function renderTownMap(doc, layers, S, data, rect, shade, sea_distance) {
+
+  // ------------------------------------------------------------ town-map rivers: water bands on the grid, width from flow
+  const RIVER_NARROWEST_HALF_WIDTH = 0.17, RIVER_WIDEST_HALF_WIDTH = 0.62, RIVER_BANK_WIDTH = 0.11;
+  function river_flow_range(doc) {
+    const g = doc.grids;
+    let smallest_flow = Infinity, largest_flow = 0;
+    for (let i = 0; i < g.river.length; i++) {
+      if (!g.river[i]) continue;
+      smallest_flow = Math.min(smallest_flow, g.flow[i]);
+      largest_flow = Math.max(largest_flow, g.flow[i]);
+    }
+    const flow_range = { smallest_flow: Math.max(1e-6, smallest_flow), largest_flow: Math.max(smallest_flow * 1.0001, largest_flow) };
+    return flow_range;
+  }
+  function river_half_width(flow, flow_range) {
+    const share = Math.log(Math.max(flow, flow_range.smallest_flow) / flow_range.smallest_flow) / Math.log(flow_range.largest_flow / flow_range.smallest_flow);
+    const half_width = RIVER_NARROWEST_HALF_WIDTH + (RIVER_WIDEST_HALF_WIDTH - RIVER_NARROWEST_HALF_WIDTH) * Math.sqrt(Math.max(0, Math.min(1, share)));
+    return half_width;
+  }
+  function river_segment_of_cell(doc, i, flow_range) {
+    const g = doc.grids, W = doc.W;
+    const x = i % W, y = (i / W) | 0;
+    const half_width = river_half_width(g.flow[i], flow_range);
+    const receiver = g.recv ? g.recv[i] : -1;
+    const runs_on = receiver >= 0 && (g.river[receiver] || g.lake[receiver] || !g.land[receiver]) && Math.abs((receiver % W) - x) <= 1;
+    const end = runs_on ? [receiver % W + 0.5, ((receiver / W) | 0) + 0.5] : [x + 0.5, y + 0.5];
+    const segment = { x0: x + 0.5, y0: y + 0.5, x1: end[0], y1: end[1], half_width };
+    return segment;
+  }
+  // per cell, the river segments that can reach into it (its own, its neighbours')
+  function river_segments_by_cell(doc) {
+    const W = doc.W, H = doc.H, g = doc.grids;
+    const by_cell = new Array(W * H);
+    if (!g.river || !g.flow) return by_cell;
+    const flow_range = river_flow_range(doc);
+    for (let i = 0; i < W * H; i++) {
+      if (!g.river[i]) continue;
+      const segment = river_segment_of_cell(doc, i, flow_range);
+      const reach = segment.half_width + RIVER_BANK_WIDTH;
+      const column_from = Math.max(0, Math.floor(Math.min(segment.x0, segment.x1) - reach)), column_to = Math.min(W - 1, Math.floor(Math.max(segment.x0, segment.x1) + reach));
+      const row_from = Math.max(0, Math.floor(Math.min(segment.y0, segment.y1) - reach)), row_to = Math.min(H - 1, Math.floor(Math.max(segment.y0, segment.y1) + reach));
+      for (let row = row_from; row <= row_to; row++) {
+        for (let column = column_from; column <= column_to; column++) (by_cell[row * W + column] = by_cell[row * W + column] || []).push(segment);
+      }
+    }
+    return by_cell;
+  }
+  function distance_outside_river(segments, px, py) {
+    let nearest = Infinity;
+    for (const segment of segments) {
+      const dx = segment.x1 - segment.x0, dy = segment.y1 - segment.y0;
+      const length_squared = dx * dx + dy * dy;
+      const t = length_squared > 0 ? Math.max(0, Math.min(1, ((px - segment.x0) * dx + (py - segment.y0) * dy) / length_squared)) : 0;
+      const distance = Math.hypot(px - (segment.x0 + t * dx), py - (segment.y0 + t * dy)) - segment.half_width;
+      if (distance < nearest) nearest = distance;
+    }
+    return nearest;
+  }
+
+  function renderTownMap(doc, layers, S, data, rect, shade, sea_distance, river_segments) {
     const W = doc.W, H = doc.H, g = doc.grids;
     const [x0, y0, x1, y1] = rect || [0, 0, W, H];
     sea_distance = sea_distance || sea_distance_to_land(doc, 3);
     shade = shade || shadeGrid(g.height, W, H, 9);
+    river_segments = layers.water ? river_segments || river_segments_by_cell(doc) : [];
     let hmax = 1e-6;
     for (let i = 0; i < W * H; i++) if (g.land[i] && g.height[i] > hmax) hmax = g.height[i];
     const PW = W * S;
@@ -954,19 +1038,26 @@
         const i = cy * W + cx;
         const col = town_map_cell_color(doc, i, layers, hmax, sea_distance);
         const is_dry = g.land[i] && !(g.lake[i] && layers.water);
-        const rims = [cx > 0 ? i - 1 : -1, cx < W - 1 ? i + 1 : -1, cy > 0 ? i - W : -1, cy < H - 1 ? i + W : -1]
-          .map((j) => rim_factor(doc, i, j, layers, hmax));
+        const rims = [[cx > 0 ? i - 1 : -1, false], [cx < W - 1 ? i + 1 : -1, true], [cy > 0 ? i - W : -1, false], [cy < H - 1 ? i + W : -1, true]]
+          .map(([j, faces_the_light]) => rim_factor(doc, i, j, layers, hmax, faces_the_light));
+        const segments = is_dry ? river_segments[i] : null;
         for (let py = 0; py < S; py++) {
           let o = ((cy * S + py) * PW + cx * S) * 4;
           for (let px = 0; px < S; px++) {
+            let pixel = col;
             let k = is_dry && layers.height ? relief_factor(sample_grid(shade, W, H, cx + (px + 0.5) / S - 0.5, cy + (py + 0.5) / S - 0.5)) : 1;
             if (px === 0) k *= rims[0];
             if (px === S - 1) k *= rims[1];
             if (py === 0) k *= rims[2];
             if (py === S - 1) k *= rims[3];
-            data[o] = Math.min(255, col[0] * k);
-            data[o + 1] = Math.min(255, col[1] * k);
-            data[o + 2] = Math.min(255, col[2] * k);
+            if (segments) {
+              const outside = distance_outside_river(segments, cx + (px + 0.5) / S, cy + (py + 0.5) / S);
+              if (outside <= 0) { pixel = TOWN_MAP_RGB.river; k = 1; }
+              else if (outside <= RIVER_BANK_WIDTH) k = Math.min(k, COAST_RIM);
+            }
+            data[o] = Math.min(255, pixel[0] * k);
+            data[o + 1] = Math.min(255, pixel[1] * k);
+            data[o + 2] = Math.min(255, pixel[2] * k);
             data[o + 3] = 255;
             o += 4;
           }
@@ -987,7 +1078,7 @@
     setSpecField, benchParams, HMS, routeNeeds, reachableAt, storyWarnings, moveBeat, removeBeat,
     start_stroke, extend_stroke, stroke_corners, corners_of_line, cells_of_corners, anchor_of_place, stroke_problem, drawn_line_of_route,
     with_waypoint_moved, delete_drawn_line, without_straight_runs, town_map_route_lines, point_halfway_along,
-    TOWN_MAP_RGB, sea_distance_to_land, town_map_cell_color, renderTownMap,
+    TOWN_MAP_RGB, sea_distance_to_land, town_map_cell_color, renderTownMap, river_segments_by_cell, river_half_width, terrace_level,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.ED = api;

@@ -4,33 +4,63 @@ Every pick is scored on the region grid; a variant number adds a little noise to
 the scores, so asking again gives another sensible layout."""
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from scipy import ndimage as ndi
 
 from .world import World
 
-FEWEST_TOWNS, MOST_TOWNS = 4, 8
-LAND_CELLS_PER_TOWN = 1500
+FEWEST_TOWNS, MOST_TOWNS = 4, 14
+LAND_CELLS_PER_TOWN = 780
+SMALLEST_LANDMASS_CELLS_FOR_A_TOWN = 160
 TOWN_WIDTH_IN_CELLS, TOWN_HEIGHT_IN_CELLS = 10, 9
 MAP_MARGIN_IN_CELLS = 3
 SMALLEST_DRY_LAND_SHARE_UNDER_A_TOWN = 0.85
-UNBUILDABLE_BIOME_CODES = "MSlvo~="
+UNBUILDABLE_BIOME_CODES = "MSvo~="
 COAST_DISTANCE_BAND_IN_CELLS = (2, 7)
 RIVER_MOUTH_REACH_IN_CELLS = 6
 RIVER_REACH_IN_CELLS = 3
 SCORE_FOR_FLAT_GROUND, SCORE_FOR_LOW_GROUND = 3.0, 1.5
 SCORE_FOR_COAST, SCORE_FOR_RIVER_MOUTH, SCORE_FOR_RIVERSIDE = 1.5, 2.5, 1.0
 SCORE_NOISE_OF_A_VARIANT = 1.2
-SPACING_SHARE_OF_EVEN_SPREAD = 0.75
-SMALLEST_SPACING_IN_CELLS = 20
+SPACING_SHARE_OF_EVEN_SPREAD = 0.8
+SMALLEST_SPACING_IN_CELLS = 18
 
 
 def wanted_town_count(w: World) -> int:
-    dry_land_cells = int((w.land & ~w.lake).sum())
-    town_count = int(np.clip(round(dry_land_cells / LAND_CELLS_PER_TOWN), FEWEST_TOWNS, MOST_TOWNS))
+    town_count = sum(towns_per_landmass(w).values())
     return town_count
+
+
+def dry_land_cells_per_landmass(w: World) -> Dict[int, int]:
+    dry_land = w.land & ~w.lake
+    labels = np.where(dry_land, w.landmass, 0) if w.landmass is not None else ndi.label(dry_land)[0]
+    counts = np.bincount(labels.ravel())
+    cells_per_landmass = {int(label): int(count) for label, count in enumerate(counts) if label and count}
+    return cells_per_landmass
+
+
+def is_landmass_big_enough_for_a_town(dry_land_cells: int) -> bool:
+    big_enough = dry_land_cells >= SMALLEST_LANDMASS_CELLS_FOR_A_TOWN
+    return big_enough
+
+
+def towns_per_landmass(w: World) -> Dict[int, int]:
+    cells_per_landmass = {label: cells for label, cells in dry_land_cells_per_landmass(w).items()
+                          if is_landmass_big_enough_for_a_town(cells)}
+    total_dry_land_cells = sum(cells_per_landmass.values())
+    towns_for_the_land = max(round(total_dry_land_cells / LAND_CELLS_PER_TOWN), len(cells_per_landmass))
+    total_town_count = int(np.clip(towns_for_the_land, FEWEST_TOWNS, MOST_TOWNS))
+    largest_first = sorted(cells_per_landmass, key=lambda label: -cells_per_landmass[label])
+    quota = {label: 0 for label in largest_first}
+    for label in largest_first[:total_town_count]:
+        quota[label] = 1
+    for _ in range(total_town_count - sum(quota.values())):
+        label_with_most_land_per_town = max(largest_first, key=lambda label: cells_per_landmass[label] / (quota[label] + 1))
+        quota[label_with_most_land_per_town] += 1
+    towns_wanted = {label: count for label, count in quota.items() if count}
+    return towns_wanted
 
 
 def buildable_land(w: World) -> np.ndarray:
@@ -107,16 +137,60 @@ def town_spacing_in_cells(w: World, town_count: int) -> float:
     return spacing
 
 
+def landmass_labels_under_cells(w: World) -> np.ndarray:
+    labels = w.landmass if w.landmass is not None else ndi.label(w.land)[0]
+    return np.asarray(labels)
+
+
+def kept_towns_per_landmass(w: World, kept_centres: List[Tuple[float, float]]) -> Dict[int, int]:
+    labels = landmass_labels_under_cells(w)
+    kept_counts: Dict[int, int] = {}
+    for centre_x, centre_y in kept_centres:
+        label = int(labels[min(w.H - 1, int(centre_y)), min(w.W - 1, int(centre_x))])
+        kept_counts[label] = kept_counts.get(label, 0) + 1
+    return kept_counts
+
+
+def best_site_on_landmass(scores: np.ndarray, on_landmass: np.ndarray) -> Optional[Tuple[int, int]]:
+    scores_on_landmass = np.where(on_landmass, scores, -np.inf)
+    if not np.isfinite(scores_on_landmass).any():
+        return None
+    best_y, best_x = np.unravel_index(int(np.argmax(scores_on_landmass)), scores.shape)
+    best_site = (int(best_x), int(best_y))
+    return best_site
+
+
 def pick_town_sites(w: World, variant: int, kept_centres: List[Tuple[float, float]]) -> List[Tuple[int, int]]:
-    town_count = wanted_town_count(w)
+    """Each landmass big enough for a town gets a share of the towns by its dry land;
+    a landmass's towns are picked best score first, never closer than the spacing to
+    any other town, so they spread over the land and the islands."""
+    towns_wanted = towns_per_landmass(w)
     scores = town_site_scores(w, variant)
-    spacing = town_spacing_in_cells(w, town_count)
+    spacing = town_spacing_in_cells(w, sum(towns_wanted.values()))
+    labels = landmass_labels_under_cells(w)
     rows, columns = np.mgrid[0:w.H, 0:w.W]
     for centre_x, centre_y in kept_centres:
         scores[np.hypot(columns - centre_x, rows - centre_y) < spacing] = -np.inf
+    still_wanted = {label: count - kept_towns_per_landmass(w, kept_centres).get(label, 0) for label, count in towns_wanted.items()}
     sites: List[Tuple[int, int]] = []
-    while len(sites) + len(kept_centres) < town_count and np.isfinite(scores).any():
-        best_y, best_x = np.unravel_index(int(np.argmax(scores)), scores.shape)
-        sites.append((int(best_x), int(best_y)))
-        scores[np.hypot(columns - best_x, rows - best_y) < spacing] = -np.inf
+    landmasses_with_room = set(still_wanted)
+    while any(count > 0 for count in still_wanted.values()) and landmasses_with_room:
+        label = max(still_wanted, key=lambda landmass_label: still_wanted[landmass_label])
+        site = best_site_on_landmass(scores, labels == label)
+        if site is None:
+            landmasses_with_room.discard(label)
+            hand_towns_to_a_landmass_with_room(still_wanted, label, landmasses_with_room)
+            continue
+        sites.append(site)
+        still_wanted[label] -= 1
+        scores[np.hypot(columns - site[0], rows - site[1]) < spacing] = -np.inf
     return sites
+
+
+def hand_towns_to_a_landmass_with_room(still_wanted: Dict[int, int], full_label: int, landmasses_with_room: set) -> None:
+    left_over = max(0, still_wanted[full_label])
+    still_wanted[full_label] = 0
+    if not left_over or not landmasses_with_room:
+        return
+    receiving_label = min(landmasses_with_room)
+    still_wanted[receiving_label] += left_over

@@ -55,9 +55,35 @@ def hand_placed_region():
     return region_with_four_towns()
 
 
+DEAD_END_LENGTH_IN_CELLS = 18
+
+
+def is_open_dry_ground(doc, world, cell) -> bool:
+    x, y = cell
+    if not (3 <= x < world.W - 3 and 3 <= y < world.H - 3) or not world.land[y, x] or world.lake[y, x]:
+        return False
+    rects = [town["rect"] for town in doc["cities"]] + [route["rect"] for route in doc["routes"]]
+    return not any(x0 - 1 <= x < x1 + 1 and y0 - 1 <= y < y1 + 1 for x0, y0, x1, y1 in rects)
+
+
+def dead_end_line_from_a_town(doc):
+    world = edit.doc_to_world(doc)
+    for town in doc["cities"]:
+        x0, y0, x1, y1 = town["rect"]
+        centre = ((x0 + x1) // 2, (y0 + y1) // 2)
+        for step_x, step_y in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            edge_distance = (x1 - x0) // 2 + 2 if step_x else (y1 - y0) // 2 + 2
+            line = [(centre[0] + step_x * distance, centre[1] + step_y * distance)
+                    for distance in range(edge_distance, edge_distance + DEAD_END_LENGTH_IN_CELLS)]
+            if all(is_open_dry_ground(doc, world, cell) for cell in line):
+                return [list(centre), list(line[-1])]
+    raise AssertionError("no open ground for a dead end next to any town")
+
+
 @pytest.fixture(scope="module")
-def arklarna_region():
-    return edit.generate_doc(1, preset="arklarna")
+def generated_region():
+    doc = edit.generate_map(edit.generate_doc(1))
+    return edit.draw_route(doc, dead_end_line_from_a_town(doc))
 
 
 def test_routes_between_hand_placed_towns_have_one_exit_per_connection(hand_placed_region):
@@ -69,19 +95,19 @@ def test_routes_between_hand_placed_towns_have_one_exit_per_connection(hand_plac
         assert generated_exit_count(hand_placed_region, route) == connections, route["name"]
 
 
-def test_every_arklarna_route_has_one_exit_per_connection(arklarna_region):
-    for route in arklarna_region["routes"]:
+def test_every_generated_map_route_has_one_exit_per_connection(generated_region):
+    for route in generated_region["routes"]:
         connections = len(route["exits"])
         assert len(route["spec"]["exits"]) == connections, route["name"]
-        assert generated_exit_count(arklarna_region, route) == connections, route["name"]
+        assert generated_exit_count(generated_region, route) == connections, route["name"]
 
 
-def test_dead_ends_have_one_exit_and_something_at_the_end(arklarna_region):
-    dead_ends = [route for route in arklarna_region["routes"] if route["role"] == "dead_end"]
+def test_dead_ends_have_one_exit_and_something_at_the_end(generated_region):
+    dead_ends = [route for route in generated_region["routes"] if route["role"] == "dead_end"]
     assert dead_ends
     for route in dead_ends:
         assert len(route["exits"]) == 1
-        generated = generate(route_spec_object(edit.full_spec(arklarna_region, route["id"])))
+        generated = generate(route_spec_object(edit.full_spec(generated_region, route["id"])))
         assert len(generated.exits) == 1
         goal = next(zone for zone in generated.zones if zone.name == "goal")
         assert goal.meta.get("purpose", {}).get("goal") is True

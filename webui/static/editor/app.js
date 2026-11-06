@@ -29,7 +29,6 @@
         <option value="archipelago">archipelago</option>
         <option value="inland">inland lakes</option>
         <option value="crescent">crescent bay</option>
-        <option value="preset:arklarna">Arklarna preset</option>
       </select>
     </div>
     <div class="grp">
@@ -215,7 +214,8 @@
   };
   const cv = $("cv"), ctx = cv.getContext("2d"), wrap = $("wrap");
   const base = document.createElement("canvas"), bctx = base.getContext("2d");
-  let baseImg = null, shade = null, riverSegs = null, sea_distance = null;
+  let baseImg = null, shade = null, riverSegs = null, sea_distance = null, town_map_river_segments = null;
+  const RELIEF_EXAGGERATION = 14;
 
   // ------------------------------------------------------------ server
   async function api(url, body, raw) {
@@ -440,8 +440,9 @@
     base.width = d.W * S;
     base.height = d.H * S;
     baseImg = bctx.createImageData(base.width, base.height);
-    shade = ED.shadeGrid(d.grids.height, d.W, d.H, 9);
+    shade = ED.shadeGrid(d.grids.height, d.W, d.H, RELIEF_EXAGGERATION);
     sea_distance = town_map_shown() ? ED.sea_distance_to_land(d, 3) : null;
+    town_map_river_segments = town_map_shown() ? ED.river_segments_by_cell(d) : null;
     paint_base_cells(d, null);
     bctx.putImageData(baseImg, 0, 0);
     riverSegs = null;
@@ -450,8 +451,9 @@
   function updateBase(rect) {
     const d = st.doc;
     const r = [Math.max(0, rect[0] - 2), Math.max(0, rect[1] - 2), Math.min(d.W, rect[2] + 2), Math.min(d.H, rect[3] + 2)];
-    shade = ED.shadeGrid(d.grids.height, d.W, d.H, 9);
+    shade = ED.shadeGrid(d.grids.height, d.W, d.H, RELIEF_EXAGGERATION);
     if (town_map_shown()) sea_distance = ED.sea_distance_to_land(d, 3);
+    if (town_map_shown()) town_map_river_segments = ED.river_segments_by_cell(d);
     paint_base_cells(d, r);
     bctx.putImageData(baseImg, 0, 0, r[0] * S, r[1] * S, (r[2] - r[0]) * S, (r[3] - r[1]) * S);
     riverSegs = null;
@@ -459,7 +461,7 @@
   }
   function town_map_shown() { return !!st.layers.townmap && st.mode !== "geography"; }
   function paint_base_cells(d, cell_rect) {
-    if (town_map_shown()) ED.renderTownMap(d, st.layers, S, baseImg.data, cell_rect, shade, sea_distance);
+    if (town_map_shown()) ED.renderTownMap(d, st.layers, S, baseImg.data, cell_rect, shade, sea_distance, town_map_river_segments);
     else ED.renderBase(d, st.layers, S, baseImg.data, cell_rect, shade);
   }
   function rivers() {
@@ -537,8 +539,8 @@
     const X = (x) => ox + x * z, Y = (y) => oy + y * z;
 
     const town_map = town_map_shown();
-    if (st.layers.water) {
-      ctx.strokeStyle = town_map ? rgb(ED.TOWN_MAP_RGB.sea) : "rgb(70,130,200)";
+    if (st.layers.water && !town_map) {
+      ctx.strokeStyle = "rgb(70,130,200)";
       ctx.lineCap = "round";
       for (const [x0, y0, x1, y1, w] of rivers()) {
         ctx.lineWidth = Math.max(1, w * z);

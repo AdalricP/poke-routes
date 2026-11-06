@@ -14,7 +14,7 @@ BIOME_RGB = {
     "~": (58, 104, 150), "=": (34, 62, 104), "o": (78, 132, 170),
     "b": (226, 210, 160), "d": (210, 178, 118), "m": (156, 182, 98), "f": (86, 136, 70),
     "F": (52, 98, 56), "w": (108, 140, 104), "M": (128, 118, 110), "S": (232, 234, 238),
-    "v": (92, 72, 70), "l": (196, 74, 38), "a": (196, 182, 160), "g": (74, 160, 92), "B": (134, 128, 72),
+    "v": (92, 72, 70),
 }
 ROLE_RGB = {
     "straight": (250, 250, 250), "turn": (255, 214, 92), "crossroads": (255, 120, 90),
@@ -225,9 +225,9 @@ def render_region(w: World, scale: int = 7, stage: str = "routes") -> Image.Imag
     """Full map. ``stage`` limits what is drawn (for the strip)."""
     mode = "height" if stage in ("terrain", "erosion") else "biome"
     img = base_image(w, mode, scale)
-    if stage in ("erosion", "climate", "legends", "cities", "routes"):
+    if stage in ("erosion", "climate", "cities", "routes"):
         draw_rivers(img, w, scale)
-    if stage in ("legends", "cities", "routes"):
+    if stage in ("cities", "routes"):
         draw_landmarks(img, w, scale)
     if stage in ("routes",):
         draw_routes(img, w, scale)

@@ -1,34 +1,20 @@
 """The region pipeline. Each stage leaves an image for the stage strip.
 
-generic (the default): land and sea of a kind the seed picks -> erosion/rivers ->
-climate/biomes -> routes. No landmarks and no towns: those are placed by hand in
-the editor, and routes are laid between the towns once there are some.
-
-arklarna (opt in): the owner's own map. Its fixed coastline, legendary carving and
-four towns, then routes between them, exactly as before presets existed.
+Land and sea of a kind the seed picks -> erosion/rivers -> climate/biomes ->
+routes. No landmarks and no towns: those are placed by hand in the editor (or by
+"Generate map"), and routes are laid between the towns once there are some.
 """
 from __future__ import annotations
 
 import time
 from typing import Optional
 
-import numpy as np
-from PIL import ImageOps
-
-from . import geography, legends, settle, terrain
+from . import geography, terrain
 from .render import render_region
 from .world import World
 
 STRIP_SCALE = 3
-PRESETS = ("generic", "arklarna")
-
-
-def _flip_image(im, fx: bool, fy: bool):
-    if fx:
-        im = ImageOps.mirror(im)
-    if fy:
-        im = ImageOps.flip(im)
-    return im
+PRESETS = ("generic",)
 
 
 def build(seed: int, routes: bool = True, strip: bool = True, preset: str = "generic",
@@ -43,15 +29,12 @@ def build(seed: int, routes: bool = True, strip: bool = True, preset: str = "gen
             w.stages.append((title, render_region(w, STRIP_SCALE, stage)))
         w.log.append(f"[{time.time() - t0:5.1f}s] {title}")
 
-    if preset == "arklarna":
-        build_arklarna(w, snap)
-    else:
-        build_generic(w, snap, geography_kind)
+    build_generic(w, snap, geography_kind)
     if routes:
         from . import network
 
         network.build_network(w)
-        snap("routes" if preset == "generic" else "6 route graph + roles", "routes")
+        snap("routes", "routes")
     return w
 
 
@@ -71,23 +54,3 @@ def build_generic(w: World, snap, geography_kind: Optional[str]) -> None:
     geography.heightmap(w)
     snap(f"1 terrain: {w.geography}", "terrain")
     shared_terrain(w, snap)
-
-
-def build_arklarna(w: World, snap) -> None:
-    w.geography = "arklarna"
-    terrain.arklarna_coastline(w)
-    terrain.arklarna_heightmap(w)
-    snap("1 terrain: fBm + domain warp", "terrain")
-    shared_terrain(w, snap)
-    legends.carve(w)
-    # the stages above lay the region out in one frame; each seed picks its own way round
-    fx, fy = (bool(b) for b in np.random.default_rng((w.seed, 7)).integers(0, 2, 2))
-    w.mirror(fx, fy)
-    w.stages = [(t, _flip_image(im, fx, fy)) for t, im in w.stages]
-    terrain.hydrology(w)
-    terrain.climate(w)
-    terrain.make_tiers(w)
-    terrain.biomes(w)
-    snap("4 legendary carving", "legends")
-    settle.settle(w)
-    snap("5 cities", "cities")

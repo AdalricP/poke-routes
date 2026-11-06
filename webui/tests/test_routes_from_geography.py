@@ -150,7 +150,33 @@ def test_generate_map_places_towns_and_keeps_pinned_ones():
     pinned_name = doc["cities"][0]["name"]
     generated = edit.generate_map(doc)
     names = [town["name"] for town in generated["cities"]]
-    assert pinned_name in names and 4 <= len(names) <= 8
+    assert pinned_name in names and 4 <= len(names) <= 14
     assert generated["routes"] and generated["message"]
     again = edit.generate_map(generated)
     assert route_layout(again) != route_layout(generated)
+
+
+def landmasses_with_towns(doc):
+    world = edit.doc_to_world(doc)
+    labels = {int(world.landmass[(town["rect"][1] + town["rect"][3]) // 2, (town["rect"][0] + town["rect"][2]) // 2]) for town in doc["cities"]}
+    return labels
+
+
+def test_generate_map_scales_towns_with_the_land_and_spreads_them_over_islands():
+    big_coast = edit.generate_map(edit.generate_doc(8, geography_kind="coast"))
+    archipelago = edit.generate_map(edit.generate_doc(5, geography_kind="archipelago"))
+    assert len(big_coast["cities"]) >= 8
+    assert len(landmasses_with_towns(archipelago)) >= 4
+
+
+def route_field_move_needed(route):
+    from pokeroutes.region.gates import route_field_move_needed as field_move_of_route
+
+    return field_move_of_route(route)
+
+
+def test_towns_on_islands_far_apart_are_joined_by_surf_routes():
+    archipelago = edit.generate_map(edit.generate_doc(5, geography_kind="archipelago"))
+    surf_routes = [route for route in archipelago["routes"] if route["mode"] == "sea"]
+    assert surf_routes
+    assert all(route["role"] == "sea" and route_field_move_needed(route) == "surf" for route in surf_routes)
