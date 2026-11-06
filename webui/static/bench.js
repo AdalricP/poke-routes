@@ -226,10 +226,64 @@
       rng.oninput = () => { e.at = +rng.value; edited("exits:" + i, true); };
       num.onchange = () => { e.width = Math.max(1, Math.min(6, parseInt(num.value, 10) || 3)); num.value = e.width; edited("exits"); };
       x.onclick = () => { state.exits.splice(i, 1); renderExits(); edited("exits"); };
-      li.append(sel, rng, num, x);
+      li.append(sel, rng, num, x, exit_destination_input(e, i));
       ol.append(li);
     });
+    fill_exit_destination_choices();
     $("exitAdd").disabled = state.exits.length >= 4;
+  }
+
+  function exit_destination_input(scene_exit, exit_index) {
+    const destination_input = Object.assign(el("input", "exit-to"), { type: "text", placeholder: "goes to… (town or route)" });
+    destination_input.setAttribute("list", "exitDestinations");
+    destination_input.setAttribute("aria-label", `Exit ${exit_index + 1} goes to`);
+    destination_input.value = scene_exit.to ? readable_map_name(scene_exit.to) : "";
+    destination_input.title = "Where this exit leads. Pick a town or route from the open region, or type a map name.";
+    destination_input.onfocus = fill_exit_destination_choices;
+    destination_input.onchange = () => {
+      const destination_name = destination_input.value.trim();
+      scene_exit.to = destination_name ? map_constant_for_place(destination_name) : "";
+      scene_exit.to_set_by_hand = !!destination_name;
+      edited("exits");
+    };
+    return destination_input;
+  }
+
+  function region_places() {
+    const region_document = open_region_document();
+    if (!region_document) return [];
+    const places = [...(region_document.cities || []).map((city) => ({ kind: "town", name: city.name, place: city })),
+      ...(region_document.routes || []).map((route) => ({ kind: "route", name: route.name, place: route }))];
+    return places;
+  }
+
+  function fill_exit_destination_choices() {
+    let destination_list = document.getElementById("exitDestinations");
+    if (!destination_list) {
+      destination_list = el("datalist");
+      destination_list.id = "exitDestinations";
+      document.body.append(destination_list);
+    }
+    destination_list.innerHTML = "";
+    for (const region_place of region_places()) destination_list.append(Object.assign(el("option"), { value: region_place.name }));
+  }
+
+  function map_constant_for_place(place_name) {
+    if (/^MAP_[A-Z0-9_]+$/.test(place_name)) return place_name;
+    const region_place = region_places().find((candidate) => candidate.name.toLowerCase() === place_name.toLowerCase());
+    if (region_place && region_place.place.map) return region_place.place.map;
+    const map_constant = "MAP_" + place_name.toUpperCase().replace(/[^A-Z0-9]+/g, "");
+    return map_constant;
+  }
+
+  function hand_set_connection(exit_index) {
+    const scene_exit = state.exits[exit_index];
+    if (!scene_exit || !scene_exit.to_set_by_hand) return undefined;
+    const destination_name = readable_map_name(scene_exit.to);
+    const region_place = region_places().find((candidate) => map_constant_for_place(candidate.name) === scene_exit.to || candidate.name === destination_name);
+    if (!region_place) return { name: destination_name, kind: "unknown", route: null, town: null };
+    const connection = { name: region_place.name, kind: region_place.kind, route: region_place.kind === "route" ? region_place.place : null, town: region_place.kind === "town" ? region_place.place : null };
+    return connection;
   }
 
   function params() {
@@ -1795,8 +1849,13 @@
   }
   function scene_connections() {
     const route = state.result;
-    if (!route || !state.region) return [];
-    return SL.exitConnections(route.exits, open_region_document(), state.region.name);
+    if (!route) return [];
+    const automatic_connections = state.region ? SL.exitConnections(route.exits, open_region_document(), state.region.name) : [];
+    const connections = (route.exits || []).map((_scene_exit, exit_index) => {
+      const hand_set = hand_set_connection(exit_index);
+      return hand_set !== undefined ? hand_set : automatic_connections[exit_index] || null;
+    });
+    return connections;
   }
   function follow_action(exit_index, connection) {
     const verb = connection.kind === "town" ? "Show" : "Open";
@@ -1831,7 +1890,7 @@
     if (!connection) return;
     if (connection.kind === "unknown") { log("warn", `Open the region in the Map view first to follow the way to ${connection.name}.`); return; }
     if (connection.kind === "town") { show_town_in_routes_view(connection.town); return; }
-    walk_to(connection.route, [...state.route_trail, state.region.name]);
+    walk_to(connection.route, [...state.route_trail, state.region ? state.region.name : state.result.name]);
   }
   function go_back_a_route() {
     const previous_name = state.route_trail[state.route_trail.length - 1];
@@ -1891,7 +1950,8 @@
     const without_prefix = String(map_constant).replace(/^MAP_/, "");
     const route_match = without_prefix.match(/^ROUTE_?(\d+)$/);
     if (route_match) return `Route ${Number(route_match[1])}`;
-    const readable_name = without_prefix.toLowerCase().split("_").filter(Boolean).map((word) => word[0].toUpperCase() + word.slice(1)).join(" ");
+    const spaced_name = without_prefix.replace(/([A-Z])(\d)/g, "$1_$2");
+    const readable_name = spaced_name.toLowerCase().split("_").filter(Boolean).map((word) => word[0].toUpperCase() + word.slice(1)).join(" ");
     return readable_name;
   }
 
