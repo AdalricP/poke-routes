@@ -65,6 +65,9 @@ def test_hand_placed_items_are_exported(tmp_path):
     scripts = (tmp_path / "data/maps" / route.spec.id / "scripts.inc").read_text()
     assert "finditem ITEM_RARE_CANDY" in scripts
 
+    hidden_cell_objects = [event for event in exported["object_events"] if (event["x"], event["y"]) == (hidden_x, hidden_y)]
+    assert hidden_cell_objects == []
+
     hand_events = [event for event in scene_dict(route)["events"] if event.get("hand")]
     assert {(event["kind"], event["item"]) for event in hand_events} == {("item_ball", "ITEM_RARE_CANDY"), ("hidden_item", "ITEM_NUGGET")}
 
@@ -88,3 +91,20 @@ def test_glitter_frames_are_small_star_sprites():
         frame = strip.crop((frame_index * 16, 0, frame_index * 16 + 16, 16))
         assert frame.getpixel((glitter.CENTRE, glitter.CENTRE)) == glitter.CORE_WHITE
         assert frame.getpixel((0, 0))[3] == 0
+
+
+def test_hidden_items_leave_nothing_visible_in_the_map(tmp_path):
+    route = small_route()
+    layout = Layout.blank(route.w, route.h)
+    write_emerald(route, layout, tmp_path / "before", "general", "fortree")
+    (y, x), = free_walkable_cells(route, 1)
+    route_items.place_hand_items(route, [{"kind": "hidden_item", "x": x, "y": y, "item": "ITEM_NUGGET"}])
+    write_emerald(route, layout, tmp_path / "after", "general", "fortree")
+    map_dir, layout_dir = Path("data/maps") / route.spec.id, Path("data/layouts") / route.spec.id
+    before = json.loads((tmp_path / "before" / map_dir / "map.json").read_text())
+    after = json.loads((tmp_path / "after" / map_dir / "map.json").read_text())
+    assert after["object_events"] == before["object_events"]
+    added = [event for event in after["bg_events"] if event not in before["bg_events"]]
+    assert [(event["type"], event["x"], event["y"]) for event in added] == [("hidden_item", x, y)]
+    for name in ("map.bin", "border.bin"):
+        assert (tmp_path / "after" / layout_dir / name).read_bytes() == (tmp_path / "before" / layout_dir / name).read_bytes()

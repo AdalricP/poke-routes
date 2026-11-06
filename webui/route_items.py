@@ -132,7 +132,7 @@ def placement_problem(route, item: dict, occupied: set):
     if not (0 <= x < route.w and 0 <= y < route.h):
         return "outside the map"
     if route.cls[y][x] not in WALKABLE:
-        return f"cell is not walkable (class {route.cls[y][x]!r})"
+        return f"cell is not walkable (class '{route.cls[y][x]}')"
     if (y, x) in occupied:
         return "another event is already there"
     return None
