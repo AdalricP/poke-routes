@@ -209,7 +209,7 @@
 
   const st = {
     doc: null, hist: new ED.History(100), view: { z: 6, ox: 0, oy: 0 },
-    mode: null, tool: "select", brush: 4, strength: 0.03, biome: "f", water: "sea",
+    mode: null, tool: "select", brush: 1, strength: 0.03, biome: "f", water: "sea",
     layers: { height: true, biome: true, water: true, routes: true, labels: true, townmap: true },
     sel: null, hover: null, drag: null, space: false, busy: false, unsaved: false, cursor: null,
   };
@@ -930,14 +930,18 @@
     }
   }
 
+  function brush_radius_in_cells() {
+    const brush_radius = st.brush <= 1 ? 0 : st.brush / 2;
+    return brush_radius;
+  }
   function drawToolOverlay(d, X, Y, z) {
     if (st.cursor && BRUSH_TOOLS.has(st.tool) && !st.space) {
       const { fx, fy } = st.cursor;
-      const r = st.brush;
+      const r = brush_radius_in_cells();
       ctx.strokeStyle = "rgba(255,255,255,0.9)";
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(X(Math.floor(fx) + 0.5), Y(Math.floor(fy) + 0.5), Math.max(3, r * z), 0, Math.PI * 2);
+      ctx.arc(X(Math.floor(fx) + 0.5), Y(Math.floor(fy) + 0.5), Math.max(3, (r + 0.5) * z), 0, Math.PI * 2);
       ctx.stroke();
       ctx.strokeStyle = "rgba(0,0,0,0.5)";
       ctx.lineWidth = 1;
@@ -1314,7 +1318,7 @@
 
   function dab(fx, fy, moving) {
     const d = st.doc, dr = st.drag;
-    const cells = ED.brushCells(d.W, d.H, Math.floor(fx), Math.floor(fy), st.brush);
+    const cells = ED.brushCells(d.W, d.H, Math.floor(fx), Math.floor(fy), brush_radius_in_cells());
     if (!cells.length) return;
     const s = dr.s, alt = dr.alt;
     const k = st.strength;
