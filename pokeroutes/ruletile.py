@@ -48,6 +48,7 @@ FALLBACK = {
     "k": "r", "l": "r", "u": "r",                        # cliff, lava, boulder -> rock
     "o": "g",
     "j": "s",
+    "c": "p", "i": "p",                                  # snow, ice -> path until the Ark set has snow art
 }
 DIRS = {"N": (0, -1), "NE": (1, -1), "E": (1, 0), "SE": (1, 1),
         "S": (0, 1), "SW": (-1, 1), "W": (-1, 0), "NW": (-1, -1)}

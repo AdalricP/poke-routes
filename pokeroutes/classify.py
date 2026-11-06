@@ -53,6 +53,7 @@ GRASS, PATH, TALL, WATER, TREE, ROCK, LEDGE_S, LEDGE_E, LEDGE_W, WATERFALL, OTHE
     "g", "p", "t", "w", "f", "r", "s", "e", "x", "a", "o",
 )
 LEDGE_N = "j"
+SNOW, ICE = "c", "i"
 SAND, SEA, SHALLOW, ASH_GRASS, ASH, CLIFF, STAIRS, LAVA, CAVE_ENTRANCE, BRIDGE, BOULDER = (
     "d", "b", "h", "y", "v", "k", "z", "l", "n", "q", "u",
 )
@@ -65,7 +66,7 @@ CAVE = CAVE_ENTRANCE
 CLASS_NAMES = {
     GRASS: "grass", PATH: "path", TALL: "tall grass", WATER: "pond water", TREE: "tree",
     ROCK: "rock mass", LEDGE_S: "ledge (south)", LEDGE_E: "ledge (east)", LEDGE_W: "ledge (west)",
-    LEDGE_N: "ledge (north)",
+    LEDGE_N: "ledge (north)", SNOW: "snow", ICE: "ice",
     WATERFALL: "waterfall", OTHER: "other",
     SAND: "sand", SEA: "sea", SHALLOW: "shallow water", ASH_GRASS: "ash grass", ASH: "ash ground",
     CLIFF: "cliff", STAIRS: "stairs", LAVA: "lava / hot springs", CAVE_ENTRANCE: "cave entrance",
@@ -78,8 +79,9 @@ CLASS_COLORS = {
     SAND: (240, 220, 140), SEA: (30, 60, 170), SHALLOW: (130, 190, 230), ASH_GRASS: (150, 150, 110),
     ASH: (190, 185, 160), CLIFF: (90, 50, 30), STAIRS: (230, 230, 230), LAVA: (240, 60, 0),
     CAVE_ENTRANCE: (20, 20, 20), BRIDGE: (170, 120, 60), BOULDER: (110, 100, 90),
+    SNOW: (236, 240, 246), ICE: (170, 215, 240),
 }
-WALKABLE_CLASSES = frozenset("gptdhyvzqn")  # shallow water is wade-able
+WALKABLE_CLASSES = frozenset("gptdhyvzqnci")  # shallow water is wade-able
 SURFABLE_CLASSES = frozenset("wb")
 BLOCKED_CLASSES = frozenset("frkul")  # hot springs ('l' walkable in towns) are rare; lava blocks
 LEDGE_CLASSES = frozenset({LEDGE_S, LEDGE_E, LEDGE_W, LEDGE_N})
@@ -118,6 +120,7 @@ FALLBACK = {
     SEA: WATER, WATER: SEA, SHALLOW: WATER, BRIDGE: PATH, STAIRS: PATH,
     CLIFF: ROCK, ROCK: CLIFF, BOULDER: ROCK, LAVA: ROCK, CAVE_ENTRANCE: CLIFF,
     GRASS: ASH, WATERFALL: WATER, TREE: CLIFF,
+    SNOW: ASH, ICE: SHALLOW,
     LEDGE_N: GRASS,  # Emerald has no north-ledge art: the lip just reads as grass (a plains verge's south edge)
 }
 

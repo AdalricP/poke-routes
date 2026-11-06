@@ -53,6 +53,7 @@ BIOME_CODES = {
     "beach": ("f", ("SAND", "p"), ("SAND", "p"), ("SAND", "p"), "t"),
     "desert": (("CLIFF", "r"), ("SAND", "p"), ("SAND", "p"), ("SAND", "p"), ("SAND", "p")),
     "mountain": (("CLIFF", "r"), ("ASH", "p"), ("ASH", "p"), ("ASH", "p"), "t"),
+    "snow": (("CLIFF", "r"), ("SNOW", "p"), ("SNOW", "p"), ("SNOW", "p"), ("ASH_GRASS", "t")),
     "volcanic": (("CLIFF", "r"), ("ASH", "p"), ("ASH", "p"), ("ASH", "p"), ("ASH_GRASS", "t")),
 }
 
@@ -133,7 +134,7 @@ def stage_skeleton(route: Route) -> None:
         goal = [(y, x) for y in range(gy - 3, gy + 4) for x in range(gx - 4, gx + 5)
                 if route.inside(y, x, 3) and not (abs(y - gy) == 3 and abs(x - gx) == 4)]
         carve(route, goal)
-        reg = route.spec.region.get("goal", {}) if isinstance(route.spec.region, dict) else {}
+        reg = (route.spec.region.get("goal") or {}) if isinstance(route.spec.region, dict) else {}
         route.zones.append(Zone("clearing", goal, "goal", {"center": (gy, gx), "goal": reg.get("landmark", True)}))
     for e, cells in route.exits:
         for cell in cells:
@@ -177,6 +178,9 @@ def stage_branches(route: Route) -> None:
         what = {"full": "rejoins", "merge": "merges", "dead": "ends"}[l.fate]
         route.zones.append(Zone(l.kind, l.center(), f"lane {l.id} ({what})",
                                 {"section": l.section, "fate": l.fate, "lane": l.id}))
+    from .weave import weave_cross_paths
+
+    weave_cross_paths(route, p, carve)
     for l in p.lanes:
         link = l.meta.get("secret_link")
         if link:
@@ -344,18 +348,14 @@ def stage_lakes(route: Route) -> None:
     b = route.spec.biome
     if b in TREE_BIOMES:
         _bend_obstacles(route)
-    if b == "riverland":
-        if not region_water.has_region_rivers(route):
-            _rivers(route)
-        _streams(route, 3)
+    if b == "riverland" and not region_water.has_region_rivers(route):
+        from .rivers import paint_own_rivers
+
+        paint_own_rivers(route, 1 if route.h * route.w < 3600 else 2)
     if b == "beach" and not region_water.has_region_sea(route):
         _sea(route)
     if b == "desert":
         _desert(route)
-    if b == "volcanic":
-        _open_desert(route)
-    if b == "mountain":
-        _terraces(route)
     region_water.paint_region_water(route)
     if b != "desert":  # no ponds in the sand
         _ponds(route, route.spec.lakes if b != "riverland" else max(1, route.spec.lakes // 2))
@@ -498,218 +498,8 @@ def _ponds(route: Route, count: int) -> None:
 
         fy, fx = f.yx(u, v + (hi if side > 0 else lo))
         rec = record(route, "fishing_spot", (fy, fx))
-        route.events.append(Event("npc", int(fy), int(fx), {"role": "fisherman", "text": "", "why": "fishing_spot"}))
         route.zones.append(Zone("lake", cells, f"pond {made + 1}", {"purpose": rec}))
         made += 1
-
-
-def _rivers(route: Route) -> None:
-    """Riverland: rivers (2-3) cross the route from edge to edge. Every lane that
-    meets it crosses on a bridge (or a ford until the bridge class lands), the
-    banks are short walkable strips by the crossings, with reeds; the river widens
-    once into a pool around a wooded island."""
-    p, rng = plan_of(route), route.rng
-    bridge = code("BRIDGE", "p")
-    n_rivers = 2 if (route.h * route.w) < 3600 else 3
-    elev = _tiers(route)
-    secs = sorted(p.sections, key=lambda s: -_sec_len(p, s))
-    made, used = 0, []
-    for s in secs + secs:  # a long section can hold two rivers
-        if made >= n_rivers:
-            break
-        f, U = p.legs[s.leg]
-        A, B = p.node(s.a), p.node(s.b)
-        ua, _ = f.uv(A.y, A.x)
-        ub, _ = f.uv(B.y, B.x)
-        hua, _ = A.half_uv(f)
-        hub, _ = B.half_uv(f)
-        lanes = [p.lane(i) for i in s.lanes]
-        cands = []
-        m = lanes[0]
-        mus = [q[0] for q in m.pts]
-        node_us = []
-        for nd in p.nodes:
-            nu, _ = f.uv(nd.y, nd.x)
-            node_us.append((nu, nd.half_uv(f)[0]))
-        for u in range(int(ua + 3), int(ub - 3)):
-            if any(abs(u - q) <= 3 for q in mus[1:-1]):
-                continue  # main lane must cross on a straight run
-            if any(abs(u - nu) <= hu + 3 for nu, hu in node_us):
-                continue  # keep the river off clearings and exits
-            cands.append(u)
-        if not cands:
-            route.log.append(f"river: no straight crossing in section {s.id}")
-            continue
-        # rivers run downhill: prefer a line that crosses tier steps (waterfalls)
-        def steps(u):
-            line = [f.yx(u, v) for v in range(-200, 200)]
-            line = [elev[c] for c in line if 0 <= c[0] < route.h and 0 <= c[1] < route.w]
-            return sum(a != b for a, b in zip(line, line[1:]))
-        # not along a lane, where it would turn into one long bridge, nor beside another river
-        cands = [u for u in cands if not _along_lane(route, f, u, p) and all(abs(u - q) > 12 for lg, q in used if lg == s.leg)]
-        if not cands:
-            continue
-        cands.sort(key=lambda u: -steps(u))
-        u_r = cands[int(rng.integers(0, max(1, len(cands) // 3)))]
-        used.append((s.leg, u_r))
-        width = int(rng.integers(3, 5))
-        vlo, vhi = -200, 200
-        lane_cells: Set[Cell] = set()
-        for l in p.lanes:
-            lane_cells |= l.cells
-        for nd in p.nodes:
-            if nd.hy or nd.hx:
-                lane_cells |= set(nd.cells())
-        water, crossings = [], []
-        # sweep across the whole map at u_r (with one orthogonal dogleg for character)
-        jog_at = int(rng.integers(-10, 10))
-        jog = int(rng.integers(-3, 4))
-        if _along_lane(route, f, u_r + jog, p):
-            jog = 0
-        vr = p.vrange(f)
-        free_v = [v for v in range(vr[0] + 4, vr[1] - 4)
-                  if not any(f.yx(u_r + k, v + dv) in lane_cells for k in range(-6, 7) for dv in range(-6, 7))]
-        pool_at = free_v[int(rng.integers(0, len(free_v)))] if free_v else -999
-        jog_at = pool_at + 8 if free_v else jog_at
-        for v in range(vlo, vhi):
-            uu = u_r + (jog if v > jog_at else 0)
-            wv = width + (4 if abs(v - pool_at) <= 3 else 0)
-            col = []
-            for k in range(wv):
-                y, x = f.yx(uu + k - wv // 2, v)
-                if 0 <= y < route.h and 0 <= x < route.w:
-                    col.append((y, x))
-            for c in col:
-                (crossings if c in lane_cells else water).append(c)
-        if not water:
-            continue
-        before = (route.cls.copy(), route.protect.copy(), len(route.props))
-        for (y, x) in water:
-            route.cls[y, x] = "w"
-        for (y, x) in crossings:
-            route.cls[y, x] = bridge
-            route.protect[y, x] = True
-        # wooded island in the pool
-        for v in range(pool_at - 1, pool_at + 1):
-            for k in (-1, 0):
-                y, x = f.yx(u_r + (jog if v > jog_at else 0) + k, v)
-                if route.inside(y, x, 3) and route.cls[y, x] == "w":
-                    route.cls[y, x] = "f"
-        # short banks next to each crossing, with reeds
-        wset = set(water)
-        for (y, x) in crossings:
-            for dy, dx in DIRS4:
-                pass
-        banks = []
-        for (y, x) in water:
-            for dy, dx in DIRS4:
-                yy, xx = y + dy, x + dx
-                if (yy, xx) in wset or not route.inside(yy, xx, 3) or route.cls[yy, xx] != "f":
-                    continue
-                if any(abs(yy - cy) + abs(xx - cx) <= 4 for (cy, cx) in crossings):
-                    banks.append((yy, xx))
-        for (y, x) in banks:
-            route.cls[y, x] = "g"
-            if rng.random() < 0.5:
-                route.props.append({"kind": "reeds", "y": int(y), "x": int(x)})
-        if _strands(route, before[0]):  # a lane ends in it, or a bank is cut off: try elsewhere
-            route.cls, route.protect = before[0], before[1]
-            del route.props[before[2]:]
-            route.log.append(f"river: crossing at {u_r} would cut a lane off")
-            continue
-        route.zones.append(Zone("lake", water, f"river {made + 1}", {"river": True, "crossings": len(crossings)}))
-        made += 1
-    # marsh pools: small pools in plain clearings
-    for n in p.nodes:
-        if n.kind in ("clearing", "corner") and n.area is None and (n.hy >= 3 and n.hx >= 3):
-            for (y, x) in [(n.y + n.hy - 1, n.x - n.hx + 1), (n.y + n.hy - 1, n.x - n.hx + 2), (n.y + n.hy - 2, n.x - n.hx + 1)]:
-                if route.cls[y, x] in WALKABLE and (y, x) not in set(route.critical_path):
-                    route.cls[y, x] = "w"
-
-
-def _streams(route: Route, count: int) -> None:
-    """Streams run downhill (south, the way the world tilts) through the woods
-    between lanes, two wide, so every tier step of the height map they cross
-    becomes a waterfall (``_elevation``). Only trees are turned to water: no lane
-    is touched, nothing gets cut off. The column crossing most steps wins."""
-    elev, cls = _tiers(route), route.cls
-    h, w = route.h, route.w
-    free = (cls == "f") & ~route.protect
-    # a step both columns of the stream drop on in the same row (same tier block)
-    drop = np.zeros((h, w), dtype=bool)
-    drop[:-1] = elev[:-1] > elev[1:]
-    cands = []
-    for x in range(3, w - 4):
-        ok = free[:, x - 1] & free[:, x] & free[:, x + 1] & free[:, x + 2]  # a tree each side
-        y = 2
-        while y < h - 2:
-            if not ok[y]:
-                y += 1
-                continue
-            y0 = y
-            while y < h - 2 and ok[y]:
-                y += 1
-            y1 = y  # rows y0 .. y1-1
-            # a fall needs water above and below it: trim the ends one row in
-            falls = int((drop[y0 + 1:y1 - 2, x] & drop[y0 + 1:y1 - 2, x + 1]).sum())
-            if y1 - y0 >= 12 and falls:
-                cands.append((falls, y1 - y0, x, y0, y1))
-    cands.sort(key=lambda c: (-c[0], -c[1], route.rng.random()))
-    used: List[int] = []
-    for falls, _, x, y0, y1 in cands:
-        if len(used) >= count:
-            break
-        if any(abs(x - u) < 8 for u in used):
-            continue
-        # run on into a river or pond a few rows off (across its tree bank), not stop short
-        for ends, step in ((range(y1, min(h, y1 + 4)), 1), (range(y0 - 1, max(-1, y0 - 5), -1), -1)):
-            gap = []
-            for y in ends:
-                row = cls[y, x:x + 2]
-                if (row == "w").all():
-                    if step > 0:
-                        y1 += len(gap)
-                    else:
-                        y0 -= len(gap)
-                    break
-                if not (row == "f").all() or route.protect[y, x:x + 2].any():
-                    break
-                gap.append(y)
-        cells = [(y, xx) for y in range(y0, y1) for xx in (x, x + 1)]
-        for c in cells:
-            cls[c] = "w"
-        used.append(x)
-        route.zones.append(Zone("lake", cells, f"stream {len(used)}", {"river": True, "stream": True}))
-        route.log.append(f"stream at x={x}, rows {y0}-{y1 - 1}: crosses {falls} height step(s)")
-
-
-def _strands(route: Route, was: np.ndarray) -> bool:
-    """Did the last change leave more walkable cells unreachable than before?"""
-    from .generate import reachable
-
-    def cut_off(c):
-        return int((np.isin(c, list(WALKABLE)) & ~reachable(c, route.exits[0][1])).sum())
-    return cut_off(route.cls) > cut_off(was)
-
-
-def _along_lane(route: Route, f, u: int, p) -> bool:
-    """Would a river at ``u`` run along a lane (a crossing longer than a lane is wide)?"""
-    lane_cells = set().union(*(l.cells for l in p.lanes))
-    run = 0
-    for v in range(-200, 200):
-        cells = [f.yx(u + k, v) for k in range(-2, 2)]  # the river is u-2 .. u+1
-        if not any(0 <= y < route.h and 0 <= x < route.w for y, x in cells):
-            continue
-        run = run + 1 if any(c in lane_cells for c in cells) else 0
-        if run > 8:
-            return True
-    return False
-
-
-def _sec_len(p, s) -> int:
-    f, _ = p.legs[s.leg]
-    A, B = p.node(s.a), p.node(s.b)
-    return f.uv(B.y, B.x)[0] - f.uv(A.y, A.x)[0]
 
 
 def _desert(route: Route) -> None:
@@ -749,8 +539,11 @@ def _desert(route: Route) -> None:
     lost = (route.cls == sand) & ~reachable(route.cls, route.exits[0][1]) & ~hid
     route.cls[lost] = cliff
     keep |= lost
-    top = distance_transform_cdt(np.pad(keep, 1, constant_values=True), metric="chessboard")[1:-1, 1:-1] >= 2
-    route.cls[top] = "r"  # rock-mass top inside the cliff rim
+    depth_into_rock = distance_transform_cdt(np.pad(keep, 1, constant_values=True), metric="chessboard")[1:-1, 1:-1]
+    route.cls[depth_into_rock >= 2] = "r"  # rock-mass top inside the cliff rim
+    from .desert_bands import band_the_mesas
+
+    band_the_mesas(route, depth_into_rock, cliff)
     # boulders and rock cones in loose drifts (high noise), as on Route 111
     busy = np.zeros(wall.shape, dtype=bool)
     for c in route.critical_path + [(e.y, e.x) for e in route.events] + [c for _, cs in route.exits for c in cs]:
@@ -769,61 +562,6 @@ def _desert(route: Route) -> None:
             free[y - 1:y + 2, x - 1:x + 2] = False
             rocks += 1
     route.log.append(f"desert: {int(keep.sum())} cells of mountain, {cones} rock cones, {rocks} boulders")
-
-
-def _open_desert(route: Route) -> None:
-    """Desert (think Route 111) and volcanic ash (Route 113): one open field, not a
-    cliff maze. The cliff
-    between the lanes falls away except a ragged rim along the map edge and a few
-    rock outcrops, so the lanes turn into tracks across the sand. Special areas keep
-    their walls so they stay hidden. Only cliff turns to sand, so nothing gets cut off."""
-    from scipy.ndimage import binary_dilation, binary_opening
-
-    h, w = route.h, route.w
-    cliff = route.cls == wall_class(route)
-    n = fbm(h, w, 6.0, route.rng)
-    yy, xx = np.mgrid[:h, :w]
-    edge = np.minimum.reduce([yy, xx, h - 1 - yy, w - 1 - xx])
-    keep = (edge < 2 + 5 * n) | (n > np.quantile(n, 0.84))  # the top sixth of the noise is rock
-    special = np.zeros(cliff.shape, dtype=bool)
-    for c in route.zone_cells("special"):
-        special[c] = True
-    keep |= binary_dilation(special, iterations=3)
-    # rocks at least 2x2 so the cliff edges tile
-    rock = binary_opening(np.pad(cliff & keep, 2, constant_values=True), np.ones((2, 2)))[2:-2, 2:-2]
-    route.cls[cliff & ~rock] = ground_class(route)
-
-
-def _terraces(route: Route) -> None:
-    """Mountain (think Route 112 / Jagged Pass): open rock shelves at different
-    heights, not a corridor maze. The cliff between the lanes falls away except
-    where the height map steps a tier: there a cliff face runs the whole width of
-    the shelf, and the only ways through it are the lanes (stairs, or a one-way
-    ledge on a side lane, see _elevation). So a shelf can be one you only drop
-    onto from above. Map edge rim and special-area walls stay. Only cliff turns
-    to floor, so nothing gets cut off."""
-    from scipy.ndimage import binary_dilation, binary_opening
-
-    h, w = route.h, route.w
-    elev = _tiers(route)
-    cliff = route.cls == wall_class(route)
-    face = np.zeros(cliff.shape, dtype=bool)
-    dy = elev[:-1] != elev[1:]
-    face[:-1] |= dy
-    face[1:] |= dy  # two tall, so the face tiles
-    dx = elev[:, :-1] != elev[:, 1:]
-    face[:, :-1] |= dx
-    face[:, 1:] |= dx
-    n = fbm(h, w, 6.0, route.rng)
-    yy, xx = np.mgrid[:h, :w]
-    edge = np.minimum.reduce([yy, xx, h - 1 - yy, w - 1 - xx])
-    keep = face | (edge < 2 + 4 * n) | (n > np.quantile(n, 0.93))  # a few crags on the shelves
-    special = np.zeros(cliff.shape, dtype=bool)
-    for c in route.zone_cells("special"):
-        special[c] = True
-    keep |= binary_dilation(special, iterations=3)
-    rock = binary_opening(np.pad(cliff & keep, 2, constant_values=True), np.ones((2, 2)))[2:-2, 2:-2]
-    route.cls[cliff & ~rock] = ground_class(route)
 
 
 def _sea(route: Route) -> None:
@@ -883,7 +621,7 @@ def _sea(route: Route) -> None:
                 for c in cells:
                     if not route.protect[c]:
                         route.cls[c] = sand
-    for _ in range(int(route.h * route.w / 250)):
+    for _ in range(int(route.h * route.w / 250) if min(route.h, route.w) > 7 else 0):
         y, x = int(rng.integers(3, route.h - 3)), int(rng.integers(3, route.w - 3))
         u, v = f.uv(y, x)
         if route.cls[y, x] == sea and v >= shore[u - u0] + 2:
@@ -1135,7 +873,9 @@ def stage_ledges(route: Route) -> None:
     short connector with a ledge lets you drop from the upper lane to the lower one
     (sometimes with an item on the ledge top, visible from below). Where lanes run
     north-south, a ledge across a loop lane makes it a downhill-only shortcut."""
-    if route.spec.biome in ("desert", "volcanic"):  # an open sand / ash field has no steps to drop off
+    from .terraces import TERRACE_BIOMES
+
+    if route.spec.biome in ("desert",) + TERRACE_BIOMES:  # sand has no steps; terraces cut their own
         route.snap("ledges")
         return
     p, rng, spec = plan_of(route), route.rng, route.spec
@@ -1386,14 +1126,12 @@ def stage_dressing(route: Route) -> None:
     route.snap("dressing")
 
 
-NPCS = ["hiker", "villager", "bug_catcher", "old_man", "picnicker"]
-
-
 def _furniture(route: Route, p) -> None:
     """Route furniture, as events/props: HM obstacles on optional lanes (two cut trees
-    across a side lane's mouth, a smashable rock or a Strength boulder in a spur), a
-    few NPCs (a researcher by each special area, the odd hiker or villager; at most
-    no trainers: they are placed by hand), and small set dressing (bench, stump, fence stub, flowers)."""
+    across a side lane's mouth, a smashable rock or a Strength boulder in a spur), the
+    keepers of special areas (a researcher inside each, someone guarding a hidden way
+    in), and small set dressing (bench, stump, fence stub, flowers). No other people:
+    trainers and passers-by are placed by hand."""
     rng = route.rng
     crit = set(route.critical_path)
     taken = {(e.y, e.x) for e in route.events}
@@ -1428,8 +1166,8 @@ def _furniture(route: Route, p) -> None:
     for l in p.lanes:
         if l.area is not None and not l.meta.get("back_road"):
             cl = l.center()
-            c = cl[min(3, len(cl) - 1)]
-            if free(c):
+            c = cl[min(3, len(cl) - 1)] if cl else None
+            if c is not None and free(c):
                 g = ["cut_tree", "cut_tree", "strength_boulder", "npc"][int(rng.integers(0, 4))]
                 data = {"why": f"guards the way to {l.area.get('name', 'a special area')}"}
                 if g == "npc":
@@ -1444,17 +1182,6 @@ def _furniture(route: Route, p) -> None:
                                                             "text": "", "lore": _lore_id(route)}))
                     taken.add((y, x))
                     break
-    for s in p.sections:
-        lanes = [p.lane(i) for i in s.lanes]
-        cl = [c for l in lanes for c in l.center() if free(c)]
-        if not cl:
-            continue
-        if rng.random() < 0.6:
-            y, x = cl[int(rng.integers(0, len(cl)))]
-            route.events.append(Event("npc", y, x, {"role": NPCS[int(rng.integers(0, len(NPCS)))], "text": ""}))
-            taken.add((y, x))
-        if rng.random() < 0.35:
-            cl[int(rng.integers(0, len(cl)))]
     clearings = [z for z in route.zones if z.kind == "clearing" and len(z.cells) >= 12]
     for z in clearings:
         if rng.random() < 0.5:

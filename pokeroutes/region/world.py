@@ -26,7 +26,7 @@ BIOME_NAMES = {
 SPEC_BIOME = {
     "~": "beach", "=": "beach", "o": "riverland",
     "b": "beach", "d": "desert", "m": "meadow", "f": "forest", "F": "forest",
-    "w": "riverland", "M": "mountain", "S": "mountain", "v": "volcanic", "l": "volcanic",
+    "w": "riverland", "M": "mountain", "S": "snow", "v": "volcanic", "l": "volcanic",
     "a": "desert", "g": "forest", "B": "forest",
 }
 WATER = set("~=o")
