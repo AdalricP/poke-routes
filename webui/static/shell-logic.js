@@ -582,6 +582,155 @@
     const chain = route_holding_map && route_holding_map.chain.length > 1 ? route_holding_map.chain : [];
     return chain;
   }
+  function chain_map_placement(chain_map, chain_left_in_region_cells, chain_top_in_region_cells, metatiles_per_region_cell) {
+    const [x0, y0, x1, y1] = chain_map.rect;
+    const placement = {
+      name: chain_map.name,
+      offset_x_in_metatiles: (x0 - chain_left_in_region_cells) * metatiles_per_region_cell,
+      offset_y_in_metatiles: (y0 - chain_top_in_region_cells) * metatiles_per_region_cell,
+      width_in_metatiles: (x1 - x0) * metatiles_per_region_cell,
+      height_in_metatiles: (y1 - y0) * metatiles_per_region_cell,
+    };
+    return placement;
+  }
+  function chain_layout(chain_maps, metatiles_per_region_cell) {
+    const chain_left_in_region_cells = Math.min(...chain_maps.map((chain_map) => chain_map.rect[0]));
+    const chain_top_in_region_cells = Math.min(...chain_maps.map((chain_map) => chain_map.rect[1]));
+    const placements = chain_maps.map((chain_map) => chain_map_placement(chain_map, chain_left_in_region_cells, chain_top_in_region_cells, metatiles_per_region_cell));
+    const layout = {
+      maps: placements,
+      width_in_metatiles: Math.max(...placements.map((placement) => placement.offset_x_in_metatiles + placement.width_in_metatiles)),
+      height_in_metatiles: Math.max(...placements.map((placement) => placement.offset_y_in_metatiles + placement.height_in_metatiles)),
+    };
+    return layout;
+  }
+  function is_inside_chain_map(placement, world_x_in_metatiles, world_y_in_metatiles) {
+    const is_inside = world_x_in_metatiles >= placement.offset_x_in_metatiles && world_x_in_metatiles < placement.offset_x_in_metatiles + placement.width_in_metatiles &&
+      world_y_in_metatiles >= placement.offset_y_in_metatiles && world_y_in_metatiles < placement.offset_y_in_metatiles + placement.height_in_metatiles;
+    return is_inside;
+  }
+  function chain_map_index_at(layout, world_x_in_metatiles, world_y_in_metatiles) {
+    const map_index = layout.maps.findIndex((placement) => is_inside_chain_map(placement, world_x_in_metatiles, world_y_in_metatiles));
+    return map_index;
+  }
+  function shared_edge_between(placement, other_placement) {
+    const right = placement.offset_x_in_metatiles + placement.width_in_metatiles, bottom = placement.offset_y_in_metatiles + placement.height_in_metatiles;
+    const other_right = other_placement.offset_x_in_metatiles + other_placement.width_in_metatiles, other_bottom = other_placement.offset_y_in_metatiles + other_placement.height_in_metatiles;
+    const overlap_top = Math.max(placement.offset_y_in_metatiles, other_placement.offset_y_in_metatiles), overlap_bottom = Math.min(bottom, other_bottom);
+    const overlap_left = Math.max(placement.offset_x_in_metatiles, other_placement.offset_x_in_metatiles), overlap_right = Math.min(right, other_right);
+    if (right === other_placement.offset_x_in_metatiles && overlap_bottom > overlap_top) return { x0: right, y0: overlap_top, x1: right, y1: overlap_bottom };
+    if (bottom === other_placement.offset_y_in_metatiles && overlap_right > overlap_left) return { x0: overlap_left, y0: bottom, x1: overlap_right, y1: bottom };
+    return null;
+  }
+  function chain_seam_segments(layout) {
+    const seam_segments = layout.maps.flatMap((placement) => layout.maps.map((other_placement) => shared_edge_between(placement, other_placement))).filter(Boolean);
+    return seam_segments;
+  }
+  function chain_map_offset_between(layout, from_map_index, to_map_index) {
+    const from_placement = layout.maps[from_map_index], to_placement = layout.maps[to_map_index];
+    const offset_in_metatiles = {
+      x: to_placement.offset_x_in_metatiles - from_placement.offset_x_in_metatiles,
+      y: to_placement.offset_y_in_metatiles - from_placement.offset_y_in_metatiles,
+    };
+    return offset_in_metatiles;
+  }
+  function chain_maps_of_route(route) {
+    const chain_maps = route.chain && route.chain.length ? route.chain : [{ name: route.name, id: route.id, map: route.map, rect: route.rect, exits: route.exits || [] }];
+    return chain_maps;
+  }
+  function chain_maps_named_after_their_route(route) {
+    const chain_maps = chain_maps_of_route(route);
+    const named_chain_maps = chain_maps.map((chain_map, map_index) => Object.assign({}, chain_map, chain_map_names(route, map_index, chain_maps.length)));
+    return named_chain_maps;
+  }
+  function chain_map_names(route, map_index, map_count) {
+    if (map_count === 1) return { name: route.name, id: route.id };
+    const names = { name: `${route.name} (${map_index + 1}/${map_count})`, id: `${route.id}_${map_index + 1}` };
+    return names;
+  }
+  function centre_of_rect(rect) {
+    const centre = [(rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2];
+    return centre;
+  }
+  function is_point_inside_rect(point, rect) {
+    const inside = point[0] >= rect[0] && point[0] < rect[2] && point[1] >= rect[1] && point[1] < rect[3];
+    return inside;
+  }
+  function distance_between_rect_centres(rect, other_rect) {
+    const [centre_x, centre_y] = centre_of_rect(rect), [other_centre_x, other_centre_y] = centre_of_rect(other_rect);
+    const distance = Math.hypot(centre_x - other_centre_x, centre_y - other_centre_y);
+    return distance;
+  }
+  function chain_map_nearest_to(route, rect) {
+    const by_distance = (first_map, second_map) => distance_between_rect_centres(first_map.rect, rect) - distance_between_rect_centres(second_map.rect, rect);
+    const nearest_chain_map = chain_maps_of_route(route).slice().sort(by_distance)[0];
+    return nearest_chain_map;
+  }
+  function route_with_a_map_over(routes, point) {
+    const route_over_point = routes.find((route) => chain_maps_of_route(route).some((chain_map) => is_point_inside_rect(point, chain_map.rect))) || null;
+    return route_over_point;
+  }
+  // Which route and chain map the Routes view should show after the Map changed: the same route (found by name,
+  // else by the route now painted over the open map's square) and in it the open map's square, else its nearest map.
+  function sync_target_for_open_map(region_document, open_map) {
+    const routes = (region_document && region_document.routes) || [];
+    const centre = centre_of_rect(open_map.rect);
+    const route = routes.find((candidate) => candidate.name === open_map.route_name) || route_with_a_map_over(routes, centre);
+    if (!route) return null;
+    const named_route = Object.assign({}, route, { chain: chain_maps_named_after_their_route(route) });
+    const chain_map = named_route.chain.find((candidate) => is_point_inside_rect(centre, candidate.rect)) || chain_map_nearest_to(named_route, open_map.rect);
+    const sync_target = { route: named_route, chain_map };
+    return sync_target;
+  }
+  function spec_without_seed(spec) {
+    const { seed, ...spec_fields } = spec || {};
+    return spec_fields;
+  }
+  function open_map_signature(region_document, sync_target) {
+    const { route, chain_map } = sync_target;
+    const signature = JSON.stringify({
+      route: route.name, map: chain_map.name, rect: chain_map.rect, exits: chain_map.exits || [], route_cells: route.grid_cells || [],
+      maps: chain_maps_of_route(route).map((each_map) => [each_map.name, each_map.rect]), spec: spec_without_seed(route.spec),
+      square: ((region_document && region_document.map_grid) || {}).cell || 0,
+    });
+    return signature;
+  }
+  const FIELDS_ALWAYS_TAKEN_FROM_THE_MAP = ["name", "width", "height", "exits"];
+  // The Routes view's params after its route changed on the Map: what the Map decides (name, size, exits) comes
+  // from the fresh spec, the seed stays, and any setting changed in the Routes view since opening keeps its value.
+  function params_after_map_sync(opened_params, current_params, fresh_params) {
+    const synced_params = Object.assign({}, fresh_params);
+    for (const [key, current_value] of Object.entries(current_params || {})) {
+      if (FIELDS_ALWAYS_TAKEN_FROM_THE_MAP.includes(key)) continue;
+      const is_changed_since_opening = JSON.stringify(current_value) !== JSON.stringify((opened_params || {})[key]);
+      if (key === "seed" || is_changed_since_opening) synced_params[key] = current_value;
+    }
+    return synced_params;
+  }
+  function paint_key_of_chain_map(chain_map, metatiles_per_region_cell) {
+    const [x0, y0, x1, y1] = chain_map.rect;
+    const key = paintKey({ name: chain_map.name, width: (x1 - x0) * metatiles_per_region_cell, height: (y1 - y0) * metatiles_per_region_cell });
+    return key;
+  }
+  function is_same_rect(rect, other_rect) {
+    const same = rect.length === other_rect.length && rect.every((coordinate, index) => coordinate === other_rect[index]);
+    return same;
+  }
+  // Paint remembered per chain map follows a map that is still there (same square, maybe a new name) and is
+  // dropped for maps the Map removed or resized.
+  function paint_memory_after_chain_change(paint_memory, old_chain_maps, new_chain_maps, metatiles_per_region_cell) {
+    const followed_memory = Object.assign({}, paint_memory || {});
+    const moved_entries = [];
+    for (const old_chain_map of old_chain_maps) {
+      const old_key = paint_key_of_chain_map(old_chain_map, metatiles_per_region_cell);
+      if (!(old_key in followed_memory)) continue;
+      const surviving_map = new_chain_maps.find((new_chain_map) => is_same_rect(new_chain_map.rect, old_chain_map.rect));
+      if (surviving_map) moved_entries.push([paint_key_of_chain_map(surviving_map, metatiles_per_region_cell), followed_memory[old_key]]);
+      delete followed_memory[old_key];
+    }
+    for (const [new_key, remembered_paint] of moved_entries) followed_memory[new_key] = remembered_paint;
+    return followed_memory;
+  }
   function connection_for(region_exit, region_document) {
     const destination_name = region_exit.to_chain_map || region_exit.to;
     const route = region_route_named(region_document, destination_name);
@@ -926,6 +1075,8 @@
     LAYOUT_KEY, CHROME, BOTTOM_TABS, CENTER_TABS, defaultLayout, sanitizeLayout, loadLayout, saveLayout,
     computeRects, dragSize, nearHomeEdge, MIN_CENTER, MIN_SIDE,
     History, RECENT_KEY, pushRecent, recentLabel, specToParams, paramsToSpecFile, safeFileName, exitConnections, region_route_named, chain_of_map, chain_map_with_constant,
+    chain_layout, chain_map_index_at, chain_seam_segments, chain_map_offset_between,
+    sync_target_for_open_map, open_map_signature, params_after_map_sync, paint_memory_after_chain_change, chain_maps_of_route,
     STAMPS, brushCells, stampCells, lineCells, PAINT_KEY, PAINT_OBJECTS_KEY, paintKey, mergePaint, paintList,
     PLACED_ITEMS_KEY, PLACEABLE_ITEM_KINDS, placed_item_index, place_item, update_placed_item, remove_placed_item,
     remember_placed_items, merge_placement_result,

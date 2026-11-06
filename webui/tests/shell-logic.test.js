@@ -440,6 +440,38 @@ test("scene exits walk along a route's chain of maps", () => {
   assert.strictEqual(SL.chain_map_with_constant(doc, "MAP_ROUTE1_2").name, "Route 1 (2/2)");
 });
 
+test("an L-shaped chain is laid out at its world positions", () => {
+  const l_shaped_chain = [
+    { name: "Route 1 (1/4)", rect: [16, 24, 24, 32] }, { name: "Route 1 (2/4)", rect: [24, 24, 32, 32] },
+    { name: "Route 1 (3/4)", rect: [32, 24, 40, 32] }, { name: "Route 1 (4/4)", rect: [32, 32, 40, 40] },
+  ];
+  const layout = SL.chain_layout(l_shaped_chain, 4);
+  assert.deepStrictEqual(layout.maps.map((placement) => [placement.offset_x_in_metatiles, placement.offset_y_in_metatiles]), [[0, 0], [32, 0], [64, 0], [64, 32]]);
+  assert.deepStrictEqual([layout.width_in_metatiles, layout.height_in_metatiles], [96, 64]);
+  assert.deepStrictEqual(layout.maps.map((placement) => [placement.width_in_metatiles, placement.height_in_metatiles]), [[32, 32], [32, 32], [32, 32], [32, 32]]);
+  assert.strictEqual(SL.chain_map_index_at(layout, 0, 0), 0);
+  assert.strictEqual(SL.chain_map_index_at(layout, 31, 31), 0);
+  assert.strictEqual(SL.chain_map_index_at(layout, 32, 5), 1);
+  assert.strictEqual(SL.chain_map_index_at(layout, 70, 40), 3);
+  assert.strictEqual(SL.chain_map_index_at(layout, 10, 40), -1);
+  assert.strictEqual(SL.chain_map_index_at(layout, -1, 0), -1);
+  assert.deepStrictEqual(SL.chain_map_offset_between(layout, 1, 3), { x: 32, y: 32 });
+  assert.deepStrictEqual(SL.chain_map_offset_between(layout, 3, 0), { x: -64, y: -32 });
+});
+
+test("seams lie on the edges shared by touching chain maps", () => {
+  const l_shaped_chain = [{ name: "a", rect: [0, 0, 8, 8] }, { name: "b", rect: [8, 0, 16, 8] }, { name: "c", rect: [8, 8, 16, 16] }];
+  const seams = SL.chain_seam_segments(SL.chain_layout(l_shaped_chain, 4));
+  assert.deepStrictEqual(seams, [{ x0: 32, y0: 0, x1: 32, y1: 32 }, { x0: 32, y0: 32, x1: 64, y1: 32 }]);
+  const diagonal_chain = [{ name: "a", rect: [0, 0, 8, 8] }, { name: "b", rect: [8, 8, 16, 16] }];
+  assert.deepStrictEqual(SL.chain_seam_segments(SL.chain_layout(diagonal_chain, 4)), []);
+  const single_map = SL.chain_layout([{ name: "solo", rect: [5, 5, 13, 13] }], 4);
+  assert.deepStrictEqual(SL.chain_seam_segments(single_map), []);
+  assert.deepStrictEqual([single_map.maps[0].offset_x_in_metatiles, single_map.width_in_metatiles], [0, 32]);
+  const uneven_neighbours = [{ name: "tall", rect: [0, 0, 8, 16] }, { name: "short", rect: [8, 4, 16, 12] }];
+  assert.deepStrictEqual(SL.chain_seam_segments(SL.chain_layout(uneven_neighbours, 4)), [{ x0: 32, y0: 16, x1: 32, y1: 48 }]);
+});
+
 test("saved spec file round trip", () => {
   const p = { name: "Testweg", seed: 7, width: 64, height: 72, exits: [{ side: "south", at: 0.45, width: 2 }, { side: "north", at: 0.6, width: 2 }], special_areas: ["auto"] };
   const file = SL.paramsToSpecFile(p, { name: "Testweg", region: { role: "link" }, endings: [] });
@@ -557,6 +589,61 @@ test("event sprite key: npc roles, alternating trainers, other kinds as-is", () 
   assert.strictEqual(SL.event_sprite_key({ kind: "trainer", x: 2, y: 4 }), "trainer");
   assert.strictEqual(SL.event_sprite_key({ kind: "trainer", x: 2, y: 5 }), "trainer_f");
   assert.strictEqual(SL.event_sprite_key({ kind: "story_blocker", x: 0, y: 0 }), "story_blocker");
+});
+
+function region_document_with_route(route_name, chain_rects, extra) {
+  const chain = chain_rects.map((rect, map_index) => ({ name: chain_rects.length > 1 ? `${route_name} (${map_index + 1}/${chain_rects.length})` : route_name, id: "x", rect, exits: [] }));
+  const route = Object.assign({ name: route_name, id: route_name.replace(/ /g, ""), rect: chain_rects[0], grid_cells: [], spec: { seed: 1, biome: "forest" }, chain }, extra || {});
+  return { cell: 4, map_grid: { cell: 8 }, routes: [route], cities: [] };
+}
+const open_second_map = { route_name: "Route 3", map_name: "Route 3 (2/2)", rect: [8, 0, 16, 8] };
+
+test("Map sync: an extended route keeps its open map and renames it after the new chain", () => {
+  const extended = region_document_with_route("Route 3", [[0, 0, 8, 8], [8, 0, 16, 8], [16, 0, 24, 8]]);
+  const sync_target = SL.sync_target_for_open_map(extended, open_second_map);
+  assert.strictEqual(sync_target.chain_map.name, "Route 3 (2/3)");
+  assert.strictEqual(sync_target.chain_map.id, "Route3_2");
+});
+
+test("Map sync: when the open map is erased the nearest map of the route opens", () => {
+  const shortened = region_document_with_route("Route 3", [[0, 0, 8, 8]]);
+  const sync_target = SL.sync_target_for_open_map(shortened, open_second_map);
+  assert.deepStrictEqual([sync_target.chain_map.name, sync_target.chain_map.id], ["Route 3", "Route3"]);
+});
+
+test("Map sync: a renamed route is found under the open map; an erased route gives nothing", () => {
+  const renamed = region_document_with_route("Coast Road", [[0, 0, 8, 8], [8, 0, 16, 8]]);
+  assert.strictEqual(SL.sync_target_for_open_map(renamed, open_second_map).chain_map.name, "Coast Road (2/2)");
+  const elsewhere = region_document_with_route("Route 9", [[40, 40, 48, 48]]);
+  assert.strictEqual(SL.sync_target_for_open_map(elsewhere, open_second_map), null);
+});
+
+test("Map sync: the signature changes with the route's maps and square size but not with its seed", () => {
+  const before = region_document_with_route("Route 3", [[0, 0, 8, 8], [8, 0, 16, 8]]);
+  const signature = SL.open_map_signature(before, SL.sync_target_for_open_map(before, open_second_map));
+  const reseeded = region_document_with_route("Route 3", [[0, 0, 8, 8], [8, 0, 16, 8]], { spec: { seed: 99, biome: "forest" } });
+  assert.strictEqual(SL.open_map_signature(reseeded, SL.sync_target_for_open_map(reseeded, open_second_map)), signature);
+  const extended = region_document_with_route("Route 3", [[0, 0, 8, 8], [8, 0, 16, 8], [8, 8, 16, 16]]);
+  assert.notStrictEqual(SL.open_map_signature(extended, SL.sync_target_for_open_map(extended, open_second_map)), signature);
+  const regridded = Object.assign({}, before, { map_grid: { cell: 12 } });
+  assert.notStrictEqual(SL.open_map_signature(regridded, SL.sync_target_for_open_map(regridded, open_second_map)), signature);
+});
+
+test("Map sync: the seed and settings changed in the Routes view survive, the Map decides size and exits", () => {
+  const opened = { name: "Route 3", width: 32, height: 32, seed: 5, tall_grass: 0.3, meander: 0.5, exits: [{ side: "west" }] };
+  const current = Object.assign({}, opened, { seed: 77, tall_grass: 0.8 });
+  const fresh = { name: "Route 3 (1/2)", width: 32, height: 32, seed: 5, tall_grass: 0.3, meander: 0.6, exits: [{ side: "west" }, { side: "east" }] };
+  const synced = SL.params_after_map_sync(opened, current, fresh);
+  assert.deepStrictEqual(synced, { name: "Route 3 (1/2)", width: 32, height: 32, seed: 77, tall_grass: 0.8, meander: 0.6, exits: fresh.exits });
+});
+
+test("Map sync: painted cells follow maps that are still there and are dropped for removed maps", () => {
+  const memory = { "Route 3|32x32": { "1,1": "g" }, "Route 3 (2/2)|32x32": { "2,2": "w" }, "Other|32x32": { "3,3": "f" } };
+  const old_chain = [{ name: "Route 3 (1/2)", rect: [0, 0, 8, 8] }, { name: "Route 3 (2/2)", rect: [8, 0, 16, 8] }];
+  const memory_with_first_map = Object.assign({}, memory, { "Route 3 (1/2)|32x32": { "1,1": "g" } });
+  const new_chain = [{ name: "Route 3", rect: [0, 0, 8, 8] }];
+  const followed = SL.paint_memory_after_chain_change(memory_with_first_map, old_chain, new_chain, 4);
+  assert.deepStrictEqual(followed, { "Route 3|32x32": { "1,1": "g" }, "Other|32x32": { "3,3": "f" } });
 });
 
 console.log(`shell-logic: ${n} tests passed`);

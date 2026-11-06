@@ -34,6 +34,7 @@
     held_directions: [], is_b_held: false, turn_lock_until: 0,
     text_box: null, toast: null, grass_rustles: new Map(),
     pending_arrival: null, is_loading_route: false, loading_started_at: 0, fade_started_at: 0,
+    pending_seam_crossing: null, tile_canvas: null, neighbouring_maps: [], map_offset: { x: 0, y: 0 },
     sheets_by_tiler: {}, particle_set: { effect: "none", particles: [] }, last_frame_time: 0, animation_frame_request: 0,
     field_moves: { surf: false, cut: false, strength: false, rock_smash: false, waterfall: false },
   };
@@ -102,21 +103,39 @@
 
   async function load_current_route() {
     const route = Bench.state.result;
+    const seam_crossing = session.pending_seam_crossing;
     session.route_id = route.id;
-    session.is_loading_route = true;
+    if (!seam_crossing) session.is_loading_route = true;
     hooks.show_final_stage();
     const [playtest_route_data] = await Promise.all([fetch_playtest_route_data(route.id), load_sheets_for_tiler(route.tiler)]);
     if (Bench.state.result !== route) return;
-    session.play_world = play_world_of_route(route, playtest_route_data);
-    session.encounter_tables = encounter_tables_of_route(route);
-    place_player(placement_for_new_route(session.play_world));
+    const play_world = play_world_of_route(route, playtest_route_data);
+    const seam_placement = seam_crossing ? placement_across_seam(play_world, seam_crossing) : null;
+    take_over_map_of_route(play_world, route);
+    place_player(seam_placement || placement_for_new_route(play_world));
+    if (seam_placement) start_move(seam_placement.entry_move, seam_placement.facing, performance.now());
     session.pending_arrival = null;
+    session.pending_seam_crossing = null;
     session.is_loading_route = false;
-    session.fade_started_at = performance.now();
+    if (!seam_placement) session.fade_started_at = performance.now();
+  }
+
+  function take_over_map_of_route(play_world, route) {
+    session.play_world = play_world;
+    session.encounter_tables = encounter_tables_of_route(route);
+    session.tile_canvas = hooks.final_tile_canvas();
+    session.neighbouring_maps = hooks.neighbouring_tile_canvases();
+    session.map_offset = hooks.chain_map_offset_in_metatiles();
+  }
+
+  function placement_across_seam(play_world, seam_crossing) {
+    const entered_cell = Logic.cell_across_chain_seam(seam_crossing.cell, seam_crossing.direction, seam_crossing.map_offset, hooks.chain_map_offset_in_metatiles());
+    const placement = Logic.seam_entry_placement(play_world, entered_cell, seam_crossing.direction, seam_crossing.is_surfing, session.field_moves);
+    return placement;
   }
 
   function place_player(placement) {
-    session.player = { x: placement.cell.x, y: placement.cell.y, facing: placement.facing, is_surfing: false };
+    session.player = { x: placement.cell.x, y: placement.cell.y, facing: placement.facing, is_surfing: !!placement.is_surfing };
     session.current_move = null;
     session.text_box = null;
     session.grass_rustles = new Map();
@@ -258,7 +277,16 @@
     start_move({ kind: "bump" }, direction, now);
   }
 
+  function cross_chain_seam(exit_index, direction) {
+    session.pending_seam_crossing = {
+      cell: { x: session.player.x, y: session.player.y }, direction, is_surfing: session.player.is_surfing, map_offset: session.map_offset,
+    };
+    session.held_directions = session.held_directions.filter((held) => held === direction);
+    hooks.follow_connection(exit_index);
+  }
+
   function leave_through_exit(exit_index, direction, now) {
+    if (hooks.leads_to_another_map_of_this_route(exit_index)) { cross_chain_seam(exit_index, direction); return; }
     const connection = hooks.scene_connections()[exit_index];
     if (!connection || connection.kind === "unknown") { bump_in_place(direction, now); show_toast(connection ? "Open the Map to follow this exit" : "Nothing connected here"); return; }
     if (connection.kind === "town") { bump_in_place(direction, now); show_toast(`${connection.name}: towns can't be played yet`); return; }
@@ -271,7 +299,7 @@
 
   function try_to_step(now) {
     const direction = held_direction();
-    if (!direction || session.text_box || session.is_loading_route || now < session.turn_lock_until) return;
+    if (!direction || session.text_box || session.is_loading_route || session.pending_seam_crossing || now < session.turn_lock_until) return;
     const resolved_move = Logic.resolve_step(session.play_world, session.player, direction, session.field_moves);
     switch (resolved_move.kind) {
       case "leave":
@@ -381,7 +409,7 @@
   }
 
   function draw_map_tiles(context, camera) {
-    const tile_canvas = hooks.final_tile_canvas();
+    const tile_canvas = session.tile_canvas;
     const play_world = session.play_world;
     const first_cell_x = Math.floor(camera.x / tile_size), first_cell_y = Math.floor(camera.y / tile_size);
     for (let cell_y = first_cell_y; cell_y <= first_cell_y + Logic.viewport_height_in_tiles; cell_y++) {
@@ -390,6 +418,12 @@
         context.drawImage(tile_canvas, source_x * tile_size, source_y * tile_size, tile_size, tile_size, cell_x * tile_size - camera.x, cell_y * tile_size - camera.y, tile_size, tile_size);
       }
     }
+    for (const neighbouring_map of session.neighbouring_maps) draw_neighbouring_map(context, camera, neighbouring_map);
+  }
+
+  function draw_neighbouring_map(context, camera, neighbouring_map) {
+    if (!neighbouring_map.canvas) return;
+    context.drawImage(neighbouring_map.canvas, neighbouring_map.offset_x_in_metatiles * tile_size - camera.x, neighbouring_map.offset_y_in_metatiles * tile_size - camera.y);
   }
 
   function boulder_draw_position(play_object, now) {
@@ -714,6 +748,7 @@
     session.is_open = true;
     session.route_id = "";
     session.pending_arrival = null;
+    session.pending_seam_crossing = null;
     session.is_loading_route = false;
     session.last_frame_time = 0;
     fit_display_scale();

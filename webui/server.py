@@ -304,8 +304,8 @@ def _patch_snap(Route):
 # UI hints for fields we know; anything else in RouteSpec gets a generic control.
 HINTS = {
     "seed": {"group": "route", "min": 0, "max": 2 ** 31 - 1},
-    "width": {"group": "route", "min": 24, "max": 96, "step": 2},
-    "height": {"group": "route", "min": 24, "max": 112, "step": 2},
+    "width": {"group": "route", "min": 16, "max": 96, "step": 2},
+    "height": {"group": "route", "min": 16, "max": 112, "step": 2},
     "biome": {"group": "route", "choices": list(BIOMES)},
     "effect": {"group": "route", "choices": list(ROUTE_EFFECTS)},
     "tree_shade": {"group": "route", "choices": list(SHADE_CHOICES), "label": "under trees"},
@@ -436,8 +436,8 @@ def spec_from(params: dict):
             v = d
         kw[f.name] = v
     sz = _default(next(f for f in dataclasses.fields(RouteSpec) if f.name == "size"))
-    kw["size"] = [_coerce("int", params.get("width", sz[0]), sz[0], 24, 96),
-                  _coerce("int", params.get("height", sz[1]), sz[1], 24, 112)]
+    kw["size"] = [_coerce("int", params.get("width", sz[0]), sz[0], HINTS["width"]["min"], HINTS["width"]["max"]),
+                  _coerce("int", params.get("height", sz[1]), sz[1], HINTS["height"]["min"], HINTS["height"]["max"])]
     exit_fields = {f.name: (_kind(f, _default(f)), _default(f)) for f in dataclasses.fields(Exit)}
     exits = []
     for e in (params.get("exits") or [])[:6]:
@@ -481,6 +481,7 @@ def run_stages(spec):
 
 
 _results: "OrderedDict[str, tuple]" = OrderedDict()
+GENERATED_ROUTES_KEPT_FOR_EDITING = 48
 _ark_ids: set = set()  # result ids tiled with the Ark rule tiler (shell_api.py)
 
 
@@ -611,7 +612,7 @@ def generate(params: dict) -> dict:
     _results[gid] = (route, final)
     if use == "ark":
         _ark_ids.add(gid)
-    while len(_results) > 12:
+    while len(_results) > GENERATED_ROUTES_KEPT_FOR_EDITING:
         _ark_ids.discard(_results.popitem(last=False)[0])
     return {
         "id": gid, "name": spec.name, "route_id": spec.id, "seed": spec.seed, "biome": getattr(spec, "biome", ""),

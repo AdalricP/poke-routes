@@ -86,7 +86,7 @@
   // ------------------------------------------------------------ history (undo / redo)
   // Snapshots share grid arrays; an edit copies a grid the first time it touches it
   // (copy on write), so 100 steps cost only the grids that actually changed.
-  const DATA_KEYS = ["cities", "landmarks", "links", "routes", "stale", "meta", "name", "user_note", "story", "map_grid"];
+  const DATA_KEYS = ["cities", "landmarks", "links", "routes", "stale", "meta", "name", "user_note", "story", "map_grid", "size"];
   function snapshot(doc) {
     const data = {};
     for (const k of DATA_KEYS) if (doc[k] !== undefined) data[k] = JSON.parse(JSON.stringify(doc[k]));
@@ -98,6 +98,7 @@
       if (snap.data[k] !== undefined) doc[k] = JSON.parse(JSON.stringify(snap.data[k]));
       else delete doc[k];
     }
+    if (Array.isArray(doc.size)) [doc.W, doc.H] = doc.size;
   }
   class History {
     constructor(limit) { this.limit = limit || 100; this.undos = []; this.redos = []; }

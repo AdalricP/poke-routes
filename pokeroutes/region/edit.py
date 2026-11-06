@@ -287,6 +287,22 @@ def regrid_map(doc: dict, region_cells_per_grid_cell: int) -> dict:
     return out
 
 
+def resize_region(doc: dict, width_in_squares: int, height_in_squares: int) -> dict:
+    """Grow or crop the region to a number of Map squares (see region_resize.py)."""
+    from .region_resize import RegionResizeProblem, resize_region as resize_world_region
+
+    w = doc_to_world(doc)
+    try:
+        merged_away = resize_world_region(w, int(width_in_squares), int(height_in_squares))
+    except RegionResizeProblem as problem:
+        raise RegionEditRefused(str(problem)) from problem
+    w.log.append(f"editor: region resized to {width_in_squares} x {height_in_squares} squares ({w.W} x {w.H} cells)")
+    out = finish(w, doc, [stage for stage in doc.get("stale", []) if stage != "routes"])
+    if "story" in out:
+        out["story"] = story_without_lost_places(story_with_town_names_followed(out["story"], merged_away), place_names_of(w))
+    return out
+
+
 def generate_map(doc: dict) -> dict:
     """The whole map on the current geography, on the Map grid: towns placed where the
     land suits them, then metro-style routes between them. Pinned towns and pinned
@@ -361,6 +377,29 @@ def full_spec(doc: dict, rid: str) -> Optional[dict]:
         if r["id"] == rid or r["name"] == rid:
             return route_spec(w, r, i)
     return None
+
+
+def route_name_holding_map(w: World, route_or_map_id: str) -> Optional[str]:
+    from .route_chain import chain_maps_of_world
+
+    route_named = next((route for route in w.routes if route_or_map_id in (route["id"], route["name"])), None)
+    if route_named is not None:
+        return route_named["name"]
+    chain_map_named = next((chain_map for chain_map in chain_maps_of_world(w) if route_or_map_id in (chain_map["id"], chain_map["name"])), None)
+    route_name = chain_map_named["chain"]["route"] if chain_map_named is not None else None
+    return route_name
+
+
+def route_chain_specs(doc: dict, route_or_map_id: str) -> Optional[dict]:
+    from .export import chain_map_specs
+
+    w = doc_to_world(doc)
+    route_name = route_name_holding_map(w, route_or_map_id)
+    if route_name is None:
+        return None
+    specs_of_route = [spec for spec in chain_map_specs(w) if spec["region"].get("chain", {}).get("route", spec["name"]) == route_name]
+    chain_of_route = {"route": route_name, "maps": [{"name": spec["name"], "rect": list(spec["region"]["rect"]), "spec": spec} for spec in specs_of_route]}
+    return chain_of_route
 
 
 # ------------------------------------------------------------------ files

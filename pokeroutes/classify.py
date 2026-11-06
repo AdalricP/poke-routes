@@ -84,7 +84,7 @@ CLASS_COLORS = {
     CAVE_ENTRANCE: (20, 20, 20), BRIDGE: (170, 120, 60), BOULDER: (110, 100, 90), FENCE: (150, 105, 70),
     SNOW: (236, 240, 246), ICE: (170, 215, 240), DIVE: (14, 30, 110),
 }
-WALKABLE_CLASSES = frozenset("gptdhyvzqnci")  # shallow water is wade-able
+WALKABLE_CLASSES = frozenset("gptdhyvzqncim")  # shallow water is wade-able
 SURFABLE_CLASSES = frozenset("wbD")
 BLOCKED_CLASSES = frozenset("frkulc")  # hot springs ('l' walkable in towns) are rare; lava blocks
 LEDGE_CLASSES = frozenset({LEDGE_S, LEDGE_E, LEDGE_W, LEDGE_N})

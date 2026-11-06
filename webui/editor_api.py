@@ -17,8 +17,12 @@ POST /api/editor/paint-map  {doc, cells, brush, route_key?} -> document with Map
                             new route); each route carries its cells in path order (grid_cells)
 POST /api/editor/regrid-map {doc, cell}            -> document with towns and routes snapped onto a Map grid
                             of `cell` region cells a square (4, 6, 8, 10, 12 or 16)
+POST /api/editor/resize-region {doc, width, height} -> document grown or cropped to width x height Map squares;
+                            new area gets land and sea continuing the old coast, places outside are dropped
 POST /api/editor/save       {doc, name}            -> writes region_out/<name>/ (region.json, routes/*.yaml)
 POST /api/editor/spec       {doc, id}              -> one route's full spec (with its region block)
+POST /api/editor/route-chain-specs {doc, id}       -> {route, maps: [{name, rect, spec}]}: the full spec of every map of
+                            the route holding `id` (a route or one of its chain maps), in chain order
 POST /api/editor/render     {doc, scale}           -> PNG of the edited region (server-side render)
 POST /api/editor/export     {doc}                  -> zip: region.json + routes/*.yaml
 POST /api/retile            {id, cells: [[x, y, cls], ...]}
@@ -123,6 +127,8 @@ def post(h, u, srv) -> None:
             return h._json(edit.generate_map(b["doc"]))
         if p == "/api/editor/regrid-map":
             return h._json(edit.regrid_map(b["doc"], int(b.get("cell") or 0)))
+        if p == "/api/editor/resize-region":
+            return h._json(edit.resize_region(b["doc"], int(b.get("width") or 0), int(b.get("height") or 0)))
         if p == "/api/editor/paint-map":
             return h._json(edit.paint_map(b["doc"], list(b.get("cells") or []), str(b.get("brush") or ""), b.get("route_key") or None))
         if p == "/api/editor/save":
@@ -133,6 +139,9 @@ def post(h, u, srv) -> None:
         if p == "/api/editor/spec":
             s = edit.full_spec(b["doc"], str(b.get("id", "")))
             return h._json(s) if s else h._json({"error": "unknown route"}, 404)
+        if p == "/api/editor/route-chain-specs":
+            chain_of_route = edit.route_chain_specs(b["doc"], str(b.get("id", "")))
+            return h._json(chain_of_route) if chain_of_route else h._json({"error": "unknown route"}, 404)
         if p == "/api/editor/render":
             scale = max(2, min(10, int(b.get("scale", 6))))
             return h._send(200, edit.render_png(b["doc"], scale), "image/png")
