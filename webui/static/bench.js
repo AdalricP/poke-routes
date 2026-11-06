@@ -3197,6 +3197,6 @@
   };
   $("tbPlaytest").onclick = open_playtest;
 
-  window.Bench = { generate, state, params, setParams, undoStack, menus, extras, loadSpecText, playtest_hooks, reload_atlas_at_version, fetchJSON, postJSON, log, draw };
+  window.Bench = { generate, state, params, setParams, undoStack, menus, extras, loadSpecText, playtest_hooks, reload_atlas_at_version, fetchJSON, postJSON, log, draw, region_editor };
   boot();
 })();

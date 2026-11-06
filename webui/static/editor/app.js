@@ -2112,7 +2112,7 @@
     load: loadSaved, listSaved, exportSpecs, recompute, setTool, toggleLayer, fit, openInBench,
     set_editor_mode, set_route_opener: (route_opener) => { open_route_spec_in_host = route_opener; },
     deleteSelected, help: () => { $("help").hidden = !$("help").hidden; },
-    generate_map, set_open_route, spec_of_map,
+    generate_map, set_open_route, spec_of_map, paint_map: paint_map_cells,
     set_paint_biome: (biome_code) => { st.biome = biome_code; setTool("biome"); refreshTool(); },
     paint_biome: () => st.biome,
     set_view_modes, fit_every_view,
